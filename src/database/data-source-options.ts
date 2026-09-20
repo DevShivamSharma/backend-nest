@@ -6,6 +6,8 @@ import { HallEntity } from '../layouts/entities/hall.entity';
 import { LayoutEntity } from '../layouts/entities/layout.entity';
 import { StallEntity } from '../layouts/entities/stall.entity';
 import { Baseline1758240000000 } from './migrations/1758240000000-Baseline';
+import { AddBlockedAreas1758240100000 } from './migrations/1758240100000-AddBlockedAreas';
+import { AddStallOpenSides1758240200000 } from './migrations/1758240200000-AddStallOpenSides';
 
 // The pg driver returns int8 (bigint ids, COUNT(*)) as strings by default. The API contract
 // sends ids as JSON numbers, exactly as Jackson serialised Java `Long`. Ids here are far below
@@ -20,21 +22,33 @@ types.setTypeParser(types.builtins.INT8, (value: string) => parseInt(value, 10))
  * from `src/` (ts-node, jest) and `dist/` (production) without path tricks.
  */
 export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
-  return {
-    type: 'postgres',
-    host: db.host,
-    port: db.port,
-    database: db.name,
-    username: db.user,
-    password: db.password,
+  const base = {
+    type: 'postgres' as const,
     entities: [HallEntity, LayoutEntity, StallEntity],
-    migrations: [Baseline1758240000000],
+    migrations: [Baseline1758240000000, AddBlockedAreas1758240100000, AddStallOpenSides1758240200000],
     synchronize: false,
-    migrationsRun: false,
+    // Run pending migrations at startup: the published deployment owns its database, so a
+    // redeploy self-applies new columns. All migrations are idempotent (IF NOT EXISTS), and
+    // databases with a recorded history simply skip them.
+    migrationsRun: true,
     extra: {
       max: db.poolSize,
       connectionTimeoutMillis: db.connectionTimeoutMs,
       statement_timeout: db.statementTimeoutMs,
     },
+    // Managed Postgres (Supabase) enforces TLS; its chain is not verifiable without the CA
+    // bundle, so certificate verification stays off. Credentials still travel encrypted.
+    ...(db.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
   };
+
+  return db.url
+    ? { ...base, url: db.url }
+    : {
+        ...base,
+        host: db.host,
+        port: db.port,
+        database: db.name,
+        username: db.user,
+        password: db.password,
+      };
 }

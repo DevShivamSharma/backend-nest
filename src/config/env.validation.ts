@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -7,6 +8,7 @@ import {
   IsString,
   Max,
   Min,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
@@ -37,9 +39,35 @@ export class EnvironmentVariables {
   @IsOptional()
   PORT: number = 8080;
 
+  /**
+   * Full postgres:// connection string. Platforms with a managed database may inject
+   * DATABASE_URL; Verdent reserves that name for platform use, so its project Secrets use
+   * SUPABASE_DB_URL instead. When either is present, the discrete DATABASE_* settings below
+   * are optional and ignored. Local development keeps using the discrete settings.
+   */
   @IsString()
   @IsNotEmpty()
-  DATABASE_HOST!: string;
+  @IsOptional()
+  DATABASE_URL?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  SUPABASE_DB_URL?: string;
+
+  /**
+   * Whether the Postgres connection requires TLS. Managed databases require it, so it defaults
+   * to true when a connection-string variable is set and false otherwise (see
+   * configuration.ts). Set explicitly ('true'/'false') to override either default.
+   */
+  @IsBoolean()
+  @IsOptional()
+  DATABASE_SSL?: boolean;
+
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL && !o.SUPABASE_DB_URL)
+  @IsString()
+  @IsNotEmpty()
+  DATABASE_HOST?: string;
 
   @IsInt()
   @Min(1)
@@ -47,21 +75,24 @@ export class EnvironmentVariables {
   @IsOptional()
   DATABASE_PORT: number = 5432;
 
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL && !o.SUPABASE_DB_URL)
   @IsString()
   @IsNotEmpty()
-  DATABASE_NAME!: string;
+  DATABASE_NAME?: string;
 
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL && !o.SUPABASE_DB_URL)
   @IsString()
   @IsNotEmpty()
-  DATABASE_USER!: string;
+  DATABASE_USER?: string;
 
   /**
    * Never logged, never echoed, never included in an error message. The validator below reports
    * only property names, never values, precisely so a malformed password cannot leak into logs.
    */
+  @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL && !o.SUPABASE_DB_URL)
   @IsString()
   @IsNotEmpty()
-  DATABASE_PASSWORD!: string;
+  DATABASE_PASSWORD?: string;
 
   @IsInt()
   @Min(1)

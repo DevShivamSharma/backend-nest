@@ -48,6 +48,39 @@ export function normalizeGate(value: string | null | undefined): string {
   return gate;
 }
 
+/**
+ * Validates raw openSides entries (throws on the first invalid one). Checked
+ * right after BR-12; the normalized list is built later, when copying.
+ */
+export function validateOpenSides(raw: unknown[] | null | undefined): void {
+  for (const entry of raw ?? []) {
+    const side = typeof entry === 'string' ? entry.trim().toUpperCase() : '';
+
+    if (!GATE_SIDES.has(side)) {
+      throw new BadRequestDomainError('openSides entries must be FRONT, BACK, LEFT or RIGHT.');
+    }
+  }
+}
+
+/**
+ * Builds the deduped, validated open-sides list for one stall. An absent or
+ * empty list falls back to the single gate side, so the result is never empty.
+ */
+export function normalizeOpenSidesList(
+  raw: unknown[] | null | undefined,
+  gateFallback: string,
+): string[] {
+  validateOpenSides(raw);
+
+  const sides: string[] = [];
+  for (const entry of (raw ?? []) as string[]) {
+    const side = entry.trim().toUpperCase();
+    if (!sides.includes(side)) sides.push(side);
+  }
+
+  return sides.length ? sides : [gateFallback];
+}
+
 /** LayoutService.safeName() (LayoutService.java:566-574). Note: NOT trimmed, as in the Java. */
 function safeName(stall: StallDto): string {
   return isBlank(stall.name) ? 'Shop' : (stall.name as string);
@@ -139,6 +172,9 @@ export function validateLayoutRequest(
 
     // BR-12 — called only for its exception; the value is used later, when copying.
     normalizeGate(stall.gateSide);
+
+    // openSides entries — checked right after BR-12; the list is built when copying.
+    validateOpenSides(stall.openSides);
 
     // BR-13 — against every EARLIER stall. Earlier ones are already known non-null and valid.
     for (let j = 0; j < i; j++) {

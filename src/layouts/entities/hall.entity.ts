@@ -1,5 +1,21 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
+export type BlockedAreaKind = 'outside' | 'wall' | 'zone';
+
+/**
+ * One rectangle of irregular-hall geometry (centre-origin coordinates, like stalls).
+ * Mirrors the frontend `BlockedArea` in `planner/models/hall.model.ts`.
+ */
+export interface BlockedArea {
+  posX: number;
+  posZ: number;
+  width: number;
+  length: number;
+  kind: BlockedAreaKind;
+  color: string;
+  title?: string;
+}
+
 /**
  * Table `hall` — singular, as in the Java `@Table(name = "hall")` (Hall.java:6).
  *
@@ -28,4 +44,7 @@ export class HallEntity {
 
   @Column({ type: 'double precision', nullable: true })
   radius!: number | null;
+
+  @Column({ type: 'jsonb', name: 'blocked_areas', nullable: true })
+  blockedAreas!: BlockedArea[] | null;
 }

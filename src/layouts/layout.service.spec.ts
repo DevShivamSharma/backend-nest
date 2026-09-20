@@ -81,8 +81,76 @@ describe('LayoutService', () => {
 
       const [first, second] = repo.create.mock.calls[0][0].stalls;
 
-      expect(first).toMatchObject({ name: 'Shop', color: '#3498db', gateSide: 'FRONT' });
-      expect(second).toMatchObject({ name: 'Cafe', color: ' #fff ', gateSide: 'LEFT' });
+      expect(first).toMatchObject({ name: 'Shop', color: '#3498db', gateSide: 'FRONT', openSides: ['FRONT'] });
+      expect(second).toMatchObject({ name: 'Cafe', color: ' #fff ', gateSide: 'LEFT', openSides: ['LEFT'] });
+    });
+  });
+
+  describe('openSides', () => {
+    it('keeps the full list and syncs gateSide to the first open side', async () => {
+      const { repo, service } = setup();
+      await service.save(
+        request({
+          stalls: [
+            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, gateSide: 'BACK', openSides: ['LEFT', 'BACK'] },
+          ],
+        }),
+      );
+
+      expect(repo.create.mock.calls[0][0].stalls[0]).toMatchObject({
+        gateSide: 'LEFT',
+        openSides: ['LEFT', 'BACK'],
+      });
+    });
+
+    it('dedupes entries and derives the list from gateSide when absent or empty', async () => {
+      const { repo, service } = setup();
+      await service.save(
+        request({
+          stalls: [
+            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, gateSide: 'RIGHT', openSides: ['right', 'RIGHT'] },
+            { name: 'B', width: 5, length: 5, height: 4, posX: 8, posZ: 0, gateSide: 'left', openSides: [] },
+          ],
+        }),
+      );
+
+      const [first, second] = repo.create.mock.calls[0][0].stalls;
+      expect(first.openSides).toEqual(['RIGHT']);
+      expect(second.openSides).toEqual(['LEFT']);
+      expect(second.gateSide).toBe('LEFT');
+    });
+
+    it('the response stall carries openSides', async () => {
+      const { service } = setup();
+      const result = await service.save(
+        request({
+          stalls: [
+            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, openSides: ['FRONT', 'RIGHT'] },
+          ],
+        }),
+      );
+
+      expect(result.stalls[0].openSides).toEqual(['FRONT', 'RIGHT']);
+    });
+
+    it('legacy rows without open_sides derive the list from gate_side', async () => {
+      const { repo, service } = setup();
+      const aggregate = aggregateFrom({
+        name: 'x',
+        hall: {} as never,
+        stalls: [
+          { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, color: '#3498db', gateSide: 'BACK', openSides: [] as string[] },
+        ],
+        hallWidth: 0,
+        hallLength: 0,
+        hallHeight: 0,
+      });
+      aggregate.stalls[0].openSides = null as never;
+      repo.findById.mockResolvedValue(aggregate);
+
+      const result = await service.get(1000);
+
+      expect(result.stalls[0].openSides).toEqual(['BACK']);
     });
   });
 
@@ -122,6 +190,27 @@ describe('LayoutService', () => {
 
       expect(repo.create.mock.calls[0][0]).toMatchObject({ hallWidth: 0, hallLength: 0 });
     });
+
+    it('copyHall keeps blockedAreas, defaulting to null when absent', async () => {
+      const { repo, service } = setup();
+      const areas = [{ posX: 0, posZ: 0, width: 10, length: 4, kind: 'wall', color: '#742371' }];
+
+      await service.save(request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas } }));
+      expect(repo.create.mock.calls[0][0].hall.blockedAreas).toEqual(areas);
+
+      await service.save(request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40 } }));
+      expect(repo.create.mock.calls[1][0].hall.blockedAreas).toBeNull();
+    });
+
+    it('the response hall carries blockedAreas', async () => {
+      const { service } = setup();
+      const areas = [{ posX: 1, posZ: 2, width: 3, length: 4, kind: 'outside', color: '#ffffff' }];
+      const result = await service.save(
+        request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas } }),
+      );
+
+      expect(result.hall?.blockedAreas).toEqual(areas);
+    });
   });
 
   describe('response envelope (ADR-009)', () => {
@@ -135,7 +224,7 @@ describe('LayoutService', () => {
       expect(result.layout.hall).toEqual(result.hall);
       expect(result.layout.stalls).toEqual(result.stalls);
       expect(Object.keys(result.stalls[0])).toEqual([
-        'id', 'name', 'width', 'length', 'height', 'posX', 'posZ', 'color', 'gateSide',
+        'id', 'name', 'width', 'length', 'height', 'posX', 'posZ', 'color', 'gateSide', 'openSides',
       ]);
     });
 

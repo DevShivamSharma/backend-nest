@@ -8,6 +8,10 @@
 /build
 *.tsbuildinfo
 
+# Angular production build staged here for local single-process verification only;
+# the Docker build generates it inside the image.
+/public
+
 # Node
 /node_modules
 npm-debug.log*

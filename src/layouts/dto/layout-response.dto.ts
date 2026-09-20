@@ -9,6 +9,7 @@ export interface HallResponse {
   width: number | null;
   length: number | null;
   radius: number | null;
+  blockedAreas: unknown[] | null;
 }
 
 export interface StallResponse {
@@ -21,6 +22,7 @@ export interface StallResponse {
   posZ: number;
   color: string | null;
   gateSide: string | null;
+  openSides: string[] | null;
 }
 
 export interface LayoutResponse {

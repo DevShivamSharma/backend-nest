@@ -233,6 +233,44 @@ describe('validateLayoutRequest', () => {
         messageOf({ hall: squareHall(), stalls: [stall({ height: 0 }), stall({ posX: 99 })] }),
       ).toBe('Invalid stall dimensions at index 0.');
     });
+
+    it('gate (BR-12) before openSides entries', () => {
+      expect(
+        messageOf({
+          hall: squareHall(),
+          stalls: [stall({ gateSide: 'UP', openSides: ['UP'] })],
+        }),
+      ).toBe('gateSide must be FRONT, BACK, LEFT or RIGHT.');
+    });
+  });
+
+  describe('openSides entries', () => {
+    it('rejects an invalid entry', () => {
+      expect(
+        messageOf({ hall: squareHall(), stalls: [stall({ openSides: ['FRONT', 'UP'] })] }),
+      ).toBe('openSides entries must be FRONT, BACK, LEFT or RIGHT.');
+    });
+
+    it('rejects non-string entries', () => {
+      expect(messageOf({ hall: squareHall(), stalls: [stall({ openSides: [7] })] })).toBe(
+        'openSides entries must be FRONT, BACK, LEFT or RIGHT.',
+      );
+    });
+
+    it('accepts any valid combination of 1-4 sides', () => {
+      accepts({ hall: squareHall(), stalls: [stall({ openSides: ['FRONT'] })] });
+      accepts({ hall: squareHall(), stalls: [stall({ openSides: ['FRONT', 'RIGHT'] })] });
+      accepts({
+        hall: squareHall(),
+        stalls: [stall({ openSides: ['FRONT', 'BACK', 'LEFT', 'RIGHT'] })],
+      });
+    });
+
+    it('accepts an absent, null or empty list (falls back to gateSide)', () => {
+      accepts({ hall: squareHall(), stalls: [stall()] });
+      accepts({ hall: squareHall(), stalls: [stall({ openSides: null })] });
+      accepts({ hall: squareHall(), stalls: [stall({ openSides: [] })] });
+    });
   });
 });
 

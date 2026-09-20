@@ -38,6 +38,10 @@ export class HallDto {
   @IsOptional()
   @IsNumber(FINITE)
   radius?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  blockedAreas?: unknown[] | null;
 }
 
 export class StallDto {
@@ -76,6 +80,10 @@ export class StallDto {
   @IsOptional()
   @IsString()
   gateSide?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  openSides?: unknown[] | null;
 }
 
 export class LayoutSaveRequestDto {

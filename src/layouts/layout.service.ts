@@ -11,6 +11,7 @@ import type {
 } from './dto/layout-response.dto';
 import type { HallDto, LayoutSaveRequestDto, StallDto } from './dto/layout-save-request.dto';
 import type { HallEntity } from './entities/hall.entity';
+import type { BlockedArea } from './entities/hall.entity';
 import type { StallEntity } from './entities/stall.entity';
 import {
   HallWrite,
@@ -23,6 +24,7 @@ import {
   isBlank,
   n,
   normalizeGate,
+  normalizeOpenSidesList,
   normalizeShape,
   validateLayoutRequest,
 } from './layout.validator';
@@ -130,6 +132,7 @@ function copyHall(source: HallDto): HallWrite {
     width: source.width ?? null,
     length: source.length ?? null,
     radius: source.radius ?? null,
+    blockedAreas: (source.blockedAreas as BlockedArea[] | null | undefined) ?? null,
   };
 }
 
@@ -140,6 +143,10 @@ function copyStalls(input: Array<StallDto | null> | null | undefined): StallWrit
   for (const stall of input ?? []) {
     if (stall == null) continue;
 
+    // gateSide stays the first open side, so the varchar column and the Java
+    // contract keep working; openSides is the full list the 3D view renders.
+    const openSides = normalizeOpenSidesList(stall.openSides, normalizeGate(stall.gateSide));
+
     output.push({
       name: isBlank(stall.name) ? 'Shop' : (stall.name as string).trim(),
       width: n(stall.width),
@@ -149,7 +156,8 @@ function copyStalls(input: Array<StallDto | null> | null | undefined): StallWrit
       posZ: n(stall.posZ),
       // Not trimmed, as in the Java (LayoutService.java:384-389).
       color: isBlank(stall.color) ? '#3498db' : (stall.color as string),
-      gateSide: normalizeGate(stall.gateSide),
+      gateSide: openSides[0],
+      openSides,
     });
   }
 
@@ -166,6 +174,7 @@ function toHallResponse(hall: HallEntity | null): HallResponse | null {
     width: hall.width,
     length: hall.length,
     radius: hall.radius,
+    blockedAreas: hall.blockedAreas ?? null,
   };
 }
 
@@ -181,6 +190,12 @@ function toStallResponse(stall: StallEntity): StallResponse {
     posZ: stall.posZ,
     color: stall.color,
     gateSide: stall.gateSide,
+    // Rows written before the open_sides column existed derive it from gate_side.
+    openSides: stall.openSides?.length
+      ? stall.openSides
+      : stall.gateSide != null
+        ? [stall.gateSide]
+        : null,
   };
 }
 

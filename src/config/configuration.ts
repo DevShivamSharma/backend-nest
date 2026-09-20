@@ -7,6 +7,10 @@ export interface AppConfig {
 }
 
 export interface DatabaseConfig {
+  /** Full postgres:// connection string. When set, the discrete fields below are ignored. */
+  url?: string;
+  /** TLS required (managed databases). Defaults to true in URL mode, false otherwise. */
+  ssl: boolean;
   host: string;
   port: number;
   name: string;
@@ -46,6 +50,13 @@ export function configuration(): Configuration {
         .filter((origin) => origin.length > 0),
     },
     database: {
+      // The configured project secret wins: Verdent injects its own DATABASE_URL at runtime,
+      // which does not point at the project's managed Postgres.
+      url: env.SUPABASE_DB_URL ?? env.DATABASE_URL,
+      ssl:
+        env.DATABASE_SSL !== undefined
+          ? env.DATABASE_SSL === 'true'
+          : Boolean(env.SUPABASE_DB_URL ?? env.DATABASE_URL),
       host: env.DATABASE_HOST as string,
       port: Number(env.DATABASE_PORT ?? 5432),
       name: env.DATABASE_NAME as string,

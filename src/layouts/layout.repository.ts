@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
 import type { LayoutSummaryResponse } from './dto/layout-response.dto';
-import { HallEntity } from './entities/hall.entity';
+import { BlockedArea, HallEntity } from './entities/hall.entity';
 import { LayoutEntity } from './entities/layout.entity';
 import { StallEntity } from './entities/stall.entity';
 
@@ -12,6 +12,7 @@ export interface HallWrite {
   width: number | null;
   length: number | null;
   radius: number | null;
+  blockedAreas?: BlockedArea[] | null;
 }
 
 export interface StallWrite {
@@ -22,7 +23,9 @@ export interface StallWrite {
   posX: number;
   posZ: number;
   color: string;
+  /** First open side — kept for the varchar column and the Java contract. */
   gateSide: string;
+  openSides: string[];
 }
 
 export interface LayoutWrite {

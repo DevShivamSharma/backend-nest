@@ -5,9 +5,10 @@ import { HealthController } from './common/health/health.controller';
 import { configuration } from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { HallsModule } from './halls/halls.module';
 import { LayoutsModule } from './layouts/layouts.module';
 
-/** Root composition. HallsModule (/api/halls, no known consumer) is post-demo work. */
+/** Root composition. HallsModule serves /api/halls: ported but deprecated, no known consumer (ADR-002). */
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -19,6 +20,7 @@ import { LayoutsModule } from './layouts/layouts.module';
     }),
     DatabaseModule,
     LayoutsModule,
+    HallsModule,
   ],
   controllers: [HealthController],
 })

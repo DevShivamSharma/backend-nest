@@ -33,6 +33,10 @@ export class StallEntity {
   @Column({ name: 'gate_side', type: 'varchar', length: 255, nullable: true })
   gateSide!: string | null;
 
+  /** Every open side (1-4, any combination). NULL on old rows = derive from gateSide. */
+  @Column({ name: 'open_sides', type: 'jsonb', nullable: true })
+  openSides!: string[] | null;
+
   @Column({ name: 'layout_id', type: 'bigint' })
   layoutId!: number;
 }
