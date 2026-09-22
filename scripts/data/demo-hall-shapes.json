@@ -1890,7 +1890,246 @@
           "color": "gray",
           "title": "Pillar"
         }
-      ]
+      ],
+      "boundary": null,
+      "zones": [
+        {
+          "id": "zone-1",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": -16,
+              "z": 53
+            },
+            {
+              "x": -13,
+              "z": 53
+            },
+            {
+              "x": -13,
+              "z": 54
+            },
+            {
+              "x": -16,
+              "z": 54
+            }
+          ]
+        },
+        {
+          "id": "zone-2",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": 15,
+              "z": 53
+            },
+            {
+              "x": 18,
+              "z": 53
+            },
+            {
+              "x": 18,
+              "z": 54
+            },
+            {
+              "x": 15,
+              "z": 54
+            }
+          ]
+        },
+        {
+          "id": "zone-3",
+          "kind": "NO_CONSTRUCTION",
+          "label": "Fire curtains (No construction zone below)",
+          "color": "#8A2BE2",
+          "polygon": [
+            {
+              "x": -42,
+              "z": -38.5
+            },
+            {
+              "x": 41,
+              "z": -38.5
+            },
+            {
+              "x": 41,
+              "z": -37.5
+            },
+            {
+              "x": -42,
+              "z": -37.5
+            }
+          ]
+        },
+        {
+          "id": "zone-4",
+          "kind": "NO_CONSTRUCTION",
+          "label": "Fire curtains (No construction zone below)",
+          "color": "#8A2BE2",
+          "polygon": [
+            {
+              "x": -42,
+              "z": -13
+            },
+            {
+              "x": 41,
+              "z": -13
+            },
+            {
+              "x": 41,
+              "z": -12
+            },
+            {
+              "x": -42,
+              "z": -12
+            }
+          ]
+        },
+        {
+          "id": "zone-5",
+          "kind": "NO_CONSTRUCTION",
+          "label": "Fire curtains (No construction zone below)",
+          "color": "#8A2BE2",
+          "polygon": [
+            {
+              "x": -42,
+              "z": 11.5
+            },
+            {
+              "x": 41,
+              "z": 11.5
+            },
+            {
+              "x": 41,
+              "z": 12.5
+            },
+            {
+              "x": -42,
+              "z": 12.5
+            }
+          ]
+        }
+      ],
+      "openings": [],
+      "markers": [
+        {
+          "text": "EE1-1",
+          "position": {
+            "x": -37.75,
+            "z": 33.5
+          }
+        },
+        {
+          "text": "EE1-2",
+          "position": {
+            "x": -42.25,
+            "z": 7
+          }
+        },
+        {
+          "text": "EE1-3",
+          "position": {
+            "x": -42.25,
+            "z": -10.5
+          }
+        },
+        {
+          "text": "EE1-4",
+          "position": {
+            "x": -40.25,
+            "z": -24.5
+          }
+        },
+        {
+          "text": "EE1-5",
+          "position": {
+            "x": -21,
+            "z": -53
+          }
+        },
+        {
+          "text": "EE1-6",
+          "position": {
+            "x": 30,
+            "z": -46
+          }
+        },
+        {
+          "text": "EE1-7",
+          "position": {
+            "x": 39.5,
+            "z": -27
+          }
+        },
+        {
+          "text": "EE1-8",
+          "position": {
+            "x": 41,
+            "z": 15.5
+          }
+        },
+        {
+          "text": "T-1GC",
+          "position": {
+            "x": -2,
+            "z": -58.75
+          }
+        },
+        {
+          "text": "T-1GC",
+          "position": {
+            "x": 4,
+            "z": -58.75
+          }
+        },
+        {
+          "text": "T-1GB",
+          "position": {
+            "x": -24.25,
+            "z": 38
+          }
+        },
+        {
+          "text": "EE1-9",
+          "position": {
+            "x": 24,
+            "z": 38.5
+          }
+        },
+        {
+          "text": "T-1GA",
+          "position": {
+            "x": 24,
+            "z": 37.5
+          }
+        },
+        {
+          "text": "GG1-2",
+          "position": {
+            "x": 15.5,
+            "z": 54.25
+          }
+        },
+        {
+          "text": "GG1-1",
+          "position": {
+            "x": -15.5,
+            "z": 54.25
+          }
+        },
+        {
+          "text": "FOYER-1G",
+          "position": {
+            "x": -2,
+            "z": 36
+          }
+        }
+      ],
+      "rules": null
     },
     "Hall 2GF": {
       "hallName": "Hall 2GF",
@@ -2217,7 +2456,201 @@
           "kind": "zone",
           "color": "#8A2BE2"
         }
-      ]
+      ],
+      "boundary": null,
+      "zones": [
+        {
+          "id": "zone-1",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": -19.5,
+              "z": 43.5
+            },
+            {
+              "x": -16.5,
+              "z": 43.5
+            },
+            {
+              "x": -16.5,
+              "z": 44.5
+            },
+            {
+              "x": -19.5,
+              "z": 44.5
+            }
+          ]
+        },
+        {
+          "id": "zone-2",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": 11.5,
+              "z": 43.5
+            },
+            {
+              "x": 13.5,
+              "z": 43.5
+            },
+            {
+              "x": 13.5,
+              "z": 44.5
+            },
+            {
+              "x": 11.5,
+              "z": 44.5
+            }
+          ]
+        },
+        {
+          "id": "zone-3",
+          "kind": "NO_CONSTRUCTION",
+          "label": "Fire curtains (No construction zone below)",
+          "color": "#8A2BE2",
+          "polygon": [
+            {
+              "x": -20,
+              "z": -44
+            },
+            {
+              "x": -19,
+              "z": -44
+            },
+            {
+              "x": -19,
+              "z": 26
+            },
+            {
+              "x": -20,
+              "z": 26
+            }
+          ]
+        },
+        {
+          "id": "zone-4",
+          "kind": "NO_CONSTRUCTION",
+          "label": "Fire curtains (No construction zone below)",
+          "color": "#8A2BE2",
+          "polygon": [
+            {
+              "x": 13.5,
+              "z": -44
+            },
+            {
+              "x": 14.5,
+              "z": -44
+            },
+            {
+              "x": 14.5,
+              "z": 26
+            },
+            {
+              "x": 13.5,
+              "z": 26
+            }
+          ]
+        }
+      ],
+      "openings": [],
+      "markers": [
+        {
+          "text": "EE2-1",
+          "position": {
+            "x": -12,
+            "z": -45.75
+          }
+        },
+        {
+          "text": "T-2GC",
+          "position": {
+            "x": -7,
+            "z": -45.75
+          }
+        },
+        {
+          "text": "EE2-2",
+          "position": {
+            "x": -1,
+            "z": -45.75
+          }
+        },
+        {
+          "text": "T-2GD",
+          "position": {
+            "x": 28,
+            "z": -45.75
+          }
+        },
+        {
+          "text": "T-2GB",
+          "position": {
+            "x": -30,
+            "z": 26.75
+          }
+        },
+        {
+          "text": "T-2GA",
+          "position": {
+            "x": 20,
+            "z": 26.75
+          }
+        },
+        {
+          "text": "EE2-3",
+          "position": {
+            "x": 30,
+            "z": -30
+          }
+        },
+        {
+          "text": "EE2-3",
+          "position": {
+            "x": 30,
+            "z": -30
+          }
+        },
+        {
+          "text": "EE2-4",
+          "position": {
+            "x": 35,
+            "z": -13
+          }
+        },
+        {
+          "text": "EE2-5",
+          "position": {
+            "x": 30,
+            "z": 16
+          }
+        },
+        {
+          "text": "FOYER 2",
+          "position": {
+            "x": -4,
+            "z": 27
+          }
+        },
+        {
+          "text": "GG2-1",
+          "position": {
+            "x": -19,
+            "z": 44.75
+          }
+        },
+        {
+          "text": "GG2-2",
+          "position": {
+            "x": 11.5,
+            "z": 44.75
+          }
+        }
+      ],
+      "rules": null
     },
     "Hall 12": {
       "hallName": "Hall 12",
@@ -2343,7 +2776,89 @@
           "kind": "wall",
           "color": "#742371"
         }
-      ]
+      ],
+      "boundary": [
+        {
+          "x": -28,
+          "z": 17.5
+        },
+        {
+          "x": -28,
+          "z": -14.5
+        },
+        {
+          "x": -13,
+          "z": -14.5
+        },
+        {
+          "x": -13,
+          "z": -20
+        },
+        {
+          "x": 28,
+          "z": -20
+        },
+        {
+          "x": 28,
+          "z": 19.5
+        },
+        {
+          "x": -13,
+          "z": 19.5
+        },
+        {
+          "x": -13,
+          "z": 17.5
+        }
+      ],
+      "zones": [],
+      "openings": [],
+      "markers": [
+        {
+          "text": "S1201",
+          "position": {
+            "x": 7,
+            "z": -21.75
+          }
+        },
+        {
+          "text": "E1201",
+          "position": {
+            "x": 29,
+            "z": 10.5
+          }
+        },
+        {
+          "text": "FOYER",
+          "position": {
+            "x": -22,
+            "z": -16.5
+          }
+        },
+        {
+          "text": "ENTRY TO HALL",
+          "position": {
+            "x": -35,
+            "z": 9.5
+          }
+        }
+      ],
+      "rules": {
+        "minPassageWidth": {
+          "B2B": 3,
+          "B2C": 4
+        },
+        "peripheralClearance": 1,
+        "zoneClearance": {
+          "FACILITY_ACCESS": 1,
+          "PARTITION": 1,
+          "SMOKE_CURTAIN": 1
+        },
+        "openingAccessDepth": null,
+        "gridUnit": 1,
+        "snapStep": 1,
+        "stallNumberPrefix": "STALL-"
+      }
     },
     "Hall 8-9-10": {
       "hallName": "Hall 8-9-10",
@@ -2805,7 +3320,412 @@
           "kind": "zone",
           "color": "saddlebrown"
         }
-      ]
+      ],
+      "boundary": [
+        {
+          "x": -64.5,
+          "z": -20.5
+        },
+        {
+          "x": -48.5,
+          "z": -20.5
+        },
+        {
+          "x": -48.5,
+          "z": -18.5
+        },
+        {
+          "x": -9.5,
+          "z": -18.5
+        },
+        {
+          "x": -9.5,
+          "z": -2.5
+        },
+        {
+          "x": 5.5,
+          "z": -2.5
+        },
+        {
+          "x": 5.5,
+          "z": -7.5
+        },
+        {
+          "x": 39.5,
+          "z": -7.5
+        },
+        {
+          "x": 39.5,
+          "z": 9.5
+        },
+        {
+          "x": 54.5,
+          "z": 9.5
+        },
+        {
+          "x": 54.5,
+          "z": 4
+        },
+        {
+          "x": 59.5,
+          "z": 4
+        },
+        {
+          "x": 59.5,
+          "z": 4.5
+        },
+        {
+          "x": 60.5,
+          "z": 4.5
+        },
+        {
+          "x": 60.5,
+          "z": 5.5
+        },
+        {
+          "x": 61.5,
+          "z": 5.5
+        },
+        {
+          "x": 61.5,
+          "z": 6.5
+        },
+        {
+          "x": 62.5,
+          "z": 6.5
+        },
+        {
+          "x": 62.5,
+          "z": 7.5
+        },
+        {
+          "x": 63.5,
+          "z": 7.5
+        },
+        {
+          "x": 63.5,
+          "z": 8.5
+        },
+        {
+          "x": 64.5,
+          "z": 8.5
+        },
+        {
+          "x": 64.5,
+          "z": 20.5
+        },
+        {
+          "x": 5.5,
+          "z": 20.5
+        },
+        {
+          "x": 5.5,
+          "z": 15.5
+        },
+        {
+          "x": -9.5,
+          "z": 15.5
+        },
+        {
+          "x": -9.5,
+          "z": 20.5
+        },
+        {
+          "x": -48.5,
+          "z": 20.5
+        },
+        {
+          "x": -48.5,
+          "z": 15.5
+        },
+        {
+          "x": -64.5,
+          "z": 15.5
+        }
+      ],
+      "zones": [
+        {
+          "id": "zone-1",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": -38.5,
+              "z": -18.5
+            },
+            {
+              "x": -30.5,
+              "z": -18.5
+            },
+            {
+              "x": -30.5,
+              "z": -14.5
+            },
+            {
+              "x": -38.5,
+              "z": -14.5
+            }
+          ]
+        },
+        {
+          "id": "zone-2",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": -48.5,
+              "z": 3.5
+            },
+            {
+              "x": -46.5,
+              "z": 3.5
+            },
+            {
+              "x": -46.5,
+              "z": 15.5
+            },
+            {
+              "x": -48.5,
+              "z": 15.5
+            }
+          ]
+        },
+        {
+          "id": "zone-3",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": -11.5,
+              "z": 3.5
+            },
+            {
+              "x": -9.5,
+              "z": 3.5
+            },
+            {
+              "x": -9.5,
+              "z": 15.5
+            },
+            {
+              "x": -11.5,
+              "z": 15.5
+            }
+          ]
+        },
+        {
+          "id": "zone-4",
+          "kind": "NO_CONSTRUCTION",
+          "label": "NC - No Construction Zone",
+          "color": "saddlebrown",
+          "polygon": [
+            {
+              "x": -12,
+              "z": -18.5
+            },
+            {
+              "x": -9.5,
+              "z": -18.5
+            },
+            {
+              "x": -9.5,
+              "z": -17.5
+            },
+            {
+              "x": -12,
+              "z": -17.5
+            }
+          ]
+        },
+        {
+          "id": "zone-5",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": 5.5,
+              "z": 3.5
+            },
+            {
+              "x": 8.5,
+              "z": 3.5
+            },
+            {
+              "x": 8.5,
+              "z": 15.5
+            },
+            {
+              "x": 5.5,
+              "z": 15.5
+            }
+          ]
+        },
+        {
+          "id": "zone-6",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": 34,
+              "z": -7.5
+            },
+            {
+              "x": 39.5,
+              "z": -7.5
+            },
+            {
+              "x": 39.5,
+              "z": -3.5
+            },
+            {
+              "x": 34,
+              "z": -3.5
+            }
+          ]
+        },
+        {
+          "id": "zone-7",
+          "kind": "PASSAGE",
+          "label": "Compulsory passage for entry/exit/services",
+          "color": "red",
+          "polygon": [
+            {
+              "x": 37.5,
+              "z": 9.5
+            },
+            {
+              "x": 39.5,
+              "z": 9.5
+            },
+            {
+              "x": 39.5,
+              "z": 18.5
+            },
+            {
+              "x": 37.5,
+              "z": 18.5
+            }
+          ]
+        },
+        {
+          "id": "zone-8",
+          "kind": "NO_CONSTRUCTION",
+          "label": "NC - No Construction Zone",
+          "color": "saddlebrown",
+          "polygon": [
+            {
+              "x": 54.5,
+              "z": 4
+            },
+            {
+              "x": 55,
+              "z": 4
+            },
+            {
+              "x": 55,
+              "z": 9
+            },
+            {
+              "x": 54.5,
+              "z": 9
+            }
+          ]
+        }
+      ],
+      "openings": [],
+      "markers": [
+        {
+          "text": "S1001",
+          "position": {
+            "x": -35.5,
+            "z": -20.5
+          }
+        },
+        {
+          "text": "E1001",
+          "position": {
+            "x": -8.75,
+            "z": 16
+          }
+        },
+        {
+          "text": "FOYER C",
+          "position": {
+            "x": -58,
+            "z": -22.5
+          }
+        },
+        {
+          "text": "FOYER B",
+          "position": {
+            "x": -3,
+            "z": -4.5
+          }
+        },
+        {
+          "text": "TH9-1/8",
+          "position": {
+            "x": 54,
+            "z": 1.75
+          }
+        },
+        {
+          "text": "FOYER A",
+          "position": {
+            "x": 45,
+            "z": 7.5
+          }
+        },
+        {
+          "text": "S0901",
+          "position": {
+            "x": 35.6,
+            "z": -9.6
+          }
+        },
+        {
+          "text": "HALL 8",
+          "position": {
+            "x": 58.5,
+            "z": 21.5
+          }
+        },
+        {
+          "text": "HALL 9",
+          "position": {
+            "x": 21.5,
+            "z": 21.5
+          }
+        },
+        {
+          "text": "HALL 10",
+          "position": {
+            "x": -30.5,
+            "z": 21.5
+          }
+        }
+      ],
+      "rules": {
+        "minPassageWidth": {
+          "B2B": 3,
+          "B2C": 4
+        },
+        "peripheralClearance": 1,
+        "zoneClearance": {
+          "FACILITY_ACCESS": 1,
+          "PARTITION": 1,
+          "SMOKE_CURTAIN": 1
+        },
+        "openingAccessDepth": null,
+        "gridUnit": 1,
+        "snapStep": 1,
+        "stallNumberPrefix": "STALL-"
+      }
     },
     "Convention Center": {
       "hallName": "Convention Center",
@@ -2851,7 +3771,12 @@
           "kind": "wall",
           "color": "#742371"
         }
-      ]
+      ],
+      "boundary": null,
+      "zones": [],
+      "openings": [],
+      "markers": [],
+      "rules": null
     }
   }
 }

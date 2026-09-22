@@ -1,7 +1,11 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
-import { BadRequestDomainError, DataIntegrityDomainError } from '../errors/domain.errors';
+import {
+  BadRequestDomainError,
+  DataIntegrityDomainError,
+  PlacementRejectedError,
+} from '../errors/domain.errors';
 
 /**
  * Error body, byte-identical to the Java `GlobalExceptionHandler.response()` shape:
@@ -12,11 +16,14 @@ export interface ErrorResponseBody {
   success: false;
   status: number;
   message: string;
+  /** Only for a rejected stall placement: what is wrong and where (PlacementRejectedError). */
+  violations?: unknown[];
 }
 
 interface ResolvedError {
   status: number;
   message: string;
+  violations?: unknown[];
 }
 
 /**
@@ -49,7 +56,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = http.getResponse<Response>();
     const request = http.getRequest<Request>();
 
-    const { status, message } = this.resolve(exception);
+    const { status, message, violations } = this.resolve(exception);
 
     const context = `${request.method} ${request.url} -> ${status}`;
 
@@ -60,12 +67,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`${context}: ${message}`);
     }
 
-    const body: ErrorResponseBody = { success: false, status, message };
+    const body: ErrorResponseBody = violations
+      ? { success: false, status, message, violations }
+      : { success: false, status, message };
     response.status(status).json(body);
   }
 
   private resolve(exception: unknown): ResolvedError {
-    // 1. IllegalArgumentException equivalent -> 400, message verbatim.
+    // 1. IllegalArgumentException equivalent -> 400, message verbatim. A rejected placement is
+    //    the same 400 plus its structured violations.
+    if (exception instanceof PlacementRejectedError) {
+      return { status: 400, message: exception.message, violations: exception.violations };
+    }
+
     if (exception instanceof BadRequestDomainError) {
       return { status: 400, message: exception.message };
     }

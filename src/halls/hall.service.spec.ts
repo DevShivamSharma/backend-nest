@@ -52,7 +52,7 @@ describe('HallService', () => {
       const { service } = setup();
 
       await expect(service.list()).resolves.toEqual([
-        { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, blockedAreas: null },
+        { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, blockedAreas: null, boundary: null, zones: null, openings: null, markers: null, rules: null },
       ]);
     });
 
@@ -94,6 +94,11 @@ describe('HallService', () => {
         length: 20,
         radius: 0,
         blockedAreas: null,
+        boundary: null,
+        zones: null,
+        openings: null,
+        markers: null,
+        rules: null,
       });
     });
 
@@ -204,6 +209,11 @@ describe('HallService', () => {
         length: 8,
         radius: 0,
         blockedAreas: null,
+        boundary: null,
+        zones: null,
+        openings: null,
+        markers: null,
+        rules: null,
       });
     });
 

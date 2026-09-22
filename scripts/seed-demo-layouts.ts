@@ -23,11 +23,16 @@ import { LayoutService } from '../src/layouts/layout.service';
  * provenance, including the source event id and any dropped rows, is inside the JSON.
  *
  * Every layout is written through `LayoutService.save()`, so the seed passes the same
- * BR-01…BR-13 validation as a save from the UI — nothing can be seeded that the API would
- * reject. NOTHING IN PRODUCTION IS READ AT RUNTIME OR WRITTEN TO.
+ * BR-01…BR-13 and BR-22/23 validation as a save from the UI. The one exception is the placement
+ * rules (BR-24): these are EXISTING production placements, which the editor reports through the
+ * rule audit but never blocks, so the import passes `skipPlacementRules`. Stall numbers and
+ * statuses are assigned by the service (BR-25).
+ * NOTHING IN PRODUCTION IS READ AT RUNTIME OR WRITTEN TO.
  *
- * Run with:  npm run seed:demo-layouts
+ * Run with:  npm run seed:demo-layouts [-- --refresh]
  * Idempotent: a layout whose name already exists is skipped, so re-running never duplicates.
+ * With --refresh an existing demo layout (matched by name) is deleted and re-created from the
+ * file — for a local database seeded before the rule-driven fields existed.
  */
 
 interface DemoLayoutsFile {
@@ -48,23 +53,31 @@ async function seed(): Promise<void> {
 
   try {
     const layouts = app.get(LayoutService);
-    const existing = new Set((await layouts.list()).map((layout) => layout.name));
+    const refresh = process.argv.includes('--refresh');
+    const existing = new Map((await layouts.list()).map((layout) => [layout.name, layout.id]));
 
     let created = 0;
     let skipped = 0;
 
     for (const demo of file.layouts) {
-      if (existing.has(demo.layoutName)) {
+      const found = existing.get(demo.layoutName);
+      if (found !== undefined && refresh) {
+        await layouts.delete(found);
+        logger.log(`delete ${demo.layoutName} (layout id ${found}) — refreshing`);
+      } else if (found !== undefined) {
         logger.log(`skip   ${demo.layoutName} — already present`);
         skipped++;
         continue;
       }
 
-      const saved = await layouts.save({
-        layoutName: demo.layoutName,
-        hall: demo.hall,
-        stalls: demo.stalls,
-      } as LayoutSaveRequestDto);
+      const saved = await layouts.save(
+        {
+          layoutName: demo.layoutName,
+          hall: demo.hall,
+          stalls: demo.stalls,
+        } as LayoutSaveRequestDto,
+        { skipPlacementRules: true },
+      );
 
       logger.log(
         `create ${demo.layoutName} (layout id ${saved.layout.id}) — ${saved.stalls.length} stalls`,

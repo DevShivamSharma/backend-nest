@@ -32,6 +32,22 @@ export class BadRequestDomainError extends DomainError {
 }
 
 /**
+ * A stall placement broke one or more hall rules (BR-24).
+ *
+ * Still a 400 with a readable `message` (the first violation), so every existing consumer keeps
+ * working. It also carries the structured list — code, rule reference, message and the geometry
+ * of WHERE it is wrong — which the filter adds to the body as `violations`.
+ */
+export class PlacementRejectedError extends BadRequestDomainError {
+  constructor(
+    message: string,
+    readonly violations: unknown[],
+  ) {
+    super(message);
+  }
+}
+
+/**
  * The role played by `DataIntegrityViolationException`.
  *
  * Maps to HTTP 409 with the fixed message the Java used

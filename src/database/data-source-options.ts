@@ -8,6 +8,7 @@ import { StallEntity } from '../layouts/entities/stall.entity';
 import { Baseline1758240000000 } from './migrations/1758240000000-Baseline';
 import { AddBlockedAreas1758240100000 } from './migrations/1758240100000-AddBlockedAreas';
 import { AddStallOpenSides1758240200000 } from './migrations/1758240200000-AddStallOpenSides';
+import { AddLayoutRulesAndStallIdentity1758240300000 } from './migrations/1758240300000-AddLayoutRulesAndStallIdentity';
 
 // The pg driver returns int8 (bigint ids, COUNT(*)) as strings by default. The API contract
 // sends ids as JSON numbers, exactly as Jackson serialised Java `Long`. Ids here are far below
@@ -25,7 +26,12 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const base = {
     type: 'postgres' as const,
     entities: [HallEntity, LayoutEntity, StallEntity],
-    migrations: [Baseline1758240000000, AddBlockedAreas1758240100000, AddStallOpenSides1758240200000],
+    migrations: [
+      Baseline1758240000000,
+      AddBlockedAreas1758240100000,
+      AddStallOpenSides1758240200000,
+      AddLayoutRulesAndStallIdentity1758240300000,
+    ],
     synchronize: false,
     // Run pending migrations at startup: the published deployment owns its database, so a
     // redeploy self-applies new columns. All migrations are idempotent (IF NOT EXISTS), and

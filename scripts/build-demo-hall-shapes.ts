@@ -16,6 +16,19 @@ import { join, resolve } from 'node:path';
  * the areas matches `length`, max Y extent matches `breadth`). Colour mapping:
  * `#ffffff` -> 'outside', `#742371` -> 'wall', anything else -> 'zone'.
  *
+ * RULE-DRIVEN GEOMETRY (added for the layout editor):
+ *   - `boundary`: the hall outline as ONE polygon — the bounding rectangle minus every
+ *     'outside' and 'wall' rectangle, traced into a ring (inner face of the walls). Only set when
+ *     the result is a single ring without holes; otherwise the hall keeps the rectangle masks.
+ *   - `zones`: 'zone' rectangles typed from the row's own `legends` (colour -> label):
+ *     "Compulsory passage…" -> PASSAGE, "No Construction…" -> NO_CONSTRUCTION,
+ *     "Fire/Smoke curtain…" -> SMOKE_CURTAIN, "partition" -> PARTITION. Untyped colours stay
+ *     visual-only blockedAreas.
+ *   - `markers`: the row's `exit_labels` (gate names, foyers), px / 20 -> metres, centre origin.
+ *   - `openings`: EMPTY. The export has gate labels as single points only — no door width and no
+ *     emergency flag — so no access zone is invented. Supply them to populate this.
+ *   - `rules`: ITPO defaults (1 unit = 1 m, verified from the "12sqm" labels).
+ *
  * CONFLICT REPORT (mandatory before seeding): every stall already in
  * demo-layouts.json is checked against the 'outside' + 'wall' areas with the
  * same overlap math and 1e-8 epsilon as the planner's overlapsBlockedArea().
@@ -52,7 +65,44 @@ interface CsvRow {
   layout_data: string;
   length: string;
   breadth: string;
+  legends: string;
+  exit_labels: string;
 }
+
+interface Point {
+  x: number;
+  z: number;
+}
+
+interface HallZone {
+  id: string;
+  kind: 'PASSAGE' | 'NO_CONSTRUCTION' | 'SMOKE_CURTAIN' | 'PARTITION';
+  label: string;
+  polygon: Point[];
+  color: string;
+}
+
+interface HallMarker {
+  text: string;
+  position: Point;
+}
+
+/** Stored on every hall that gets a boundary. Metres; see LayoutRules in placement-rules.ts. */
+const ITPO_RULES = {
+  minPassageWidth: { B2B: 3, B2C: 4 },
+  peripheralClearance: 1,
+  zoneClearance: { FACILITY_ACCESS: 1, PARTITION: 1, SMOKE_CURTAIN: 1 },
+  openingAccessDepth: null,
+  gridUnit: 1,
+  snapStep: 1,
+  stallNumberPrefix: 'STALL-',
+};
+
+/** T_STALLS / exit_labels pixel scale, verified against the "12sqm" area labels. */
+const PX_PER_UNIT = 20;
+
+/** Booking status from the colour the dump conversion used (see demo-layouts _provenance). */
+const BOOKED_COLOR = '#b91c1c';
 
 interface BlockedArea {
   posX: number;
@@ -166,6 +216,187 @@ function overlapsBlocked(
   return null;
 }
 
+// --- outline tracing ---------------------------------------------------------------
+
+/**
+ * The hall floor as polygon rings: the W x L bounding rectangle minus every 'outside' and
+ * 'wall' rectangle. Exact for axis-aligned input:
+ *   1. coordinate compression — every distinct rectangle edge becomes a grid line;
+ *   2. each compressed cell is floor or not (its centre tested against the rectangles);
+ *   3. every floor-cell edge that borders a non-floor cell is a boundary edge, directed so the
+ *      floor is on one fixed side; the edges are stitched into closed rings;
+ *   4. collinear vertices are dropped.
+ * Rings come back largest first, in centre-origin metres.
+ */
+function traceOutline(areas: BlockedArea[], hallW: number, hallL: number): Point[][] {
+  const x0 = -hallW / 2;
+  const x1 = hallW / 2;
+  const z0 = -hallL / 2;
+  const z1 = hallL / 2;
+
+  const solid = areas
+    .filter((a) => a.kind === 'outside' || a.kind === 'wall')
+    .map((a) => ({
+      minX: a.posX - a.width / 2,
+      maxX: a.posX + a.width / 2,
+      minZ: a.posZ - a.length / 2,
+      maxZ: a.posZ + a.length / 2,
+    }));
+
+  const cuts = (lo: number, hi: number, values: number[]): number[] =>
+    [...new Set([lo, hi, ...values.filter((v) => v > lo && v < hi)])].sort((a, b) => a - b);
+  const xs = cuts(x0, x1, solid.flatMap((r) => [r.minX, r.maxX]));
+  const zs = cuts(z0, z1, solid.flatMap((r) => [r.minZ, r.maxZ]));
+  const nx = xs.length - 1;
+  const nz = zs.length - 1;
+
+  const floor: boolean[][] = [];
+  for (let i = 0; i < nx; i++) {
+    floor.push([]);
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    for (let j = 0; j < nz; j++) {
+      const cz = (zs[j] + zs[j + 1]) / 2;
+      floor[i].push(!solid.some((r) => cx > r.minX && cx < r.maxX && cz > r.minZ && cz < r.maxZ));
+    }
+  }
+  const isFloor = (i: number, j: number): boolean =>
+    i >= 0 && j >= 0 && i < nx && j < nz && floor[i][j];
+
+  const key = (x: number, z: number): string => `${x},${z}`;
+  const next = new Map<string, Point[]>();
+  const add = (a: Point, b: Point): void => {
+    const k = key(a.x, a.z);
+    next.set(k, [...(next.get(k) ?? []), b]);
+  };
+
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      if (!floor[i][j]) continue;
+      const [a, c, b, e] = [xs[i], xs[i + 1], zs[j], zs[j + 1]];
+      if (!isFloor(i - 1, j)) add({ x: a, z: e }, { x: a, z: b });
+      if (!isFloor(i + 1, j)) add({ x: c, z: b }, { x: c, z: e });
+      if (!isFloor(i, j - 1)) add({ x: a, z: b }, { x: c, z: b });
+      if (!isFloor(i, j + 1)) add({ x: c, z: e }, { x: a, z: e });
+    }
+  }
+
+  const rings: Point[][] = [];
+  while (next.size > 0) {
+    const [startKey, firstTargets] = next.entries().next().value as [string, Point[]];
+    const [sx, sz] = startKey.split(',').map(Number);
+    const ring: Point[] = [{ x: sx, z: sz }];
+    let currentKey = startKey;
+    let targets = firstTargets;
+
+    for (;;) {
+      const target = targets.pop() as Point;
+      if (targets.length === 0) next.delete(currentKey);
+      if (target.x === sx && target.z === sz) break;
+      ring.push(target);
+      currentKey = key(target.x, target.z);
+      const more = next.get(currentKey);
+      if (!more) break;
+      targets = more;
+    }
+
+    const simplified = ring.filter((q, k) => {
+      const p = ring[(k - 1 + ring.length) % ring.length];
+      const r = ring[(k + 1) % ring.length];
+      return Math.abs((q.x - p.x) * (r.z - q.z) - (q.z - p.z) * (r.x - q.x)) > 1e-9;
+    });
+    if (simplified.length >= 3) {
+      rings.push(simplified.map((p) => ({ x: round(p.x), z: round(p.z) })));
+    }
+  }
+
+  const area = (ring: Point[]): number =>
+    Math.abs(
+      ring.reduce((sum, p, k) => {
+        const q = ring[(k + 1) % ring.length];
+        return sum + p.x * q.z - q.x * p.z;
+      }, 0),
+    ) / 2;
+
+  return rings.sort((a, b) => area(b) - area(a));
+}
+
+function parseJson(text: string | undefined): unknown {
+  if (!text || text === 'NULL') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Zone kind from the legend label the source layout shows for that colour. */
+function zoneKindOf(label: string): HallZone['kind'] | null {
+  const l = label.toLowerCase();
+  if (l.includes('passage')) return 'PASSAGE';
+  if (l.includes('no construction')) return 'NO_CONSTRUCTION';
+  if (l.includes('curtain')) return 'SMOKE_CURTAIN';
+  if (l.includes('partition')) return 'PARTITION';
+  return null;
+}
+
+function typedZones(areas: BlockedArea[], legends: unknown): HallZone[] {
+  const byColor = new Map<string, string>();
+  for (const legend of Array.isArray(legends) ? legends : []) {
+    const entry = legend as { colorCode?: unknown; label?: unknown };
+    if (typeof entry.colorCode === 'string' && typeof entry.label === 'string') {
+      byColor.set(entry.colorCode.trim().toLowerCase(), entry.label.trim());
+    }
+  }
+
+  const zones: HallZone[] = [];
+  for (const area of areas) {
+    if (area.kind !== 'zone') continue;
+    const label = byColor.get(area.color.trim().toLowerCase());
+    const kind = label ? zoneKindOf(label) : null;
+    if (!label || !kind) continue;
+
+    const minX = round(area.posX - area.width / 2);
+    const maxX = round(area.posX + area.width / 2);
+    const minZ = round(area.posZ - area.length / 2);
+    const maxZ = round(area.posZ + area.length / 2);
+    zones.push({
+      id: `zone-${zones.length + 1}`,
+      kind,
+      label,
+      color: area.color,
+      polygon: [
+        { x: minX, z: minZ },
+        { x: maxX, z: minZ },
+        { x: maxX, z: maxZ },
+        { x: minX, z: maxZ },
+      ],
+    });
+  }
+  return zones;
+}
+
+function exitMarkers(labels: unknown, hallW: number, hallL: number): HallMarker[] {
+  const markers: HallMarker[] = [];
+  for (const label of Array.isArray(labels) ? labels : []) {
+    const entry = label as { text?: unknown; positionX?: unknown; positionY?: unknown };
+    if (
+      typeof entry.text !== 'string' ||
+      typeof entry.positionX !== 'number' ||
+      typeof entry.positionY !== 'number'
+    ) {
+      continue;
+    }
+    markers.push({
+      text: entry.text,
+      position: {
+        x: round(entry.positionX / PX_PER_UNIT - hallW / 2),
+        z: round(entry.positionY / PX_PER_UNIT - hallL / 2),
+      },
+    });
+  }
+  return markers;
+}
+
 // --- main ----------------------------------------------------------------------
 
 function main(): void {
@@ -186,6 +417,8 @@ function main(): void {
   const cLayoutData = col('layout_data');
   const cLength = col('length');
   const cBreadth = col('breadth');
+  const cLegends = col('legends');
+  const cExitLabels = col('exit_labels');
 
   const dataRows: CsvRow[] = rows.slice(1).map((r) => ({
     id: r[cId],
@@ -193,6 +426,8 @@ function main(): void {
     layout_data: r[cLayoutData],
     length: r[cLength],
     breadth: r[cBreadth],
+    legends: r[cLegends],
+    exit_labels: r[cExitLabels],
   }));
 
   const shapes: Record<
@@ -202,6 +437,11 @@ function main(): void {
       prodHallId: number;
       source: { csvRowId: number; areas: { outside: number; wall: number; zone: number } };
       blockedAreas: BlockedArea[];
+      boundary: Point[] | null;
+      zones: HallZone[];
+      openings: never[];
+      markers: HallMarker[];
+      rules: typeof ITPO_RULES | null;
     }
   > = {};
 
@@ -227,6 +467,11 @@ function main(): void {
         prodHallId: demo.hallId,
         source: { csvRowId: 0, areas: { outside: 0, wall: 0, zone: 0 } },
         blockedAreas: [],
+        boundary: null,
+        zones: [],
+        openings: [],
+        markers: [],
+        rules: null,
       };
       continue;
     }
@@ -241,6 +486,11 @@ function main(): void {
     const count = (k: BlockedArea['kind']): number =>
       blockedAreas.filter((a) => a.kind === k).length;
 
+    const rings = traceOutline(blockedAreas, hallW, hallL);
+    const boundary = rings.length === 1 ? rings[0] : null;
+    const zones = typedZones(blockedAreas, parseJson(best.row.legends));
+    const markers = exitMarkers(parseJson(best.row.exit_labels), hallW, hallL);
+
     shapes[demo.name] = {
       hallName: demo.name,
       prodHallId: demo.hallId,
@@ -249,7 +499,17 @@ function main(): void {
         areas: { outside: count('outside'), wall: count('wall'), zone: count('zone') },
       },
       blockedAreas,
+      boundary,
+      zones,
+      openings: [],
+      markers,
+      rules: boundary ? ITPO_RULES : null,
     };
+
+    console.log(
+      `      ${demo.name} geometry: ${boundary ? `boundary ${boundary.length} vertices` : `no single boundary (${rings.length} rings)`}, ` +
+        `zones: ${zones.length}, markers: ${markers.length}`,
+    );
 
     console.log(
       `shape ${demo.name} (hall_id ${demo.hallId}) — csv row ${best.row.id}: ` +
@@ -289,7 +549,14 @@ function main(): void {
       continue;
     }
 
-    (layout.hall as { blockedAreas?: BlockedArea[] }).blockedAreas = shape.blockedAreas;
+    Object.assign(layout.hall, {
+      blockedAreas: shape.blockedAreas,
+      boundary: shape.boundary,
+      zones: shape.zones,
+      openings: shape.openings,
+      markers: shape.markers,
+      rules: shape.rules,
+    });
     layout.source['blockedAreasFrom'] = `T_EVENT_HALL_LAYOUT_DATA.csv row ${shape.source.csvRowId}`;
 
     const kept: typeof layout.stalls = [];
@@ -305,6 +572,8 @@ function main(): void {
         totalDropped++;
         console.log(`drop  ${layout.layoutName} stall "${stall.name}" — overlaps ${hit.kind} area`);
       } else {
+        (stall as { status?: string }).status =
+          (stall as { color?: string }).color === BOOKED_COLOR ? 'BOOKED' : 'AVAILABLE';
         kept.push(stall);
       }
     }

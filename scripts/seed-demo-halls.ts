@@ -8,6 +8,7 @@ import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../src/app.module';
 import { HallService } from '../src/halls/hall.service';
+import type { HallDto } from '../src/layouts/dto/layout-save-request.dto';
 import type { BlockedArea } from '../src/layouts/entities/hall.entity';
 
 /**
@@ -31,8 +32,10 @@ import type { BlockedArea } from '../src/layouts/entities/hall.entity';
  * NOTHING IN PRODUCTION IS READ AT RUNTIME OR WRITTEN TO. These are literals, and they are
  * written only to the demo database this backend is pointed at.
  *
- * Run with:  npm run seed:demo-halls
+ * Run with:  npm run seed:demo-halls [-- --refresh]
  * Idempotent: a hall whose name already exists is skipped, so re-running never duplicates.
+ * With --refresh an existing hall keeps its id and gets the current geometry (boundary, zones,
+ * markers, rules) — for a database seeded before those fields existed.
  */
 
 interface DemoHall {
@@ -43,8 +46,14 @@ interface DemoHall {
   source: string;
 }
 
+/** One hall's geometry from demo-hall-shapes.json. Every field but blockedAreas may be absent. */
+type DemoHallGeometry = Pick<
+  HallDto,
+  'blockedAreas' | 'boundary' | 'zones' | 'openings' | 'markers' | 'rules'
+>;
+
 interface DemoHallShapesFile {
-  halls: Record<string, { blockedAreas: BlockedArea[] }>;
+  halls: Record<string, DemoHallGeometry & { blockedAreas: BlockedArea[] }>;
 }
 
 /**
@@ -52,12 +61,24 @@ interface DemoHallShapesFile {
  * `scripts/build-demo-hall-shapes.ts` from T_EVENT_HALL_LAYOUT_DATA.csv.
  * Missing entry -> the hall is seeded as a plain rectangle, as before.
  */
-function loadBlockedAreas(): Map<string, BlockedArea[]> {
+function loadGeometry(): Map<string, DemoHallGeometry> {
   const file = JSON.parse(
     readFileSync(join(__dirname, 'data', 'demo-hall-shapes.json'), 'utf-8'),
   ) as DemoHallShapesFile;
 
-  return new Map(Object.entries(file.halls).map(([name, shape]) => [name, shape.blockedAreas]));
+  return new Map(
+    Object.entries(file.halls).map(([name, shape]) => [
+      name,
+      {
+        blockedAreas: shape.blockedAreas,
+        boundary: shape.boundary ?? null,
+        zones: shape.zones ?? null,
+        openings: shape.openings ?? null,
+        markers: shape.markers ?? null,
+        rules: shape.rules ?? null,
+      },
+    ]),
+  );
 }
 
 /**
@@ -89,14 +110,29 @@ async function seed(): Promise<void> {
 
   try {
     const halls = app.get(HallService);
-    const existing = new Set((await halls.list()).map((hall) => hall.name));
-    const blockedAreasByName = loadBlockedAreas();
+    const refresh = process.argv.includes('--refresh');
+    const existing = new Map((await halls.list()).map((hall) => [hall.name, hall]));
+    const geometryByName = loadGeometry();
 
     let created = 0;
     let skipped = 0;
 
     for (const demo of DEMO_HALLS) {
-      if (existing.has(demo.name)) {
+      const found = existing.get(demo.name);
+      if (found && refresh) {
+        await halls.update(found.id, {
+          name: demo.name,
+          shape: 'SQUARE',
+          width: demo.width,
+          length: demo.length,
+          radius: 0,
+          ...(geometryByName.get(demo.name) ?? { blockedAreas: [] }),
+        });
+        logger.log(`update ${demo.name} (id ${found.id}) — geometry refreshed`);
+        skipped++;
+        continue;
+      }
+      if (found) {
         logger.log(`skip   ${demo.name} — already present`);
         skipped++;
         continue;
@@ -109,7 +145,7 @@ async function seed(): Promise<void> {
         width: demo.width,
         length: demo.length,
         radius: 0,
-        blockedAreas: blockedAreasByName.get(demo.name) ?? [],
+        ...(geometryByName.get(demo.name) ?? { blockedAreas: [] }),
       });
 
       logger.log(`create ${hall.name} (id ${hall.id}) ${demo.width}x${demo.length} — ${demo.source}`);

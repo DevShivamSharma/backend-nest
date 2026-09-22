@@ -2,9 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
 import type { LayoutSummaryResponse } from './dto/layout-response.dto';
-import { BlockedArea, HallEntity } from './entities/hall.entity';
+import { BlockedArea, HallEntity, HallMarker } from './entities/hall.entity';
 import { LayoutEntity } from './entities/layout.entity';
 import { StallEntity } from './entities/stall.entity';
+import type { HallOpening, HallZone, LayoutRules, Point } from './placement/placement-rules';
 
 export interface HallWrite {
   name: string | null;
@@ -13,6 +14,11 @@ export interface HallWrite {
   length: number | null;
   radius: number | null;
   blockedAreas?: BlockedArea[] | null;
+  boundary?: Point[] | null;
+  zones?: HallZone[] | null;
+  openings?: HallOpening[] | null;
+  markers?: HallMarker[] | null;
+  rules?: Partial<LayoutRules> | null;
 }
 
 export interface StallWrite {
@@ -26,6 +32,9 @@ export interface StallWrite {
   /** First open side — kept for the varchar column and the Java contract. */
   gateSide: string;
   openSides: string[];
+  stallNumber: string | null;
+  status: string;
+  stallTypeId: string | null;
 }
 
 export interface LayoutWrite {
@@ -33,6 +42,9 @@ export interface LayoutWrite {
   hallWidth: number;
   hallLength: number;
   hallHeight: number;
+  eventType: string;
+  /** Sequence value to store after numbering this write's stalls. */
+  nextStallSeq: number;
   hall: HallWrite;
   stalls: StallWrite[];
 }
@@ -67,6 +79,8 @@ export class LayoutRepository {
           hallLength: write.hallLength,
           hallHeight: write.hallHeight,
           hallId: hall.id,
+          eventType: write.eventType,
+          nextStallSeq: write.nextStallSeq,
         }),
       );
 
@@ -106,6 +120,8 @@ export class LayoutRepository {
       layout.hallLength = write.hallLength;
       layout.hallHeight = write.hallHeight;
       layout.hallId = hall.id;
+      layout.eventType = write.eventType;
+      layout.nextStallSeq = write.nextStallSeq;
       await manager.save(layout);
 
       await manager.delete(StallEntity, { layoutId: id });

@@ -10,6 +10,11 @@ export interface HallResponse {
   length: number | null;
   radius: number | null;
   blockedAreas: unknown[] | null;
+  boundary: unknown[] | null;
+  zones: unknown[] | null;
+  openings: unknown[] | null;
+  markers: unknown[] | null;
+  rules: Record<string, unknown> | null;
 }
 
 export interface StallResponse {
@@ -23,6 +28,9 @@ export interface StallResponse {
   color: string | null;
   gateSide: string | null;
   openSides: string[] | null;
+  stallNumber: string | null;
+  status: string;
+  stallTypeId: string | null;
 }
 
 export interface LayoutResponse {
@@ -31,6 +39,7 @@ export interface LayoutResponse {
   hallWidth: number;
   hallLength: number;
   hallHeight: number;
+  eventType: string;
   hall: HallResponse | null;
   stalls: StallResponse[];
 }
@@ -58,6 +67,14 @@ export interface LayoutSummaryResponse {
   hallLength: number;
   radius: number | null;
   stallCount: number;
+}
+
+/** POST /api/layout/{id}/validate: every rule problem in the saved layout. Never blocks. */
+export interface LayoutAuditResponse {
+  layoutId: number;
+  ruleDriven: boolean;
+  valid: boolean;
+  entries: unknown[];
 }
 
 export interface LayoutDeletedResponse {

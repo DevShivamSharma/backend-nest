@@ -2,6 +2,7 @@ import { BadRequestDomainError } from '../common/errors/domain.errors';
 import type { HallDto, LayoutSaveRequestDto, StallDto } from './dto/layout-save-request.dto';
 import { formatJavaDouble } from './java-double';
 import { HallShape, isInsideHall, stallsOverlap } from './layout.geometry';
+import { normalizeEventType, normalizeStatus, validateHallGeometry } from './placement/hall-geometry';
 
 /**
  * Business validation — a line-for-line port of LayoutService.validate()
@@ -176,9 +177,15 @@ export function validateLayoutRequest(
     // openSides entries — checked right after BR-12; the list is built when copying.
     validateOpenSides(stall.openSides);
 
+    // BR-23 — status value.
+    const cancelled = normalizeStatus(stall.status) === 'CANCELLED';
+
     // BR-13 — against every EARLIER stall. Earlier ones are already known non-null and valid.
     for (let j = 0; j < i; j++) {
       const other = stalls[j] as StallDto;
+      // A cancelled stall keeps its number but no longer occupies space.
+      if (cancelled || normalizeStatus(other.status) === 'CANCELLED') continue;
+
       const otherFootprint = {
         width: n(other.width),
         length: n(other.length),
@@ -193,4 +200,8 @@ export function validateLayoutRequest(
       }
     }
   }
+
+  // BR-22 — rule-driven hall geometry, checked last so every older message keeps its place.
+  validateHallGeometry(hall);
+  normalizeEventType(request.eventType);
 }

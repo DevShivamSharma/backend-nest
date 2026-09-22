@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { LayoutSaveRequestDto } from './dto/layout-save-request.dto';
 import { LayoutAggregate, LayoutRepository, LayoutWrite } from './layout.repository';
+import { PlacementRejectedError } from '../common/errors/domain.errors';
 import { LayoutService } from './layout.service';
 
 /** Write-side rules BR-14 … BR-19, observed through what the service hands the repository. */
@@ -14,11 +15,21 @@ function aggregateFrom(write: LayoutWrite, layoutId = 1000): LayoutAggregate {
   };
 }
 
+/** A stored layout with these stalls, for update() and audit(). */
+function existing(stalls: Array<Record<string, unknown>>, hall: Record<string, unknown> = {}, nextStallSeq = stalls.length + 1): LayoutAggregate {
+  return {
+    layout: { id: 1000, name: 'x', hallWidth: 40, hallLength: 40, hallHeight: 0, hallId: 1000, eventType: 'B2B', nextStallSeq } as never,
+    hall: { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, ...hall } as never,
+    stalls: stalls.map((s, i) => ({ id: 2000 + i, layoutId: 1000, height: 4, status: 'AVAILABLE', ...s })) as never,
+  };
+}
+
 function setup(maxStalls = 2000) {
   const repo = {
     create: jest.fn(async (w: LayoutWrite) => aggregateFrom(w)),
     replace: jest.fn(async (id: number, w: LayoutWrite) => aggregateFrom(w, id)),
-    findById: jest.fn(),
+    // update() reads the current layout first (BR-25); by default it exists and is empty.
+    findById: jest.fn(async (): Promise<LayoutAggregate | null> => existing([])),
     delete: jest.fn(),
     listSummaries: jest.fn(),
   };
@@ -139,11 +150,13 @@ describe('LayoutService', () => {
         name: 'x',
         hall: {} as never,
         stalls: [
-          { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, color: '#3498db', gateSide: 'BACK', openSides: [] as string[] },
+          { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, color: '#3498db', gateSide: 'BACK', openSides: [] as string[], stallNumber: 'STALL-001', status: 'AVAILABLE', stallTypeId: null },
         ],
         hallWidth: 0,
         hallLength: 0,
         hallHeight: 0,
+        eventType: 'B2B',
+        nextStallSeq: 2,
       });
       aggregate.stalls[0].openSides = null as never;
       repo.findById.mockResolvedValue(aggregate);
@@ -225,6 +238,7 @@ describe('LayoutService', () => {
       expect(result.layout.stalls).toEqual(result.stalls);
       expect(Object.keys(result.stalls[0])).toEqual([
         'id', 'name', 'width', 'length', 'height', 'posX', 'posZ', 'color', 'gateSide', 'openSides',
+        'stallNumber', 'status', 'stallTypeId',
       ]);
     });
 
@@ -252,7 +266,7 @@ describe('LayoutService', () => {
 
     it('update', async () => {
       const { repo, service } = setup();
-      repo.replace.mockResolvedValue(null as never);
+      repo.findById.mockResolvedValue(null);
 
       await expect(service.update(42, request())).rejects.toThrow('Layout not found: 42');
     });
@@ -288,5 +302,214 @@ describe('LayoutService', () => {
     await expect(service.save(request({ stalls }))).rejects.toThrow(
       'Too many stalls: 3. Maximum is 2.',
     );
+  });
+});
+
+describe('LayoutService — rule-driven halls', () => {
+  // A 40 x 40 hall (centre origin) that carries rules, so BR-24 applies. Default rules:
+  // 3 m B2B passage, 1 m peripheral clearance, 1 m snap.
+  const ruledHall = {
+    name: 'Ruled Hall',
+    shape: 'SQUARE',
+    width: 40,
+    length: 40,
+    radius: 0,
+    boundary: [
+      { x: -20, z: -20 },
+      { x: 20, z: -20 },
+      { x: 20, z: 20 },
+      { x: -20, z: 20 },
+    ],
+    rules: {},
+  };
+  const stallAt = (posX: number, extra: Record<string, unknown> = {}) => ({
+    name: 'S',
+    width: 3,
+    length: 2,
+    height: 4,
+    posX,
+    posZ: 0,
+    ...extra,
+  });
+
+  describe('BR-25 stable stall numbers', () => {
+    it('save numbers every stall from STALL-001 and stores the next sequence', async () => {
+      const { repo, service } = setup();
+      const result = await service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(10)] }));
+
+      expect(result.stalls.map((s) => s.stallNumber)).toEqual(['STALL-001', 'STALL-002']);
+      expect(repo.create.mock.calls[0][0].nextStallSeq).toBe(3);
+    });
+
+    it('update keeps issued numbers and never reuses a removed one', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(
+        existing(
+          [
+            { stallNumber: 'STALL-001', ...stallAt(-10) },
+            { stallNumber: 'STALL-002', ...stallAt(0) },
+            { stallNumber: 'STALL-003', ...stallAt(10) },
+          ],
+          ruledHall,
+        ),
+      );
+
+      // STALL-002 is removed; a new stall is added.
+      const result = await service.update(
+        1000,
+        request({
+          hall: ruledHall,
+          stalls: [
+            stallAt(-10, { stallNumber: 'STALL-001' }),
+            stallAt(10, { stallNumber: 'STALL-003' }),
+            stallAt(4),
+          ],
+        }),
+      );
+
+      expect(result.stalls.map((s) => s.stallNumber)).toEqual(['STALL-001', 'STALL-003', 'STALL-004']);
+      expect(repo.replace.mock.calls[0][1].nextStallSeq).toBe(5);
+    });
+
+    it('a cancelled stall keeps its number and status', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall));
+
+      const result = await service.update(
+        1000,
+        request({ hall: ruledHall, stalls: [stallAt(0, { stallNumber: 'STALL-001', status: 'cancelled' })] }),
+      );
+
+      expect(result.stalls[0]).toEqual(expect.objectContaining({ stallNumber: 'STALL-001', status: 'CANCELLED' }));
+    });
+
+    it('a number the layout never issued is replaced, so clients cannot pick numbers', async () => {
+      const { service } = setup();
+      const result = await service.save(request({ stalls: [stallAt(0, { stallNumber: 'STALL-999' })] }));
+
+      expect(result.stalls[0].stallNumber).toBe('STALL-001');
+    });
+
+    it('rejects the same issued number on two stalls', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(0) }]));
+
+      await expect(
+        service.update(
+          1000,
+          request({ stalls: [stallAt(-10, { stallNumber: 'STALL-001' }), stallAt(10, { stallNumber: 'STALL-001' })] }),
+        ),
+      ).rejects.toThrow('Stall number STALL-001 is used by more than one stall.');
+    });
+  });
+
+  describe('BR-24 placement rules', () => {
+    it('rejects a new stall with a 2 m gap and reports what and where', async () => {
+      const { repo, service } = setup();
+      const error = await service
+        .save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(PlacementRejectedError);
+      const rejected = error as PlacementRejectedError;
+      expect(rejected.message).toBe(
+        'Stall 0 (S) placement rejected: Required 3 m passage (B2B) is blocked: only 2 m left next to an unsaved stall.',
+      );
+      expect(rejected.violations[0]).toEqual(
+        expect.objectContaining({
+          stallIndex: 0,
+          code: 'PATHWAY_WIDTH',
+          ruleRef: 'ITPO D1',
+          geometry: [{ type: 'rect', rect: { minX: 1.5, maxX: 3.5, minZ: -1, maxZ: 1 } }],
+        }),
+      );
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('does not block an existing stall that has not moved, even if it breaks a rule', async () => {
+      const { repo, service } = setup();
+      // STALL-001 touches the wall (0 m < 1 m peripheral) — existing state, reported by audit.
+      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(-18.5) }], ruledHall));
+
+      await expect(
+        service.update(1000, request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] })),
+      ).resolves.toBeDefined();
+    });
+
+    it('checks the same stall once it is moved', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall));
+
+      await expect(
+        service.update(1000, request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] })),
+      ).rejects.toThrow('1 m peripheral clearance from the external wall is violated (0 m left).');
+    });
+
+    it('does not apply to halls without rules', async () => {
+      const { service } = setup();
+      await expect(service.save(request({ stalls: [stallAt(0), stallAt(5)] }))).resolves.toBeDefined();
+    });
+
+    it('can be skipped by trusted imports of existing production placements', async () => {
+      const { service } = setup();
+      await expect(
+        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }), { skipPlacementRules: true }),
+      ).resolves.toBeDefined();
+    });
+
+    it("BR-13 ignores cancelled stalls: a new stall may take a cancelled stall's space", async () => {
+      const { service } = setup();
+      await expect(
+        service.save(request({ stalls: [stallAt(0, { status: 'CANCELLED' }), stallAt(0)] })),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe('audit', () => {
+    it('reports existing problems without blocking', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(
+        existing([{ stallNumber: 'STALL-001', ...stallAt(0) }, { stallNumber: 'STALL-002', ...stallAt(5) }], ruledHall),
+      );
+
+      const audit = await service.audit(1000);
+
+      expect(audit.ruleDriven).toBe(true);
+      expect(audit.valid).toBe(false);
+      expect(audit.entries).toEqual([expect.objectContaining({ stallNumber: 'STALL-001' })]);
+    });
+
+    it('is not rule-driven for a hall without rules', async () => {
+      const { service } = setup();
+      expect(await service.audit(1000)).toEqual({ layoutId: 1000, ruleDriven: false, valid: true, entries: [] });
+    });
+  });
+
+  describe('BR-22 / BR-23 input checks', () => {
+    it('rejects a boundary with fewer than 3 points', async () => {
+      const { service } = setup();
+      await expect(
+        service.save(request({ hall: { ...ruledHall, boundary: [{ x: 0, z: 0 }] } })),
+      ).rejects.toThrow('Hall boundary must be a polygon of at least 3 points.');
+    });
+
+    it('rejects an unknown zone kind', async () => {
+      const { service } = setup();
+      await expect(
+        service.save(request({ hall: { ...ruledHall, zones: [{ id: 'z', kind: 'LAVA', polygon: [] }] } })),
+      ).rejects.toThrow('Zone 0 has an unknown kind.');
+    });
+
+    it('rejects an unknown stall status', async () => {
+      const { service } = setup();
+      await expect(service.save(request({ stalls: [stallAt(0, { status: 'SOLD' })] }))).rejects.toThrow(
+        'status must be AVAILABLE, BOOKED or CANCELLED.',
+      );
+    });
+
+    it('rejects an unknown event type', async () => {
+      const { service } = setup();
+      await expect(service.save(request({ eventType: 'B2X' }))).rejects.toThrow('eventType must be B2B or B2C.');
+    });
   });
 });

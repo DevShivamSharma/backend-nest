@@ -28,4 +28,15 @@ export class LayoutEntity {
 
   @Column({ name: 'hall_id', type: 'bigint', nullable: true })
   hallId!: number | null;
+
+  /** B2B or B2C: selects the minimum passage width (ITPO D1). */
+  @Column({ name: 'event_type', type: 'varchar', length: 8, default: 'B2B' })
+  eventType!: string;
+
+  /**
+   * Next stall number to hand out. Only ever increases, so a cancelled or removed stall's
+   * number is never given to another stall.
+   */
+  @Column({ name: 'next_stall_seq', type: 'integer', default: 1 })
+  nextStallSeq!: number;
 }

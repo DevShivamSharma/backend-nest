@@ -1,5 +1,12 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
+import type {
+  HallOpening,
+  HallZone,
+  LayoutRules,
+  Point,
+} from '../placement/placement-rules';
+
 export type BlockedAreaKind = 'outside' | 'wall' | 'zone';
 
 /**
@@ -47,4 +54,30 @@ export class HallEntity {
 
   @Column({ type: 'jsonb', name: 'blocked_areas', nullable: true })
   blockedAreas!: BlockedArea[] | null;
+
+  /** Hall outline polygon (metres, centre-origin). NULL = the width x length rectangle. */
+  @Column({ type: 'jsonb', nullable: true })
+  boundary!: Point[] | null;
+
+  /** Restricted regions: passages, no-construction zones, exit access, curtains... */
+  @Column({ type: 'jsonb', nullable: true })
+  zones!: HallZone[] | null;
+
+  /** Doors in the hall wall; the area in front of each must stay free. */
+  @Column({ type: 'jsonb', nullable: true })
+  openings!: HallOpening[] | null;
+
+  /** Text labels from the source layout (gate names, foyers). Visual only. */
+  @Column({ type: 'jsonb', nullable: true })
+  markers!: HallMarker[] | null;
+
+  /** Placement rules in metres. NULL = the hall is not rule-driven (legacy checks only). */
+  @Column({ type: 'jsonb', nullable: true })
+  rules!: Partial<LayoutRules> | null;
+}
+
+/** A text label on the plan, e.g. a gate name. */
+export interface HallMarker {
+  text: string;
+  position: Point;
 }

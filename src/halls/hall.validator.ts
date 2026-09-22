@@ -2,6 +2,7 @@ import { BadRequestDomainError } from '../common/errors/domain.errors';
 import type { HallDto } from '../layouts/dto/layout-save-request.dto';
 import type { HallShape } from '../layouts/layout.geometry';
 import { isBlank, n, normalizeShape } from '../layouts/layout.validator';
+import { validateHallGeometry } from '../layouts/placement/hall-geometry';
 
 /**
  * Hall validation for /api/halls.
@@ -41,6 +42,9 @@ export function validateHallRequest(
     // BR-06
     throw new BadRequestDomainError('Hall radius must be greater than 0.');
   }
+
+  // BR-22 — rule-driven geometry, last, as on the layout path.
+  validateHallGeometry(request);
 }
 
 /** The normalized shape, for callers that need it after validation has passed. */

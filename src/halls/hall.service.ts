@@ -7,6 +7,7 @@ import { HallEntity } from '../layouts/entities/hall.entity';
 import type { BlockedArea } from '../layouts/entities/hall.entity';
 import type { HallWrite } from '../layouts/layout.repository';
 import { normalizeShape } from '../layouts/layout.validator';
+import { hallGeometryResponse, validateHallGeometry } from '../layouts/placement/hall-geometry';
 import { HallRepository } from './hall.repository';
 import { validateHallRequest } from './hall.validator';
 
@@ -93,6 +94,7 @@ function copyHall(request: HallDto): HallWrite {
     length: request.length ?? null,
     radius: request.radius ?? null,
     blockedAreas: (request.blockedAreas as BlockedArea[] | null | undefined) ?? null,
+    ...validateHallGeometry(request),
   };
 }
 
@@ -106,5 +108,6 @@ function toHallResponse(hall: HallEntity): HallResponse {
     length: hall.length,
     radius: hall.radius,
     blockedAreas: hall.blockedAreas ?? null,
+    ...hallGeometryResponse(hall),
   };
 }

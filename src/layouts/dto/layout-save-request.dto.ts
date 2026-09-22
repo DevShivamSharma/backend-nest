@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 /**
  * Request body for POST /api/layout/save and PUT /api/layout/{id}
@@ -42,6 +49,27 @@ export class HallDto {
   @IsOptional()
   @IsArray()
   blockedAreas?: unknown[] | null;
+
+  /** Rule-driven geometry. Shapes are checked by validateHallGeometry(), not here. */
+  @IsOptional()
+  @IsArray()
+  boundary?: unknown[] | null;
+
+  @IsOptional()
+  @IsArray()
+  zones?: unknown[] | null;
+
+  @IsOptional()
+  @IsArray()
+  openings?: unknown[] | null;
+
+  @IsOptional()
+  @IsArray()
+  markers?: unknown[] | null;
+
+  @IsOptional()
+  @IsObject()
+  rules?: Record<string, unknown> | null;
 }
 
 export class StallDto {
@@ -84,12 +112,30 @@ export class StallDto {
   @IsOptional()
   @IsArray()
   openSides?: unknown[] | null;
+
+  /** Persisted number of an existing stall. Kept only if it already belongs to this layout. */
+  @IsOptional()
+  @IsString()
+  stallNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  status?: string | null;
+
+  @IsOptional()
+  @IsString()
+  stallTypeId?: string | null;
 }
 
 export class LayoutSaveRequestDto {
   @IsOptional()
   @IsString()
   layoutName?: string | null;
+
+  /** 'B2B' (default) or 'B2C'. */
+  @IsOptional()
+  @IsString()
+  eventType?: string | null;
 
   @IsOptional()
   @ValidateNested()

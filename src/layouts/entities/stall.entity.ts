@@ -39,4 +39,19 @@ export class StallEntity {
 
   @Column({ name: 'layout_id', type: 'bigint' })
   layoutId!: number;
+
+  /**
+   * Stable, human-facing identity ("STALL-001"). Unlike `id`, it survives a PUT (which
+   * re-inserts every row, ADR-012) and is never reused within a layout.
+   */
+  @Column({ name: 'stall_number', type: 'varchar', length: 32, nullable: true })
+  stallNumber!: string | null;
+
+  /** AVAILABLE, BOOKED or CANCELLED. A cancelled stall keeps its number but occupies no space. */
+  @Column({ type: 'varchar', length: 16, default: 'AVAILABLE' })
+  status!: string;
+
+  /** Id of the configured stall type it was created from ("stall-3x2"), or NULL for custom. */
+  @Column({ name: 'stall_type', type: 'varchar', length: 64, nullable: true })
+  stallTypeId!: string | null;
 }

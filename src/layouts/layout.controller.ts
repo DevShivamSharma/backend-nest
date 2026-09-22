@@ -1,6 +1,17 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Post,
+  Put,
+} from '@nestjs/common';
 
 import type {
+  LayoutAuditResponse,
   LayoutDeletedResponse,
   LayoutDetailResponse,
   LayoutSummaryResponse,
@@ -44,6 +55,13 @@ export class LayoutController {
     @Body() request: LayoutSaveRequestDto,
   ): Promise<LayoutDetailResponse> {
     return this.layoutService.update(id, request);
+  }
+
+  /** Rule audit of the saved layout (reporting only, never blocks). 200: nothing is created. */
+  @Post(':id/validate')
+  @HttpCode(200)
+  validate(@Param('id', ParseIntPipe) id: number): Promise<LayoutAuditResponse> {
+    return this.layoutService.audit(id);
   }
 
   /** 200 with a body, not 204 — as in the Java (LayoutController.java:68-80). */
