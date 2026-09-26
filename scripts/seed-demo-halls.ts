@@ -112,7 +112,25 @@ async function seed(): Promise<void> {
   try {
     const halls = app.get(HallService);
     const refresh = process.argv.includes('--refresh');
-    const existing = new Map((await halls.list()).map((hall) => [hall.name, hall]));
+    /**
+     * Match against STANDALONE halls only, and keep the lowest id per name.
+     *
+     * `halls.list()` returns every hall, including the private copy each saved layout makes
+     * (BR-18). Those copies share the master's name, so a plain Map kept whichever came last
+     * and `--refresh` updated a layout's copy instead of the master. The copy is then filtered
+     * out of `GET /api/halls?standalone=true`, which is what the planner's picker reads — so
+     * the refreshed geometry was written somewhere no frontend ever loads it. That is exactly
+     * how Hall 8-9-10 ended up with its amenities on a hall the picker never shows.
+     *
+     * `list(true)` is the same standalone set the picker uses, and the lowest id is the
+     * original master rather than a later duplicate.
+     */
+    const existing = new Map<string, { id: number; name: string | null }>();
+    for (const hall of await halls.list(true)) {
+      if (hall.name === null) continue;
+      const seen = existing.get(hall.name);
+      if (!seen || hall.id < seen.id) existing.set(hall.name, hall);
+    }
     const geometryByName = loadGeometry();
 
     let created = 0;
