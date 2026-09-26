@@ -1,9 +1,14 @@
-import { BadRequestDomainError } from '../../common/errors/domain.errors';
-import type { BlockedArea, HallAmenity, HallCompass, HallLegend, HallMarker } from '../entities/hall.entity';
+import { edges, EPS, segmentDistance } from './polygon-geometry';
+import { BadRequestDomainError, PlacementRejectedError } from '../../common/errors/domain.errors';
+import type {
+  BlockedArea,
+  HallAmenity,
+  HallCompass,
+  HallLegend,
+  HallMarker,
+} from '../entities/hall.entity';
 import {
-  DEFAULT_LAYOUT_RULES,
   effectiveRules,
-  extraFloorRegions,
   EVENT_TYPES,
   EventType,
   HallOpening,
@@ -16,7 +21,6 @@ import {
   Point,
   STALL_STATUSES,
   StallStatus,
-  traceFloor,
   ZONE_KINDS,
 } from './placement-rules';
 
@@ -29,6 +33,7 @@ import {
  */
 
 export interface HallGeometryInput {
+  blockedAreas?: unknown[] | null;
   boundary?: unknown[] | null;
   zones?: unknown[] | null;
   openings?: unknown[] | null;
@@ -52,6 +57,19 @@ export interface HallGeometry {
 
 /** BR-22. Throws on the first malformed entry; returns the cleaned values to store. */
 export function validateHallGeometry(input: HallGeometryInput): HallGeometry {
+  for (const [index, raw] of (input.blockedAreas ?? []).entries()) {
+    const a = raw as Record<string, unknown> | null;
+    if (
+      !a ||
+      !['outside', 'wall', 'zone'].includes(String(a.kind)) ||
+      ![a.posX, a.posZ, a.width, a.length].every(finite) ||
+      Number(a.width) <= 0 ||
+      Number(a.length) <= 0
+    )
+      throw new BadRequestDomainError(
+        `Blocked area ${index} needs finite coordinates, positive dimensions and kind outside, wall or zone.`,
+      );
+  }
   return {
     boundary: input.boundary == null ? null : polygon(input.boundary, 'Hall boundary'),
     zones: input.zones == null ? null : input.zones.map((z, i) => zone(z, i)),
@@ -124,14 +142,12 @@ export function isRuleDriven(hall: { rules?: Partial<LayoutRules> | null }): boo
   return hall.rules != null;
 }
 
-/**
- * The rules' view of a hall. Besides the stored boundary and zones it carries what the plan's
- * rectangles imply, exactly as the planner derives it (same functions, placement-rules.ts):
- *   - `regions`: floor regions the single boundary polygon cannot hold, e.g. a foyer separated
- *     from the main floor (Hall 1GF / 14GF), traced WITHOUT clipping to width x length.
+/** Explicit boundary is authoritative; otherwise use the centred rectangle/circle.
+ * Physical blocked areas are subtracted. Never infer floor outside the given hall outline.
  */
 export function buildPlacementContext(
   hall: {
+    shape?: string | null;
     width?: number | null;
     length?: number | null;
     radius?: number | null;
@@ -147,14 +163,31 @@ export function buildPlacementContext(
   const width = Number(hall.width) > 0 ? Number(hall.width) : Number(hall.radius ?? 0) * 2;
   const length = Number(hall.length) > 0 ? Number(hall.length) : Number(hall.radius ?? 0) * 2;
   const areas = hall.blockedAreas ?? [];
-  const floor = traceFloor(areas, width, length);
 
+  const boundary = hall.boundary ?? [
+    { x: -width / 2, z: -length / 2 },
+    { x: width / 2, z: -length / 2 },
+    { x: width / 2, z: length / 2 },
+    { x: -width / 2, z: length / 2 },
+  ];
   return {
-    boundary: hall.boundary ?? null,
-    regions: extraFloorRegions(hall.boundary, floor),
+    boundary,
+    circleRadius: hall.shape === 'CIRCLE' && !hall.boundary ? Number(hall.radius) : undefined,
+    obstacles: areas
+      .filter((a) => a.kind !== 'zone')
+      .map((a) => [
+        { x: a.posX - a.width / 2, z: a.posZ - a.length / 2 },
+        { x: a.posX + a.width / 2, z: a.posZ - a.length / 2 },
+        { x: a.posX + a.width / 2, z: a.posZ + a.length / 2 },
+        { x: a.posX - a.width / 2, z: a.posZ + a.length / 2 },
+      ]),
+    enforceGrid: hall.rules != null,
     zones: hall.zones ?? [],
     openings: hall.openings ?? [],
-    rules: effectiveRules(hall.rules),
+    rules: {
+      ...effectiveRules(hall.rules),
+      peripheralClearance: hall.rules == null ? 0 : effectiveRules(hall.rules).peripheralClearance,
+    },
     eventType,
     stalls,
   };
@@ -167,13 +200,33 @@ function polygon(raw: unknown, what: string): Point[] {
     throw new BadRequestDomainError(`${what} must be a polygon of at least 3 points.`);
   }
 
-  return raw.map((p) => {
+  const points = raw.map((p) => {
     const point = p as { x?: unknown; z?: unknown } | null;
     if (!point || !finite(point.x) || !finite(point.z)) {
       throw new BadRequestDomainError(`${what} points must have numeric x and z.`);
     }
     return { x: point.x as number, z: point.z as number };
   });
+  if (
+    points.length > 3 &&
+    points[0].x === points[points.length - 1].x &&
+    points[0].z === points[points.length - 1].z
+  )
+    points.pop();
+  const es = edges(points);
+  const signed = es.reduce((sum, [a, b]) => sum + a.x * b.z - b.x * a.z, 0);
+  if (
+    Math.abs(signed) < EPS * EPS ||
+    es.some(([a, b]) => Math.hypot(a.x - b.x, a.z - b.z) < EPS) ||
+    es.some(([a, b], i) =>
+      es.some(
+        ([c, d], j) =>
+          j > i + 1 && !(i === 0 && j === es.length - 1) && segmentDistance(a, b, c, d) < EPS,
+      ),
+    )
+  )
+    throw new BadRequestDomainError(`${what} must be a simple polygon with nonzero area.`);
+  return points;
 }
 
 function zone(raw: unknown, index: number): HallZone {
@@ -184,7 +237,9 @@ function zone(raw: unknown, index: number): HallZone {
     throw new BadRequestDomainError(`${what} needs an id.`);
   }
   if (!(ZONE_KINDS as readonly unknown[]).includes(z['kind'])) {
-    throw new BadRequestDomainError(`${what} has an unknown kind. Use one of ${ZONE_KINDS.join(', ')}.`);
+    throw new BadRequestDomainError(
+      `${what} has an unknown kind. Use one of ${ZONE_KINDS.join(', ')}.`,
+    );
   }
   if (z['clearance'] != null && (!finite(z['clearance']) || (z['clearance'] as number) < 0)) {
     throw new BadRequestDomainError(`${what} clearance must be a non-negative number of metres.`);
@@ -193,7 +248,10 @@ function zone(raw: unknown, index: number): HallZone {
   return {
     id: z['id'],
     kind: z['kind'] as HallZone['kind'],
-    label: typeof z['label'] === 'string' && z['label'].trim() !== '' ? z['label'] : (z['kind'] as string),
+    label:
+      typeof z['label'] === 'string' && z['label'].trim() !== ''
+        ? z['label']
+        : (z['kind'] as string),
     polygon: polygon(z['polygon'], `${what} polygon`),
     ...(z['clearance'] != null ? { clearance: z['clearance'] as number } : {}),
     ...(typeof z['color'] === 'string' ? { color: z['color'] } : {}),
@@ -236,7 +294,9 @@ function marker(raw: unknown, index: number): HallMarker {
   const m = (raw ?? {}) as { text?: unknown; position?: { x?: unknown; z?: unknown } };
 
   if (typeof m.text !== 'string' || !finite(m.position?.x) || !finite(m.position?.z)) {
-    throw new BadRequestDomainError(`Marker ${index} needs text and a position with numeric x and z.`);
+    throw new BadRequestDomainError(
+      `Marker ${index} needs text and a position with numeric x and z.`,
+    );
   }
 
   return { text: m.text, position: { x: m.position!.x as number, z: m.position!.z as number } };
@@ -255,7 +315,12 @@ function amenity(raw: unknown, index: number): HallAmenity {
     slot?: unknown;
   };
 
-  if (typeof a.kind !== 'string' || !a.kind.trim() || !finite(a.position?.x) || !finite(a.position?.z)) {
+  if (
+    typeof a.kind !== 'string' ||
+    !a.kind.trim() ||
+    !finite(a.position?.x) ||
+    !finite(a.position?.z)
+  ) {
     throw new BadRequestDomainError(
       `Amenity ${index} needs a kind and a position with numeric x and z.`,
     );
@@ -294,7 +359,10 @@ function compass(raw: Record<string, unknown>): HallCompass {
     position: { x: position!.x as number, z: position!.z as number },
     size: (raw['size'] as number | undefined) ?? 5,
     rotation: (raw['rotation'] as number | undefined) ?? 0,
-    label: typeof raw['label'] === 'string' && raw['label'].trim() ? raw['label'].trim().slice(0, 8) : 'N',
+    label:
+      typeof raw['label'] === 'string' && raw['label'].trim()
+        ? raw['label'].trim().slice(0, 8)
+        : 'N',
     labelOffset: { x: offset.x as number, z: offset.z as number },
   };
 }
@@ -312,14 +380,17 @@ function legend(raw: unknown, index: number): HallLegend {
     const v = l[key];
     if (v == null) return undefined;
     if (typeof v !== 'string' || v.length > max) {
-      throw new BadRequestDomainError(`Legend ${index} ${key} must be text of at most ${max} characters.`);
+      throw new BadRequestDomainError(
+        `Legend ${index} ${key} must be text of at most ${max} characters.`,
+      );
     }
     return v;
   };
   const flag = (key: string): boolean | undefined => {
     const v = l[key];
     if (v == null) return undefined;
-    if (typeof v !== 'boolean') throw new BadRequestDomainError(`Legend ${index} ${key} must be true or false.`);
+    if (typeof v !== 'boolean')
+      throw new BadRequestDomainError(`Legend ${index} ${key} must be true or false.`);
     return v;
   };
   const colorCode = text('colorCode', 40);
@@ -339,17 +410,30 @@ function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
   const out: Partial<LayoutRules> = {};
   const metres = (key: string, value: unknown, allowZero: boolean): number => {
     if (!finite(value) || (value as number) < 0 || (!allowZero && (value as number) === 0)) {
-      throw new BadRequestDomainError(`Hall rules: ${key} must be a ${allowZero ? 'non-negative' : 'positive'} number of metres.`);
+      throw new BadRequestDomainError(
+        `Hall rules: ${key} must be a ${allowZero ? 'non-negative' : 'positive'} number of metres.`,
+      );
     }
     return value as number;
   };
 
-  if (raw['minPassageWidth'] != null) {
-    const mp = raw['minPassageWidth'] as Record<string, unknown>;
-    out.minPassageWidth = {
-      B2B: metres('minPassageWidth.B2B', mp['B2B'] ?? DEFAULT_LAYOUT_RULES.minPassageWidth.B2B, false),
-      B2C: metres('minPassageWidth.B2C', mp['B2C'] ?? DEFAULT_LAYOUT_RULES.minPassageWidth.B2C, false),
+  if ('minPassageWidth' in raw) {
+    const mp = raw['minPassageWidth'];
+    const invalid = (field: string, value: unknown): never => {
+      throw new PlacementRejectedError('Passage width must be a number between 3 and 5 metres.', [
+        { code: 'INVALID_PASSAGE_WIDTH', field, value, min: 3, max: 5 },
+      ]);
     };
+    if (!mp || typeof mp !== 'object' || Array.isArray(mp))
+      invalid('hall.rules.minPassageWidth', mp);
+    const values = mp as Record<string, unknown>;
+    const width = (event: string) => {
+      const v = event in values ? values[event] : 3;
+      if (!finite(v) || Number(v) < 3 || Number(v) > 5)
+        invalid(`hall.rules.minPassageWidth.${event}`, v);
+      return v as number;
+    };
+    out.minPassageWidth = { B2B: width('B2B'), B2C: width('B2C') };
   }
   if (raw['peripheralClearance'] != null) {
     out.peripheralClearance = metres('peripheralClearance', raw['peripheralClearance'], true);
@@ -359,7 +443,9 @@ function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
     out.zoneClearance = {};
     for (const [kind, value] of Object.entries(zc)) {
       if (!(ZONE_KINDS as readonly string[]).includes(kind)) {
-        throw new BadRequestDomainError(`Hall rules: zoneClearance has an unknown zone kind ${kind}.`);
+        throw new BadRequestDomainError(
+          `Hall rules: zoneClearance has an unknown zone kind ${kind}.`,
+        );
       }
       out.zoneClearance[kind as HallZone['kind']] = metres(`zoneClearance.${kind}`, value, true);
     }
@@ -371,7 +457,9 @@ function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
   if (raw['snapStep'] != null) out.snapStep = metres('snapStep', raw['snapStep'], false);
   if (raw['stallNumberPrefix'] != null) {
     if (typeof raw['stallNumberPrefix'] !== 'string' || raw['stallNumberPrefix'].length > 20) {
-      throw new BadRequestDomainError('Hall rules: stallNumberPrefix must be text of at most 20 characters.');
+      throw new BadRequestDomainError(
+        'Hall rules: stallNumberPrefix must be text of at most 20 characters.',
+      );
     }
     out.stallNumberPrefix = raw['stallNumberPrefix'];
   }

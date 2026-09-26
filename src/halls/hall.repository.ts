@@ -1,3 +1,6 @@
+import { assertPlacements } from '../layouts/placement/assert-placements';
+import { normalizeEventType } from '../layouts/placement/hall-geometry';
+import { StallEntity } from '../layouts/entities/stall.entity';
 import { Injectable } from '@nestjs/common';
 import { DataSource, In, Not } from 'typeorm';
 
@@ -77,9 +80,22 @@ export class HallRepository {
    */
   update(id: number, write: HallWrite): Promise<HallEntity | null> {
     return this.dataSource.transaction(async (manager) => {
+      // Match layout writes' lock order: owner layout(s), then hall, then stalls.
+      const owners = await manager
+        .createQueryBuilder(LayoutEntity, 'layout')
+        .where('layout.hallId = :id', { id })
+        .orderBy('layout.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
       const existing = await manager.findOneBy(HallEntity, { id });
       if (existing === null) return null;
-
+      for (const owner of owners) {
+        const stalls = await manager.find(StallEntity, {
+          where: { layoutId: owner.id },
+          order: { id: 'ASC' },
+        });
+        assertPlacements(write, normalizeEventType(owner.eventType), stalls);
+      }
       return manager.save(manager.merge(HallEntity, existing, write));
     });
   }

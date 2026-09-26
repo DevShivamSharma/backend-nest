@@ -1,11 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-import type {
-  HallOpening,
-  HallZone,
-  LayoutRules,
-  Point,
-} from '../placement/placement-rules';
+import type { HallOpening, HallZone, LayoutRules, Point } from '../placement/placement-rules';
 
 export type BlockedAreaKind = 'outside' | 'wall' | 'zone';
 
@@ -91,7 +86,7 @@ export class HallEntity {
   @Column({ type: 'jsonb', nullable: true })
   legends!: HallLegend[] | null;
 
-  /** Placement rules in metres. NULL = the hall is not rule-driven (legacy checks only). */
+  /** Placement rules in metres. NULL = default 3 m passage, no optional peripheral/grid restrictions. */
   @Column({ type: 'jsonb', nullable: true })
   rules!: Partial<LayoutRules> | null;
 }

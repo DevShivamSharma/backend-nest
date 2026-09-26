@@ -17,6 +17,8 @@ import { LayoutsModule } from './layouts/layouts.module';
       load: [configuration],
       validate: validateEnv,
       envFilePath: ['.env'],
+      // Test bootstrap supplies a local, isolated environment; never reload production URLs.
+      ignoreEnvFile: process.env.NODE_ENV === 'test',
     }),
     DatabaseModule,
     LayoutsModule,

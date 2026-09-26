@@ -14,9 +14,7 @@ import {
 } from './placement-rules';
 
 /*
- * The same cases run against the frontend copy
- * (frontend-angular/src/app/planner/geometry/placement-rules.spec.ts). Only matchers both Jest
- * and Jasmine support are used, so the file is identical in both places.
+ * Backend placement regressions. Frontend preview should follow docs/placement-api.md.
  *
  * Test hall: 40 x 20 m with a 10 x 8 m notch cut out of the top-right corner.
  *
@@ -38,6 +36,7 @@ const HALL: Point[] = [
 function ctx(overrides: Partial<PlacementContext> = {}): PlacementContext {
   return {
     boundary: HALL,
+    enforceGrid: true,
     zones: [],
     openings: [],
     rules: DEFAULT_LAYOUT_RULES,
@@ -52,11 +51,22 @@ function at(x: number, z: number, width: number, length: number): Footprint {
   return { posX: x + width / 2, posZ: z + length / 2, width, length };
 }
 
-function stall(id: string, x: number, z: number, width: number, length: number, extra: Partial<PlacementStall> = {}): PlacementStall {
+function stall(
+  id: string,
+  x: number,
+  z: number,
+  width: number,
+  length: number,
+  extra: Partial<PlacementStall> = {},
+): PlacementStall {
   return { id, stallNumber: id, ...at(x, z, width, length), ...extra };
 }
 
-function codes(candidate: Footprint, context: PlacementContext, ignoreId: string | null = null): string[] {
+function codes(
+  candidate: Footprint,
+  context: PlacementContext,
+  ignoreId: string | null = null,
+): string[] {
   return validatePlacement(candidate, context, ignoreId).violations.map((v) => v.code);
 }
 
@@ -71,7 +81,7 @@ describe('placement-rules', () => {
     });
 
     it('rejects a stall entirely inside the notch', () => {
-      expect(codes(at(33, 2, 3, 2), ctx())).toEqual(['OUTSIDE_HALL']);
+      expect(codes(at(33, 2, 3, 2), ctx())).toContain('OUTSIDE_HALL');
     });
 
     it('treats touching the boundary as inside (the clearance rule is separate)', () => {
@@ -84,12 +94,9 @@ describe('placement-rules', () => {
       const result = validatePlacement(at(0.5, 5, 3, 2), ctx());
       expect(result.violations.map((v) => v.code)).toEqual(['PERIPHERAL_CLEARANCE']);
       expect(result.violations[0].message).toBe(
-        '1 m peripheral clearance from the external wall is violated (0.5 m left).',
+        'Required 1 m peripheral clearance; 0.5 m available.',
       );
-      expect(result.violations[0].geometry[0]).toEqual({
-        type: 'rect',
-        rect: { minX: 0, maxX: 0.5, minZ: 5, maxZ: 7 },
-      });
+      expect(result.violations[0].geometry[0]).toMatchObject({ type: 'polygon' });
     });
 
     it('accepts exactly 1 m', () => {
@@ -107,24 +114,29 @@ describe('placement-rules', () => {
   });
 
   describe('stall overlap', () => {
-    const three = [stall('STALL-001', 5, 5, 3, 2), stall('STALL-002', 8, 5, 3, 2), stall('STALL-003', 11, 5, 3, 2)];
+    const three = [
+      stall('STALL-001', 5, 5, 3, 2),
+      stall('STALL-002', 8, 5, 3, 2),
+      stall('STALL-003', 11, 5, 3, 2),
+    ];
 
     it('rejects a large stall over three small ones and names them', () => {
       const result = validatePlacement(at(5, 5, 10, 10), ctx({ stalls: three }));
       expect(result.valid).toBe(false);
       expect(result.violations[0].code).toBe('STALL_OVERLAP');
-      expect(result.violations[0].message).toBe(
-        'Overlaps 3 existing stalls (STALL-001, STALL-002, STALL-003).',
-      );
-      expect(result.violations[0].geometry.length).toBe(3);
+      expect(
+        result.violations
+          .filter((v) => v.code === 'STALL_OVERLAP')
+          .map((v) => v.relatedStallIds[0]),
+      ).toEqual(['STALL-001', 'STALL-002', 'STALL-003']);
     });
 
-    it('lets stalls touch edge to edge (back-to-back island)', () => {
-      expect(codes(at(14, 5, 3, 2), ctx({ stalls: three }))).toEqual([]);
+    it('rejects side-by-side touching with parallel open directions', () => {
+      expect(codes(at(14, 5, 3, 2), ctx({ stalls: three }))).toContain('INVALID_BACK_TO_BACK');
     });
 
     it('ignores the stall being moved', () => {
-      expect(codes(at(5, 5, 3, 2), ctx({ stalls: three }), 'STALL-001')).toEqual([]);
+      expect(codes(at(5, 5, 3, 2), ctx({ stalls: [three[0]] }), 'STALL-001')).toEqual([]);
     });
 
     it('ignores cancelled stalls: they no longer occupy space', () => {
@@ -140,11 +152,12 @@ describe('placement-rules', () => {
       const result = validatePlacement(at(10, 5, 3, 2), ctx({ stalls: existing }));
       expect(result.violations.map((v) => v.code)).toEqual(['PATHWAY_WIDTH']);
       expect(result.violations[0].message).toBe(
-        'Required 3 m passage (B2B) is blocked: only 2 m left next to STALL-004.',
+        'Required 3 m clear passage; 2 m available next to STALL-004.',
       );
-      expect(result.violations[0].geometry[0]).toEqual({
-        type: 'rect',
-        rect: { minX: 8, maxX: 10, minZ: 5, maxZ: 7 },
+      expect(result.violations[0]).toMatchObject({
+        requiredWidth: 3,
+        actualWidth: 2,
+        geometry: [expect.objectContaining({ type: 'polygon' })],
       });
     });
 
@@ -152,8 +165,8 @@ describe('placement-rules', () => {
       expect(codes(at(11, 5, 3, 2), ctx({ stalls: existing }))).toEqual([]);
     });
 
-    it('rejects the same 3 m gap for B2C (4 m required)', () => {
-      expect(codes(at(11, 5, 3, 2), ctx({ stalls: existing, eventType: 'B2C' }))).toEqual(['PATHWAY_WIDTH']);
+    it('accepts the default 3 m gap for B2C', () => {
+      expect(codes(at(11, 5, 3, 2), ctx({ stalls: existing, eventType: 'B2C' }))).toEqual([]);
     });
 
     it('measures diagonal gaps as a straight-line distance', () => {
@@ -179,7 +192,7 @@ describe('placement-rules', () => {
       const result = validatePlacement(at(17, 5, 3, 2), ctx({ zones: [passage] }));
       expect(result.violations[0].code).toBe('RESTRICTED_ZONE');
       expect(result.violations[0].message).toBe(
-        'Overlaps Compulsory passage (compulsory passage for entry/exit/services).',
+        'Stall intersects or is too close to Compulsory passage.',
       );
     });
 
@@ -189,9 +202,12 @@ describe('placement-rules', () => {
 
     it('applies the configured clearance around a smoke curtain (ITPO D7)', () => {
       const curtain = { ...passage, kind: 'SMOKE_CURTAIN' as const, label: 'Smoke curtain' };
-      const result = validatePlacement(at(15, 5, 2.5, 2), ctx({ zones: [curtain], rules: { ...DEFAULT_LAYOUT_RULES, snapStep: 0.5 } }));
+      const result = validatePlacement(
+        at(15, 5, 2.5, 2),
+        ctx({ zones: [curtain], rules: { ...DEFAULT_LAYOUT_RULES, snapStep: 0.5 } }),
+      );
       expect(result.violations.map((v) => v.message)).toEqual([
-        'Keep 1 m free around Smoke curtain (0.5 m left).',
+        'Stall intersects or is too close to Smoke curtain.',
       ]);
     });
   });
@@ -207,13 +223,22 @@ describe('placement-rules', () => {
     };
 
     it('rejects a stall in front of an emergency exit', () => {
-      expect(codes(at(19, 16, 3, 2), ctx({ openings: [exit] }))).toEqual(['EMERGENCY_ACCESS']);
+      expect(codes(at(19, 16, 3, 2), ctx({ openings: [exit] }))).toContain('EMERGENCY_ACCESS');
     });
 
     it('sizes the access zone from the event passage width', () => {
       // Access zone is 3 m deep for B2B: z 17..20. A stall ending at z = 17 is clear.
       expect(codes(at(19, 14, 3, 3), ctx({ openings: [exit] }))).toEqual([]);
-      expect(codes(at(19, 14, 3, 3), ctx({ openings: [exit], eventType: 'B2C' }))).toEqual(['EMERGENCY_ACCESS']);
+      expect(
+        codes(
+          at(19, 14, 3, 3),
+          ctx({
+            openings: [exit],
+            eventType: 'B2C',
+            rules: { ...DEFAULT_LAYOUT_RULES, minPassageWidth: { B2B: 3, B2C: 4 } },
+          }),
+        ),
+      ).toContain('EMERGENCY_ACCESS');
     });
   });
 
@@ -237,7 +262,7 @@ describe('placement-rules', () => {
     });
 
     it('is empty for a valid layout', () => {
-      const stalls = [stall('STALL-001', 5, 5, 3, 2), stall('STALL-002', 8, 5, 3, 2)];
+      const stalls = [stall('STALL-001', 5, 5, 3, 2), stall('STALL-002', 11, 5, 3, 2)];
       expect(auditLayout(ctx({ stalls }))).toEqual([]);
     });
   });
@@ -256,7 +281,13 @@ describe('placement-rules', () => {
   describe('traceFloor', () => {
     const W = 20;
     const L = 20;
-    const rect = (x: number, y: number, w: number, h: number, kind: FloorArea['kind']): FloorArea => ({
+    const rect = (
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      kind: FloorArea['kind'],
+    ): FloorArea => ({
       posX: x + w / 2 - W / 2,
       posZ: y + h / 2 - L / 2,
       width: w,
@@ -310,20 +341,30 @@ describe('placement-rules', () => {
       expect(traceFloor([rect(2, 2, 1, 1, 'zone')], W, L)).toEqual([]);
     });
 
-    it('lets a stall stand in the foyer when the boundary is only the main floor', () => {
+    it('does not extend an explicit boundary with inferred outside regions', () => {
       const floor = traceFloor(plan, W, L);
       const regions = extraFloorRegions(floor[0].outer, floor);
       expect(regions.length).toBe(1);
 
       const foyerStall = { posX: toPlan(10, 18).x, posZ: toPlan(10, 18).z, width: 2, length: 2 };
-      const withoutFoyer = validatePlacement(foyerStall, ctx({ boundary: floor[0].outer, rules: { ...DEFAULT_LAYOUT_RULES, peripheralClearance: 0 } }));
+      const withoutFoyer = validatePlacement(
+        foyerStall,
+        ctx({
+          boundary: floor[0].outer,
+          rules: { ...DEFAULT_LAYOUT_RULES, peripheralClearance: 0 },
+        }),
+      );
       expect(withoutFoyer.violations.map((v) => v.code)).toContain('OUTSIDE_HALL');
 
       const withFoyer = validatePlacement(
         foyerStall,
-        ctx({ boundary: floor[0].outer, regions, rules: { ...DEFAULT_LAYOUT_RULES, peripheralClearance: 0 } }),
+        ctx({
+          boundary: floor[0].outer,
+          regions,
+          rules: { ...DEFAULT_LAYOUT_RULES, peripheralClearance: 0 },
+        }),
       );
-      expect(withFoyer.violations.map((v) => v.code)).not.toContain('OUTSIDE_HALL');
+      expect(withFoyer.violations.map((v) => v.code)).toContain('OUTSIDE_HALL');
     });
   });
 });

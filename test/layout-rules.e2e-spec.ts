@@ -43,7 +43,14 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
     rules: {},
   };
   const stall = (posX: number, extra: object = {}) => ({
-    name: 'Shop', width: 3, length: 2, height: 4, posX, posZ: 0, gateSide: 'FRONT', ...extra,
+    name: 'Shop',
+    width: 3,
+    length: 2,
+    height: 4,
+    posX,
+    posZ: 0,
+    gateSide: 'FRONT',
+    ...extra,
   });
 
   beforeAll(async () => {
@@ -72,8 +79,18 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
 
   it('GET /api/stall-types serves the configured sizes', async () => {
     const res = await http().get('/api/stall-types').expect(200);
-    expect(res.body.map((t: { id: string }) => t.id)).toEqual(['stall-3x2', 'stall-4x2', 'stall-10x10']);
-    expect(res.body[0]).toEqual({ id: 'stall-3x2', label: '3 × 2', width: 3, height: 2, unit: 'meter' });
+    expect(res.body.map((t: { id: string }) => t.id)).toEqual([
+      'stall-3x2',
+      'stall-4x2',
+      'stall-10x10',
+    ]);
+    expect(res.body[0]).toEqual({
+      id: 'stall-3x2',
+      label: '3 × 2',
+      width: 3,
+      height: 2,
+      unit: 'meter',
+    });
   });
 
   it('rejects a placement with 400, a readable message and structured violations', async () => {
@@ -86,16 +103,14 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
       success: false,
       status: 400,
       message:
-        'Stall 0 (Shop) placement rejected: Overlaps Compulsory passage (compulsory passage for entry/exit/services).',
+        'Stall 0 (Shop) placement rejected: Stall intersects or is too close to Compulsory passage.',
       violations: [
         expect.objectContaining({
           stallIndex: 0,
           stallNumber: null,
           code: 'RESTRICTED_ZONE',
-          ruleRef: 'ITPO D2',
-          geometry: expect.arrayContaining([
-            { type: 'rect', rect: { minX: 10, maxX: 12, minZ: -1, maxZ: 1 } },
-          ]),
+          ruleRef: 'Placement',
+          geometry: expect.arrayContaining([expect.objectContaining({ type: 'polygon' })]),
         }),
       ],
     });
@@ -105,7 +120,7 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
   it('keeps stall numbers across PUT, never reuses one, and persists cancellation', async () => {
     const saved = await http()
       .post('/api/layout/save')
-      .send({ layoutName: 'L', hall: ruledHall, stalls: [stall(-10), stall(-7), stall(-4)] })
+      .send({ layoutName: 'L', hall: ruledHall, stalls: [stall(-12), stall(-6), stall(0)] })
       .expect(201);
     const id = saved.body.layout.id;
     expect(saved.body.stalls.map((s: { stallNumber: string }) => s.stallNumber)).toEqual([
@@ -121,12 +136,14 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
       .send({
         layoutName: 'L',
         hall: ruledHall,
-        stalls: [one, { ...two, status: 'CANCELLED' }, stall(-1)],
+        stalls: [one, { ...two, status: 'CANCELLED' }, stall(0)],
       })
       .expect(200);
 
     expect(
-      updated.body.stalls.map((s: { stallNumber: string; status: string }) => `${s.stallNumber}:${s.status}`),
+      updated.body.stalls.map(
+        (s: { stallNumber: string; status: string }) => `${s.stallNumber}:${s.status}`,
+      ),
     ).toEqual(['STALL-001:AVAILABLE', 'STALL-002:CANCELLED', 'STALL-004:AVAILABLE']);
 
     const rows = await db.query(`SELECT next_stall_seq AS seq FROM layouts WHERE id = $1`, [id]);
@@ -144,7 +161,12 @@ describe('Layout rules API (e2e, real PostgreSQL)', () => {
     await http()
       .put(`/api/layout/${id}`)
       .send({ layoutName: 'L', hall: ruledHall, stalls: saved.body.stalls })
-      .expect(200);
+      .expect(400);
+    // Simulate legacy data imported before validation, then audit it without mutation.
+    await db.query('UPDATE hall SET rules = $1 WHERE id = $2', [
+      JSON.stringify({}),
+      saved.body.hall.id,
+    ]);
 
     const audit = await http().post(`/api/layout/${id}/validate`).expect(200);
     expect(audit.body).toMatchObject({ layoutId: id, ruleDriven: true, valid: false });

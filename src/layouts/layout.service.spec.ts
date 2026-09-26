@@ -16,23 +16,61 @@ function aggregateFrom(write: LayoutWrite, layoutId = 1000): LayoutAggregate {
 }
 
 /** A stored layout with these stalls, for update() and audit(). */
-function existing(stalls: Array<Record<string, unknown>>, hall: Record<string, unknown> = {}, nextStallSeq = stalls.length + 1): LayoutAggregate {
+function existing(
+  stalls: Array<Record<string, unknown>>,
+  hall: Record<string, unknown> = {},
+  nextStallSeq = stalls.length + 1,
+): LayoutAggregate {
   return {
-    layout: { id: 1000, name: 'x', hallWidth: 40, hallLength: 40, hallHeight: 0, hallId: 1000, eventType: 'B2B', nextStallSeq } as never,
-    hall: { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, ...hall } as never,
-    stalls: stalls.map((s, i) => ({ id: 2000 + i, layoutId: 1000, height: 4, status: 'AVAILABLE', ...s })) as never,
+    layout: {
+      id: 1000,
+      name: 'x',
+      hallWidth: 40,
+      hallLength: 40,
+      hallHeight: 0,
+      hallId: 1000,
+      eventType: 'B2B',
+      nextStallSeq,
+    } as never,
+    hall: {
+      id: 1000,
+      name: 'Main Hall',
+      shape: 'SQUARE',
+      width: 40,
+      length: 40,
+      radius: 0,
+      ...hall,
+    } as never,
+    stalls: stalls.map((s, i) => ({
+      id: 2000 + i,
+      layoutId: 1000,
+      height: 4,
+      status: 'AVAILABLE',
+      ...s,
+    })) as never,
   };
 }
 
 function setup(maxStalls = 2000) {
   const repo = {
     create: jest.fn(async (w: LayoutWrite) => aggregateFrom(w)),
-    replace: jest.fn(async (id: number, w: LayoutWrite) => aggregateFrom(w, id)),
+    replace: jest.fn<
+      ReturnType<LayoutRepository['replace']>,
+      Parameters<LayoutRepository['replace']>
+    >(),
+    lastWrite: undefined as LayoutWrite | undefined,
     // update() reads the current layout first (BR-25); by default it exists and is empty.
     findById: jest.fn(async (): Promise<LayoutAggregate | null> => existing([])),
     delete: jest.fn(),
     listSummaries: jest.fn(),
   };
+  repo.replace.mockImplementation(async (id, build) => {
+    const current = await repo.findById();
+    if (!current) return null;
+    const write = await build(current, {} as never);
+    repo.lastWrite = write ?? undefined;
+    return write ? aggregateFrom(write, id) : current;
+  });
   const config = { getOrThrow: () => ({ maxStallsPerLayout: maxStalls }) };
   const service = new LayoutService(
     repo as unknown as LayoutRepository,
@@ -63,7 +101,10 @@ describe('LayoutService', () => {
       async (layoutName) => {
         const { repo, service } = setup();
         await service.save(
-          request({ layoutName, hall: { name: '  Main Hall ', shape: 'SQUARE', width: 40, length: 40 } }),
+          request({
+            layoutName,
+            hall: { name: '  Main Hall ', shape: 'SQUARE', width: 40, length: 40 },
+          }),
         );
 
         expect(repo.create.mock.calls[0][0].name).toBe('Main Hall');
@@ -84,16 +125,44 @@ describe('LayoutService', () => {
       await service.save(
         request({
           stalls: [
-            { name: '  ', width: 5, length: 5, height: 4, posX: 0, posZ: 0, color: '', gateSide: null },
-            { name: ' Cafe ', width: 5, length: 5, height: 4, posX: 8, posZ: 0, color: ' #fff ', gateSide: ' left ' },
+            {
+              name: '  ',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 0,
+              posZ: 0,
+              color: '',
+              gateSide: null,
+            },
+            {
+              name: ' Cafe ',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 8,
+              posZ: 0,
+              color: ' #fff ',
+              gateSide: ' left ',
+            },
           ],
         }),
       );
 
       const [first, second] = repo.create.mock.calls[0][0].stalls;
 
-      expect(first).toMatchObject({ name: 'Shop', color: '#3498db', gateSide: 'FRONT', openSides: ['FRONT'] });
-      expect(second).toMatchObject({ name: 'Cafe', color: ' #fff ', gateSide: 'LEFT', openSides: ['LEFT'] });
+      expect(first).toMatchObject({
+        name: 'Shop',
+        color: '#3498db',
+        gateSide: 'FRONT',
+        openSides: ['FRONT'],
+      });
+      expect(second).toMatchObject({
+        name: 'Cafe',
+        color: ' #fff ',
+        gateSide: 'LEFT',
+        openSides: ['LEFT'],
+      });
     });
   });
 
@@ -103,7 +172,16 @@ describe('LayoutService', () => {
       await service.save(
         request({
           stalls: [
-            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, gateSide: 'BACK', openSides: ['LEFT', 'BACK'] },
+            {
+              name: 'A',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 0,
+              posZ: 0,
+              gateSide: 'BACK',
+              openSides: ['LEFT', 'BACK'],
+            },
           ],
         }),
       );
@@ -119,8 +197,26 @@ describe('LayoutService', () => {
       await service.save(
         request({
           stalls: [
-            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, gateSide: 'RIGHT', openSides: ['right', 'RIGHT'] },
-            { name: 'B', width: 5, length: 5, height: 4, posX: 8, posZ: 0, gateSide: 'left', openSides: [] },
+            {
+              name: 'A',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 0,
+              posZ: 0,
+              gateSide: 'RIGHT',
+              openSides: ['right', 'RIGHT'],
+            },
+            {
+              name: 'B',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 8,
+              posZ: 0,
+              gateSide: 'left',
+              openSides: [],
+            },
           ],
         }),
       );
@@ -136,7 +232,15 @@ describe('LayoutService', () => {
       const result = await service.save(
         request({
           stalls: [
-            { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, openSides: ['FRONT', 'RIGHT'] },
+            {
+              name: 'A',
+              width: 5,
+              length: 5,
+              height: 4,
+              posX: 0,
+              posZ: 0,
+              openSides: ['FRONT', 'RIGHT'],
+            },
           ],
         }),
       );
@@ -150,7 +254,20 @@ describe('LayoutService', () => {
         name: 'x',
         hall: {} as never,
         stalls: [
-          { name: 'A', width: 5, length: 5, height: 4, posX: 0, posZ: 0, color: '#3498db', gateSide: 'BACK', openSides: [] as string[], stallNumber: 'STALL-001', status: 'AVAILABLE', stallTypeId: null },
+          {
+            name: 'A',
+            width: 5,
+            length: 5,
+            height: 4,
+            posX: 0,
+            posZ: 0,
+            color: '#3498db',
+            gateSide: 'BACK',
+            openSides: [] as string[],
+            stallNumber: 'STALL-001',
+            status: 'AVAILABLE',
+            stallTypeId: null,
+          },
         ],
         hallWidth: 0,
         hallLength: 0,
@@ -208,7 +325,11 @@ describe('LayoutService', () => {
       const { repo, service } = setup();
       const areas = [{ posX: 0, posZ: 0, width: 10, length: 4, kind: 'wall', color: '#742371' }];
 
-      await service.save(request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas } }));
+      await service.save(
+        request({
+          hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas },
+        }),
+      );
       expect(repo.create.mock.calls[0][0].hall.blockedAreas).toEqual(areas);
 
       await service.save(request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40 } }));
@@ -219,7 +340,9 @@ describe('LayoutService', () => {
       const { service } = setup();
       const areas = [{ posX: 1, posZ: 2, width: 3, length: 4, kind: 'outside', color: '#ffffff' }];
       const result = await service.save(
-        request({ hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas } }),
+        request({
+          hall: { name: 'H', shape: 'SQUARE', width: 40, length: 40, blockedAreas: areas },
+        }),
       );
 
       expect(result.hall?.blockedAreas).toEqual(areas);
@@ -237,8 +360,22 @@ describe('LayoutService', () => {
       expect(result.layout.hall).toEqual(result.hall);
       expect(result.layout.stalls).toEqual(result.stalls);
       expect(Object.keys(result.stalls[0])).toEqual([
-        'id', 'name', 'width', 'length', 'height', 'posX', 'posZ', 'color', 'gateSide', 'openSides',
-        'stallNumber', 'status', 'stallTypeId',
+        'id',
+        'rotation',
+        'parentStallNumber',
+        'isSplitParent',
+        'name',
+        'width',
+        'length',
+        'height',
+        'posX',
+        'posZ',
+        'color',
+        'gateSide',
+        'openSides',
+        'stallNumber',
+        'status',
+        'stallTypeId',
       ]);
     });
 
@@ -250,7 +387,17 @@ describe('LayoutService', () => {
 
     it('get: message is null', async () => {
       const { repo, service } = setup();
-      repo.findById.mockResolvedValue(aggregateFrom({ ...({} as LayoutWrite), name: 'x', hall: {} as never, stalls: [], hallWidth: 0, hallLength: 0, hallHeight: 0 }));
+      repo.findById.mockResolvedValue(
+        aggregateFrom({
+          ...({} as LayoutWrite),
+          name: 'x',
+          hall: {} as never,
+          stalls: [],
+          hallWidth: 0,
+          hallLength: 0,
+          hallHeight: 0,
+        }),
+      );
 
       expect((await service.get(1000)).message).toBeNull();
     });
@@ -297,7 +444,14 @@ describe('LayoutService', () => {
 
   it('R-07 rejects more stalls than the configured maximum before validating them', async () => {
     const { service } = setup(2);
-    const stalls = [0, 8, 16].map((posX) => ({ name: 'S', width: 5, length: 5, height: 4, posX, posZ: 0 }));
+    const stalls = [0, 8, 16].map((posX) => ({
+      name: 'S',
+      width: 5,
+      length: 5,
+      height: 4,
+      posX,
+      posZ: 0,
+    }));
 
     await expect(service.save(request({ stalls }))).rejects.toThrow(
       'Too many stalls: 3. Maximum is 2.',
@@ -335,7 +489,9 @@ describe('LayoutService — rule-driven halls', () => {
   describe('BR-25 stable stall numbers', () => {
     it('save numbers every stall from STALL-001 and stores the next sequence', async () => {
       const { repo, service } = setup();
-      const result = await service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(10)] }));
+      const result = await service.save(
+        request({ hall: ruledHall, stalls: [stallAt(0), stallAt(10)] }),
+      );
 
       expect(result.stalls.map((s) => s.stallNumber)).toEqual(['STALL-001', 'STALL-002']);
       expect(repo.create.mock.calls[0][0].nextStallSeq).toBe(3);
@@ -367,27 +523,38 @@ describe('LayoutService — rule-driven halls', () => {
         }),
       );
 
-      expect(result.stalls.map((s) => s.stallNumber)).toEqual(['STALL-001', 'STALL-003', 'STALL-004']);
-      expect(repo.replace.mock.calls[0][1].nextStallSeq).toBe(5);
+      expect(result.stalls.map((s) => s.stallNumber)).toEqual([
+        'STALL-001',
+        'STALL-003',
+        'STALL-004',
+      ]);
+      expect(repo.lastWrite?.nextStallSeq).toBe(5);
     });
 
     it('a cancelled stall keeps its number and status', async () => {
       const { repo, service } = setup();
-      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall));
+      repo.findById.mockResolvedValue(
+        existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall),
+      );
 
       const result = await service.update(
         1000,
-        request({ hall: ruledHall, stalls: [stallAt(0, { stallNumber: 'STALL-001', status: 'cancelled' })] }),
+        request({
+          hall: ruledHall,
+          stalls: [stallAt(0, { stallNumber: 'STALL-001', status: 'cancelled' })],
+        }),
       );
 
-      expect(result.stalls[0]).toEqual(expect.objectContaining({ stallNumber: 'STALL-001', status: 'CANCELLED' }));
+      expect(result.stalls[0]).toEqual(
+        expect.objectContaining({ stallNumber: 'STALL-001', status: 'CANCELLED' }),
+      );
     });
 
-    it('a number the layout never issued is replaced, so clients cannot pick numbers', async () => {
+    it('accepts an explicit parent identifier on creation', async () => {
       const { service } = setup();
-      const result = await service.save(request({ stalls: [stallAt(0, { stallNumber: 'STALL-999' })] }));
+      const result = await service.save(request({ stalls: [stallAt(0, { stallNumber: '5-10' })] }));
 
-      expect(result.stalls[0].stallNumber).toBe('STALL-001');
+      expect(result.stalls[0].stallNumber).toBe('5-10');
     });
 
     it('rejects the same issued number on two stalls', async () => {
@@ -397,7 +564,12 @@ describe('LayoutService — rule-driven halls', () => {
       await expect(
         service.update(
           1000,
-          request({ stalls: [stallAt(-10, { stallNumber: 'STALL-001' }), stallAt(10, { stallNumber: 'STALL-001' })] }),
+          request({
+            stalls: [
+              stallAt(-10, { stallNumber: 'STALL-001' }),
+              stallAt(10, { stallNumber: 'STALL-001' }),
+            ],
+          }),
         ),
       ).rejects.toThrow('Stall number STALL-001 is used by more than one stall.');
     });
@@ -413,47 +585,63 @@ describe('LayoutService — rule-driven halls', () => {
       expect(error).toBeInstanceOf(PlacementRejectedError);
       const rejected = error as PlacementRejectedError;
       expect(rejected.message).toBe(
-        'Stall 0 (S) placement rejected: Required 3 m passage (B2B) is blocked: only 2 m left next to an unsaved stall.',
+        'Stall 0 (S) placement rejected: Required 3 m clear passage; 2 m available next to 1.',
       );
       expect(rejected.violations[0]).toEqual(
         expect.objectContaining({
           stallIndex: 0,
           code: 'PATHWAY_WIDTH',
-          ruleRef: 'ITPO D1',
-          geometry: [{ type: 'rect', rect: { minX: 1.5, maxX: 3.5, minZ: -1, maxZ: 1 } }],
+          ruleRef: 'Placement',
+          requiredWidth: 3,
+          actualWidth: 2,
+          geometry: [expect.objectContaining({ type: 'polygon' })],
         }),
       );
       expect(repo.create).not.toHaveBeenCalled();
     });
 
-    it('does not block an existing stall that has not moved, even if it breaks a rule', async () => {
+    it('blocks an unchanged existing stall if it breaks a rule', async () => {
       const { repo, service } = setup();
       // STALL-001 touches the wall (0 m < 1 m peripheral) — existing state, reported by audit.
-      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(-18.5) }], ruledHall));
+      repo.findById.mockResolvedValue(
+        existing([{ stallNumber: 'STALL-001', ...stallAt(-18.5) }], ruledHall),
+      );
 
       await expect(
-        service.update(1000, request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] })),
-      ).resolves.toBeDefined();
+        service.update(
+          1000,
+          request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] }),
+        ),
+      ).rejects.toThrow(PlacementRejectedError);
     });
 
     it('checks the same stall once it is moved', async () => {
       const { repo, service } = setup();
-      repo.findById.mockResolvedValue(existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall));
+      repo.findById.mockResolvedValue(
+        existing([{ stallNumber: 'STALL-001', ...stallAt(0) }], ruledHall),
+      );
 
       await expect(
-        service.update(1000, request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] })),
-      ).rejects.toThrow('1 m peripheral clearance from the external wall is violated (0 m left).');
+        service.update(
+          1000,
+          request({ hall: ruledHall, stalls: [stallAt(-18.5, { stallNumber: 'STALL-001' })] }),
+        ),
+      ).rejects.toThrow('Required 1 m peripheral clearance; 0 m available.');
     });
 
-    it('does not apply to halls without rules', async () => {
+    it('applies to halls without rules', async () => {
       const { service } = setup();
-      await expect(service.save(request({ stalls: [stallAt(0), stallAt(5)] }))).resolves.toBeDefined();
+      await expect(service.save(request({ stalls: [stallAt(0), stallAt(5)] }))).rejects.toThrow(
+        PlacementRejectedError,
+      );
     });
 
     it('can be skipped by trusted imports of existing production placements', async () => {
       const { service } = setup();
       await expect(
-        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }), { skipPlacementRules: true }),
+        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }), {
+          skipPlacementRules: true,
+        }),
       ).resolves.toBeDefined();
     });
 
@@ -469,7 +657,13 @@ describe('LayoutService — rule-driven halls', () => {
     it('reports existing problems without blocking', async () => {
       const { repo, service } = setup();
       repo.findById.mockResolvedValue(
-        existing([{ stallNumber: 'STALL-001', ...stallAt(0) }, { stallNumber: 'STALL-002', ...stallAt(5) }], ruledHall),
+        existing(
+          [
+            { stallNumber: 'STALL-001', ...stallAt(0) },
+            { stallNumber: 'STALL-002', ...stallAt(5) },
+          ],
+          ruledHall,
+        ),
       );
 
       const audit = await service.audit(1000);
@@ -479,9 +673,14 @@ describe('LayoutService — rule-driven halls', () => {
       expect(audit.entries).toEqual([expect.objectContaining({ stallNumber: 'STALL-001' })]);
     });
 
-    it('is not rule-driven for a hall without rules', async () => {
+    it('audits even a hall without explicit rules', async () => {
       const { service } = setup();
-      expect(await service.audit(1000)).toEqual({ layoutId: 1000, ruleDriven: false, valid: true, entries: [] });
+      expect(await service.audit(1000)).toEqual({
+        layoutId: 1000,
+        ruleDriven: true,
+        valid: true,
+        entries: [],
+      });
     });
   });
 
@@ -496,20 +695,24 @@ describe('LayoutService — rule-driven halls', () => {
     it('rejects an unknown zone kind', async () => {
       const { service } = setup();
       await expect(
-        service.save(request({ hall: { ...ruledHall, zones: [{ id: 'z', kind: 'LAVA', polygon: [] }] } })),
+        service.save(
+          request({ hall: { ...ruledHall, zones: [{ id: 'z', kind: 'LAVA', polygon: [] }] } }),
+        ),
       ).rejects.toThrow('Zone 0 has an unknown kind.');
     });
 
     it('rejects an unknown stall status', async () => {
       const { service } = setup();
-      await expect(service.save(request({ stalls: [stallAt(0, { status: 'SOLD' })] }))).rejects.toThrow(
-        'status must be AVAILABLE, BOOKED or CANCELLED.',
-      );
+      await expect(
+        service.save(request({ stalls: [stallAt(0, { status: 'SOLD' })] })),
+      ).rejects.toThrow('status must be AVAILABLE, BOOKED or CANCELLED.');
     });
 
     it('rejects an unknown event type', async () => {
       const { service } = setup();
-      await expect(service.save(request({ eventType: 'B2X' }))).rejects.toThrow('eventType must be B2B or B2C.');
+      await expect(service.save(request({ eventType: 'B2X' }))).rejects.toThrow(
+        'eventType must be B2B or B2C.',
+      );
     });
   });
 });

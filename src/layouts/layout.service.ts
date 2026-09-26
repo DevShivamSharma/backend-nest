@@ -1,3 +1,8 @@
+import { assertPlacements } from './placement/assert-placements';
+import { createHash } from 'node:crypto';
+import { contained, ring, stallPolygon } from './placement/polygon-geometry';
+import { splitSuffix } from './split-numbering';
+import { DataIntegrityDomainError } from '../common/errors/domain.errors';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -10,7 +15,12 @@ import type {
   LayoutSummaryResponse,
   StallResponse,
 } from './dto/layout-response.dto';
-import type { HallDto, LayoutSaveRequestDto, StallDto } from './dto/layout-save-request.dto';
+import type {
+  HallDto,
+  LayoutSaveRequestDto,
+  StallDto,
+  SplitStallDto,
+} from './dto/layout-save-request.dto';
 import type { HallEntity } from './entities/hall.entity';
 import type { BlockedArea } from './entities/hall.entity';
 import type { StallEntity } from './entities/stall.entity';
@@ -33,7 +43,6 @@ import {
   buildPlacementContext,
   effectiveRules,
   hallGeometryResponse,
-  isRuleDriven,
   normalizeEventType,
   normalizeStatus,
   validateHallGeometry,
@@ -44,7 +53,6 @@ import {
   Footprint,
   formatStallNumber,
   PlacementStall,
-  validatePlacement,
 } from './placement/placement-rules';
 
 /** Options for trusted callers only (seed scripts); never reachable from HTTP. */
@@ -71,12 +79,15 @@ export class LayoutService {
     this.maxStalls = config.getOrThrow<LimitsConfig>('limits').maxStallsPerLayout;
   }
 
-  async save(request: LayoutSaveRequestDto, options: WriteOptions = {}): Promise<LayoutDetailResponse> {
+  async save(
+    request: LayoutSaveRequestDto,
+    options: WriteOptions = {},
+  ): Promise<LayoutDetailResponse> {
     const write = this.validateAndBuild(request);
 
-    // A new layout owns no stall numbers yet: every stall is new, numbered from 1.
-    keepExistingNumbers(write, new Set());
-    if (!options.skipPlacementRules) assertPlacementRules(write, new Map());
+    // Keep explicit section identifiers; assign generated numbers only where absent.
+    validateNumbers(write);
+    if (!options.skipPlacementRules) assertPlacementRules(write);
     write.nextStallSeq = assignNewNumbers(write, 1);
 
     const saved = await this.layouts.create(write);
@@ -105,19 +116,27 @@ export class LayoutService {
     // A bad body for a missing id therefore reports the validation error, not "not found".
     const write = this.validateAndBuild(request);
 
-    const current = await this.layouts.findById(id);
-    if (current === null) throw notFound(id);
-
-    // BR-25: numbers the layout already issued survive the stall re-insert (ADR-012).
-    const issued = new Map<string, Footprint>();
-    for (const stall of current.stalls) {
-      if (stall.stallNumber) issued.set(stall.stallNumber, stall);
-    }
-    keepExistingNumbers(write, new Set(issued.keys()));
-    if (!options.skipPlacementRules) assertPlacementRules(write, issued);
-    write.nextStallSeq = assignNewNumbers(write, current.layout.nextStallSeq);
-
-    const saved = await this.layouts.replace(id, write);
+    const saved = await this.layouts.replace(id, async (current) => {
+      const issued = new Map(
+        current.stalls.filter((s) => s.stallNumber).map((s) => [s.stallNumber!, s]),
+      );
+      keepExistingNumbers(write, new Set(issued.keys()));
+      for (const stall of write.stalls) {
+        const before = stall.stallNumber ? issued.get(stall.stallNumber) : undefined;
+        stall.parentStallNumber = before?.parentStallNumber ?? null;
+        stall.isSplitParent = before?.isSplitParent ?? false;
+      }
+      for (const parent of current.stalls.filter((s) => s.isSplitParent)) {
+        const after = write.stalls.find((s) => s.stallNumber === parent.stallNumber);
+        if (!after || after.status !== 'CANCELLED' || !sameFootprint(parent, after))
+          throw new DataIntegrityDomainError(
+            'Split parents must be retained, cancelled and geometrically unchanged.',
+          );
+      }
+      if (!options.skipPlacementRules) assertPlacementRules(write);
+      write.nextStallSeq = assignNewNumbers(write, current.layout.nextStallSeq);
+      return write;
+    });
     if (saved === null) throw notFound(id);
 
     return toDetail(saved, 'Layout updated successfully.');
@@ -131,11 +150,12 @@ export class LayoutService {
     const found = await this.layouts.findById(id);
     if (found === null) throw notFound(id);
 
-    if (found.hall === null || !isRuleDriven(found.hall)) {
+    if (found.hall === null) {
       return { layoutId: id, ruleDriven: false, valid: true, entries: [] };
     }
 
     const stalls: PlacementStall[] = found.stalls.map((s) => ({
+      ...s,
       id: String(s.id),
       stallNumber: s.stallNumber,
       status: s.status,
@@ -149,6 +169,99 @@ export class LayoutService {
     );
 
     return { layoutId: id, ruleDriven: true, valid: entries.length === 0, entries };
+  }
+
+  async split(
+    id: number,
+    parentNumber: string,
+    request: SplitStallDto,
+  ): Promise<LayoutDetailResponse> {
+    if (
+      !request ||
+      typeof request.idempotencyKey !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(request.idempotencyKey)
+    )
+      throw new BadRequestDomainError(
+        'idempotencyKey must contain 1–128 letters, digits, underscores or hyphens.',
+      );
+    if (
+      !Array.isArray(request.children) ||
+      request.children.length < 2 ||
+      request.children.length > this.maxStalls
+    )
+      throw new BadRequestDomainError(`Split requires 2–${this.maxStalls} children.`);
+    const hash = createHash('sha256')
+      .update(JSON.stringify(canonical(request.children)))
+      .digest('hex');
+    const saved = await this.layouts.replace(id, async (current, manager) => {
+      const prior = await manager.query(
+        'SELECT parent_number, request_hash FROM layout_splits WHERE layout_id = $1 AND idempotency_key = $2',
+        [id, request.idempotencyKey],
+      );
+      if (prior.length) {
+        if (prior[0].parent_number !== parentNumber || prior[0].request_hash !== hash)
+          throw new DataIntegrityDomainError(
+            'Idempotency key was already used with a different split request.',
+          );
+        return null;
+      }
+      const parent = current.stalls.find((s) => s.stallNumber === parentNumber);
+      if (!parent) throw new BadRequestDomainError(`Parent stall not found: ${parentNumber}`);
+      if (parent.isSplitParent || parent.status === 'CANCELLED')
+        throw new DataIntegrityDomainError('Parent has already been split or cancelled.');
+      if (!current.hall) throw new BadRequestDomainError('Hall data is required.');
+      const children = request.children.map((child, index) => ({
+        ...child,
+        stallNumber: `${parentNumber}-${splitSuffix(index)}`,
+      }));
+      const write = this.validateAndBuild({
+        layoutName: current.layout.name,
+        eventType: current.layout.eventType,
+        hall: toHallResponse(current.hall) as HallDto,
+        stalls: [
+          ...current.stalls.map((s) => ({ ...s, status: s === parent ? 'CANCELLED' : s.status })),
+          ...children,
+        ],
+      });
+      for (let i = 0; i < current.stalls.length; i++) {
+        write.stalls[i].parentStallNumber = current.stalls[i].parentStallNumber;
+        write.stalls[i].isSplitParent =
+          current.stalls[i].isSplitParent || current.stalls[i] === parent;
+      }
+      for (const child of write.stalls.slice(current.stalls.length)) {
+        if (child.status === 'CANCELLED')
+          throw new BadRequestDomainError('Split children must be active stalls.');
+        child.parentStallNumber = parentNumber;
+        if (!contained(stallPolygon(child), [ring(stallPolygon(parent))]))
+          throw new PlacementRejectedError(
+            'Split children must stay inside the parent footprint.',
+            [
+              {
+                code: 'SPLIT_OUTSIDE_PARENT',
+                stallNumber: child.stallNumber,
+                parentStallNumber: parentNumber,
+              },
+            ],
+          );
+      }
+      validateNumbers(write);
+      assertPlacementRules(write);
+      write.nextStallSeq = current.layout.nextStallSeq;
+      await manager.query(
+        'INSERT INTO layout_splits(layout_id, parent_number, idempotency_key, request_hash, parent_snapshot, child_numbers) VALUES ($1,$2,$3,$4,$5,$6)',
+        [
+          id,
+          parentNumber,
+          request.idempotencyKey,
+          hash,
+          JSON.stringify(parent),
+          JSON.stringify(children.map((c) => c.stallNumber)),
+        ],
+      );
+      return write;
+    });
+    if (!saved) throw notFound(id);
+    return toDetail(saved, 'Stall split successfully.');
   }
 
   async delete(id: number): Promise<void> {
@@ -213,64 +326,46 @@ function keepExistingNumbers(write: LayoutWrite, issued: ReadonlySet<string>): v
 function assignNewNumbers(write: LayoutWrite, nextSeq: number): number {
   const prefix = effectiveRules(write.hall.rules).stallNumberPrefix;
   let seq = Math.max(1, nextSeq);
+  for (const stall of write.stalls) {
+    if (stall.stallNumber?.startsWith(prefix)) {
+      const suffix = stall.stallNumber.slice(prefix.length);
+      if (/^\d+$/.test(suffix)) {
+        const value = Number(suffix);
+        if (!Number.isSafeInteger(value) || value >= 2147483646)
+          throw new BadRequestDomainError(
+            'Numeric stall identifier exceeds the sequence capacity.',
+          );
+        seq = Math.max(seq, value + 1);
+      }
+    }
+  }
 
   for (const stall of write.stalls) {
     if (stall.stallNumber === null) {
-      stall.stallNumber = formatStallNumber(prefix, seq);
-      seq++;
+      do {
+        stall.stallNumber = formatStallNumber(prefix, seq++);
+      } while (
+        write.stalls.some((other) => other !== stall && other.stallNumber === stall.stallNumber)
+      );
     }
   }
 
   return seq;
 }
 
-/**
- * BR-24. For a rule-driven hall, every stall that is new, moved or resized must pass every
- * placement rule. A stall that keeps an issued number at the same footprint is existing layout
- * state: it is reported by audit() but not blocked (decision: block new/moved, report old).
- *
- * All failing stalls are reported, not only the first, each with WHAT is wrong and WHERE.
- */
-function assertPlacementRules(write: LayoutWrite, issued: ReadonlyMap<string, Footprint>): void {
-  if (!isRuleDriven(write.hall)) return;
-
-  // Stall ids are the request index: the client maps them back onto its own list.
-  const stalls: PlacementStall[] = write.stalls.map((s, i) => ({
-    id: String(i),
-    stallNumber: s.stallNumber,
-    status: s.status,
-    posX: s.posX,
-    posZ: s.posZ,
-    width: s.width,
-    length: s.length,
-  }));
-  const ctx = buildPlacementContext(write.hall, write.eventType as EventType, stalls);
-
-  const problems: Array<Record<string, unknown>> = [];
-  let firstMessage = '';
-
-  write.stalls.forEach((stall, index) => {
-    if (stall.status === 'CANCELLED') return;
-
-    const before = stall.stallNumber ? issued.get(stall.stallNumber) : undefined;
-    if (before && sameFootprint(before, stall)) return;
-
-    const result = validatePlacement(stall, ctx, String(index));
-    for (const violation of result.violations) {
-      if (!firstMessage) {
-        firstMessage = `Stall ${index} (${stall.name}) placement rejected: ${violation.message}`;
-      }
-      problems.push({ stallIndex: index, stallNumber: stall.stallNumber, ...violation });
-    }
-  });
-
-  if (problems.length) throw new PlacementRejectedError(firstMessage, problems);
+/** Validate the entire final state, including unchanged stalls and changed hall rules. */
+function assertPlacementRules(write: LayoutWrite): void {
+  assertPlacements(write.hall, write.eventType as EventType, write.stalls);
 }
 
 function sameFootprint(a: Footprint, b: Footprint): boolean {
   const close = (x: number, y: number): boolean => Math.abs(x - y) < 1e-6;
   return (
-    close(a.posX, b.posX) && close(a.posZ, b.posZ) && close(a.width, b.width) && close(a.length, b.length)
+    close(a.rotation ?? 0, b.rotation ?? 0) &&
+    close(a.posX, b.posX) &&
+    close(a.posZ, b.posZ) &&
+    close(a.width, b.width) &&
+    close(a.length, b.length)
   );
 }
 
@@ -318,6 +413,9 @@ function copyStalls(input: Array<StallDto | null> | null | undefined): StallWrit
     const openSides = normalizeOpenSidesList(stall.openSides, normalizeGate(stall.gateSide));
 
     output.push({
+      rotation: (((stall.rotation ?? 0) % 360) + 360) % 360,
+      parentStallNumber: null,
+      isSplitParent: false,
       name: isBlank(stall.name) ? 'Shop' : (stall.name as string).trim(),
       width: n(stall.width),
       length: n(stall.length),
@@ -356,6 +454,9 @@ function toHallResponse(hall: HallEntity | null): HallResponse | null {
 function toStallResponse(stall: StallEntity): StallResponse {
   return {
     id: stall.id,
+    rotation: stall.rotation ?? 0,
+    parentStallNumber: stall.parentStallNumber ?? null,
+    isSplitParent: stall.isSplitParent ?? false,
     name: stall.name,
     width: stall.width,
     length: stall.length,
@@ -396,4 +497,29 @@ function toDetail(aggregate: LayoutAggregate, message: string | null): LayoutDet
     hall,
     stalls,
   };
+}
+
+function validateNumbers(write: LayoutWrite): void {
+  const seen = new Set<string>();
+  for (const stall of write.stalls) {
+    const number = stall.stallNumber;
+    if (number === null) continue;
+    if (number.length > 255 || seen.has(number))
+      throw new PlacementRejectedError(
+        'Stall identifiers must be unique and at most 255 characters.',
+        [{ code: 'INVALID_STALL_IDENTIFIER', stallNumber: number }],
+      );
+    seen.add(number);
+  }
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, canonical(item)]),
+    );
+  return value;
 }

@@ -32,6 +32,9 @@ export interface HallWrite {
 }
 
 export interface StallWrite {
+  rotation?: number;
+  parentStallNumber?: string | null;
+  isSplitParent?: boolean;
   name: string;
   width: number;
   length: number;
@@ -101,7 +104,7 @@ export class LayoutRepository {
   }
 
   async findById(id: number): Promise<LayoutAggregate | null> {
-    return this.load(this.dataSource.manager, id);
+    return this.dataSource.transaction('REPEATABLE READ', (manager) => this.load(manager, id));
   }
 
   /**
@@ -111,11 +114,20 @@ export class LayoutRepository {
    *
    * Returns null when the layout does not exist.
    */
-  replace(id: number, write: LayoutWrite): Promise<LayoutAggregate | null> {
+  replace(
+    id: number,
+    build: (current: LayoutAggregate, manager: EntityManager) => Promise<LayoutWrite | null>,
+  ): Promise<LayoutAggregate | null> {
     return this.dataSource.transaction(async (manager) => {
-      const layout = await manager.findOneBy(LayoutEntity, { id });
-      if (layout === null) return null;
-
+      const locked = await manager.findOne(LayoutEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) return null;
+      const current = (await this.load(manager, id))!;
+      const write = await build(current, manager);
+      if (write === null) return current;
+      const layout = current.layout;
       const existingHall =
         layout.hallId === null ? null : await manager.findOneBy(HallEntity, { id: layout.hallId });
 
@@ -149,7 +161,10 @@ export class LayoutRepository {
    */
   delete(id: number): Promise<boolean> {
     return this.dataSource.transaction(async (manager) => {
-      const layout = await manager.findOneBy(LayoutEntity, { id });
+      const layout = await manager.findOne(LayoutEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (layout === null) return false;
 
       await manager.delete(StallEntity, { layoutId: id });

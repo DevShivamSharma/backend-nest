@@ -142,40 +142,8 @@ describe('validateLayoutRequest', () => {
     });
   });
 
-  describe('BR-11 hall boundary', () => {
-    it('rectangular: message carries index, name and Java-formatted doubles', () => {
-      expect(
-        messageOf({ hall: squareHall(), stalls: [stall({ name: 'Cafe', posX: -8, posZ: 18 })] }),
-      ).toBe('Stall 0 (Cafe) is outside hall boundary. Center X=-8.0, Z=18.0');
-    });
-
-    it('prints fractional coordinates as Java does', () => {
-      expect(messageOf({ hall: squareHall(), stalls: [stall({ posX: 17.75, posZ: 0 })] })).toBe(
-        'Stall 0 (Shop) is outside hall boundary. Center X=17.75, Z=0.0',
-      );
-    });
-
-    it('a blank stall name is shown as "Shop"', () => {
-      expect(messageOf({ hall: squareHall(), stalls: [stall({ name: '  ', posX: 30 })] })).toBe(
-        'Stall 0 (Shop) is outside hall boundary. Center X=30.0, Z=0.0',
-      );
-    });
-
-    it('the name in the message is NOT trimmed (Java safeName)', () => {
-      expect(messageOf({ hall: squareHall(), stalls: [stall({ name: ' Cafe ', posX: 30 })] })).toBe(
-        'Stall 0 ( Cafe ) is outside hall boundary. Center X=30.0, Z=0.0',
-      );
-    });
-
-    it('circular: conservative half-diagonal rule', () => {
-      expect(messageOf({ hall: circleHall(), stalls: [stall({ posX: 17 })] })).toBe(
-        'Stall 0 (Shop) is outside hall boundary. Center X=17.0, Z=0.0',
-      );
-    });
-
-    it('accepts a stall flush against the wall', () => {
-      accepts({ hall: squareHall(), stalls: [stall({ posX: 17.5, posZ: -17.5 })] });
-    });
+  it('leaves geometry checks to shared rotated placement validation', () => {
+    accepts({ hall: squareHall(), stalls: [stall({ posX: 99 })] });
   });
 
   describe('BR-12 gate side', () => {
@@ -190,25 +158,6 @@ describe('validateLayoutRequest', () => {
     });
   });
 
-  describe('BR-13 overlap', () => {
-    it('message names both stalls with their indexes', () => {
-      expect(
-        messageOf({
-          hall: squareHall(),
-          stalls: [
-            stall({ name: 'Alpha' }),
-            stall({ name: 'Beta', posX: 10 }),
-            stall({ name: 'Gamma', posX: 12 }),
-          ],
-        }),
-      ).toBe('Stall 2 (Gamma) overlaps stall 1 (Beta).');
-    });
-
-    it('edge-touching stalls are valid', () => {
-      accepts({ hall: squareHall(), stalls: [stall(), stall({ posX: 5 }), stall({ posZ: 5 })] });
-    });
-  });
-
   describe('rule order inside the stall loop', () => {
     it('dimensions (BR-10) before boundary (BR-11)', () => {
       expect(messageOf({ hall: squareHall(), stalls: [stall({ width: 0, posX: 99 })] })).toBe(
@@ -216,10 +165,10 @@ describe('validateLayoutRequest', () => {
       );
     });
 
-    it('boundary (BR-11) before gate (BR-12)', () => {
-      expect(
-        messageOf({ hall: squareHall(), stalls: [stall({ posX: 99, gateSide: 'UP' })] }),
-      ).toMatch(/is outside hall boundary/);
+    it('validates open-side input before the geometry stage', () => {
+      expect(messageOf({ hall: squareHall(), stalls: [stall({ posX: 99, gateSide: 'UP' })] })).toBe(
+        'gateSide must be FRONT, BACK, LEFT or RIGHT.',
+      );
     });
 
     it('gate (BR-12) before overlap (BR-13)', () => {

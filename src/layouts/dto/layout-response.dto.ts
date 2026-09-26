@@ -21,6 +21,9 @@ export interface HallResponse {
 }
 
 export interface StallResponse {
+  rotation: number;
+  parentStallNumber: string | null;
+  isSplitParent: boolean;
   id: number;
   name: string | null;
   width: number;

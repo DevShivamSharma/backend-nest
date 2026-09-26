@@ -27,7 +27,8 @@
     "seed:demo-layouts": "node --env-file=.env -r ts-node/register scripts/seed-demo-layouts.ts",
     "build:hall-shapes": "node -r ts-node/register scripts/build-demo-hall-shapes.ts",
     "seed:hall-amenities": "node --env-file=.env -r ts-node/register scripts/seed-hall-amenities.ts",
-    "seed:hall-plans": "node --env-file=.env -r ts-node/register scripts/seed-hall-plans.ts"
+    "seed:hall-plans": "node --env-file=.env -r ts-node/register scripts/seed-hall-plans.ts",
+    "test:api": "playwright test"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -38,6 +39,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "pg": "^8.13.0",
+    "polygon-clipping": "^0.15.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20"
@@ -46,6 +48,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@playwright/test": "^1.63.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",

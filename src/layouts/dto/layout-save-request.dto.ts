@@ -1,12 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsNumber,
-  IsObject,
-  IsOptional,
-  IsString,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsNumber, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 /**
  * Request body for POST /api/layout/save and PUT /api/layout/{id}
@@ -87,6 +80,16 @@ export class HallDto {
 }
 
 export class StallDto {
+  /** Clockwise degrees in the X-right/Z-down plan; local sides rotate with the stall. */
+  @IsOptional()
+  @IsNumber(FINITE)
+  rotation?: number | null;
+
+  /** Echo-only lineage. The server restores this from the issued identifier on PUT. */
+  @IsOptional()
+  @IsString()
+  parentStallNumber?: string | null;
+
   /** Ignored (BR-18). */
   @IsOptional()
   id?: unknown;
@@ -161,4 +164,14 @@ export class LayoutSaveRequestDto {
   @ValidateNested({ each: true })
   @Type(() => StallDto)
   stalls?: Array<StallDto | null> | null;
+}
+
+export class SplitStallDto {
+  @IsString()
+  idempotencyKey!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StallDto)
+  children!: StallDto[];
 }

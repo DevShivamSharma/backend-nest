@@ -6,6 +6,15 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
  */
 @Entity({ name: 'stalls' })
 export class StallEntity {
+  @Column({ type: 'double precision', default: 0 })
+  rotation!: number;
+
+  @Column({ name: 'parent_stall_number', type: 'varchar', length: 255, nullable: true })
+  parentStallNumber!: string | null;
+
+  @Column({ name: 'is_split_parent', type: 'boolean', default: false })
+  isSplitParent!: boolean;
+
   @PrimaryGeneratedColumn('identity', { type: 'bigint', generatedIdentity: 'BY DEFAULT' })
   id!: number;
 
@@ -44,7 +53,7 @@ export class StallEntity {
    * Stable, human-facing identity ("STALL-001"). Unlike `id`, it survives a PUT (which
    * re-inserts every row, ADR-012) and is never reused within a layout.
    */
-  @Column({ name: 'stall_number', type: 'varchar', length: 32, nullable: true })
+  @Column({ name: 'stall_number', type: 'varchar', length: 255, nullable: true })
   stallNumber!: string | null;
 
   /** AVAILABLE, BOOKED or CANCELLED. A cancelled stall keeps its number but occupies no space. */

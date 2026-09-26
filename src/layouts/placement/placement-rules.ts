@@ -1,18 +1,19 @@
+import { validateOrientedPlacement } from './oriented-placement';
 /**
  * Placement rules for the rule-driven hall editor. Pure: no framework, no ORM, no I/O.
  *
  * Source of the rules: ITPO "Public Safety Measures and Design Guidelines — Third Party Events
  * in Pragati Maidan", September 2022, section D (referenced below as "ITPO D<n>").
  *
- * THIS FILE EXISTS TWICE, IDENTICALLY:
+ * Backend authoritative implementation; frontend preview must follow docs/placement-api.md.
+ * Historical counterpart:
  *   backend-nest/src/layouts/placement/placement-rules.ts          authoritative, runs on save
  *   frontend-angular/src/app/planner/geometry/placement-rules.ts   live preview while dragging
- * Same arrangement as layout.geometry.ts: the editor can reject a drag without a round trip,
- * the server has the final word. Both copies carry the same unit tests; keep them identical.
+ * The backend validates every persisted layout.
  *
  * Units are metres. Coordinates are the planner's centre-origin system shared with stalls:
  * X to the right, Z down the plan, posX / posZ = the stall CENTRE, width along X, length along Z.
- * Stalls are axis-aligned rectangles; the hall boundary and zones are arbitrary polygons.
+ * Stalls are rotated rectangles; the hall boundary and zones are arbitrary polygons.
  */
 
 /** Tolerance for "touching is allowed" comparisons. Distances come out of sqrt, hence not 1e-8. */
@@ -98,7 +99,7 @@ export interface HallOpening {
 
 /** Every physical rule the validator applies, in metres. Stored per hall. */
 export interface LayoutRules {
-  /** ITPO D1: 3.0 m for B2B, 4.0 m for B2C. */
+  /** Configurable 3–5 m per event type; both default to 3 m. */
   minPassageWidth: Record<EventType, number>;
   /** ITPO D5: free passage along all external walls. */
   peripheralClearance: number;
@@ -115,7 +116,7 @@ export interface LayoutRules {
 }
 
 export const DEFAULT_LAYOUT_RULES: LayoutRules = {
-  minPassageWidth: { B2B: 3, B2C: 4 },
+  minPassageWidth: { B2B: 3, B2C: 3 },
   peripheralClearance: 1,
   zoneClearance: { FACILITY_ACCESS: 1, PARTITION: 1, SMOKE_CURTAIN: 1 },
   openingAccessDepth: null,
@@ -129,7 +130,10 @@ export function effectiveRules(stored: Partial<LayoutRules> | null | undefined):
   return {
     ...DEFAULT_LAYOUT_RULES,
     ...(stored ?? {}),
-    minPassageWidth: { ...DEFAULT_LAYOUT_RULES.minPassageWidth, ...(stored?.minPassageWidth ?? {}) },
+    minPassageWidth: {
+      ...DEFAULT_LAYOUT_RULES.minPassageWidth,
+      ...(stored?.minPassageWidth ?? {}),
+    },
     zoneClearance: { ...DEFAULT_LAYOUT_RULES.zoneClearance, ...(stored?.zoneClearance ?? {}) },
   };
 }
@@ -139,6 +143,9 @@ export type StallStatus = 'AVAILABLE' | 'BOOKED' | 'CANCELLED';
 export const STALL_STATUSES: readonly StallStatus[] = ['AVAILABLE', 'BOOKED', 'CANCELLED'];
 
 export interface Footprint {
+  rotation?: number;
+  openSides?: string[] | null;
+  gateSide?: string | null;
   posX: number;
   posZ: number;
   width: number;
@@ -152,13 +159,12 @@ export interface PlacementStall extends Footprint {
 }
 
 export interface PlacementContext {
-  /** Hall outline. null = the rectangle/circle check done elsewhere is the only boundary. */
+  circleRadius?: number;
+  obstacles?: Point[][];
+  enforceGrid?: boolean;
+  /** Actual usable hall outline; buildPlacementContext supplies rectangle/circle fallbacks. */
   boundary: Point[] | null;
-  /**
-   * Further floor regions of the same hall that are NOT connected to `boundary`, e.g. the foyer
-   * below Hall 1GF / 14GF, which the plan separates from the main floor by an outside strip. A
-   * stall inside any of them is inside the hall. See `traceFloor` / `extraFloorRegions`.
-   */
+  /** Legacy preview metadata; authoritative validation never expands an explicit boundary. */
   regions?: Point[][] | null;
   zones: HallZone[];
   openings: HallOpening[];
@@ -169,6 +175,10 @@ export interface PlacementContext {
 }
 
 export type ViolationCode =
+  | 'CORNER_PASSAGE'
+  | 'INVALID_BACK_TO_BACK'
+  | 'OPEN_SIDE_PASSAGE'
+  | 'OPEN_SIDE_BLOCKED'
   | 'INVALID_DIMENSIONS'
   | 'OUTSIDE_HALL'
   | 'STALL_OVERLAP'
@@ -180,12 +190,13 @@ export type ViolationCode =
   | 'NO_CONTIGUOUS_SPACE';
 
 /** Where a violation is, so the editor can draw it. */
-export type ViolationGeometry =
-  | { type: 'rect'; rect: Rect }
-  | { type: 'polygon'; points: Point[] };
+export type ViolationGeometry = { type: 'rect'; rect: Rect } | { type: 'polygon'; points: Point[] };
 
 export interface Violation {
   code: ViolationCode;
+  requiredWidth?: number;
+  actualWidth?: number;
+  side?: string;
   /** Which guideline the rule comes from, e.g. "ITPO D1". */
   ruleRef: string;
   message: string;
@@ -212,151 +223,7 @@ export function validatePlacement(
   ctx: PlacementContext,
   ignoreId: string | null = null,
 ): ValidationResult {
-  const violations: Violation[] = [];
-
-  if (!validDimensions(candidate, ctx.rules.snapStep)) {
-    violations.push({
-      code: 'INVALID_DIMENSIONS',
-      ruleRef: 'Grid',
-      message: `Stall size must be a positive multiple of ${fmt(ctx.rules.snapStep)} m.`,
-      geometry: [],
-      relatedStallIds: [],
-    });
-    return { valid: false, violations };
-  }
-
-  const rect = footprintRect(candidate);
-
-  // Hall boundary and peripheral passage (ITPO D5). The stall must sit wholly inside ONE floor
-  // region; the peripheral clearance is measured against the walls of that region.
-  const outlines = [ctx.boundary, ...(ctx.regions ?? [])].filter(
-    (o): o is Point[] => !!o && o.length >= 3,
-  );
-  if (outlines.length) {
-    const home = outlines.find((o) => rectInsidePolygon(rect, o));
-    if (!home) {
-      violations.push({
-        code: 'OUTSIDE_HALL',
-        ruleRef: 'Hall boundary',
-        message: 'Stall is outside the hall boundary.',
-        geometry: [{ type: 'rect', rect }],
-        relatedStallIds: [],
-      });
-    } else {
-      const clearance = ctx.rules.peripheralClearance;
-      const bands: ViolationGeometry[] = [];
-      let nearest = Infinity;
-
-      forEachEdge(home, (a, b) => {
-        const d = segmentRectDistance(a, b, rect);
-        if (d < clearance - EPS) {
-          nearest = Math.min(nearest, d);
-          bands.push({ type: 'rect', rect: edgeGapRect(a, b, rect) });
-        }
-      });
-
-      if (bands.length) {
-        violations.push({
-          code: 'PERIPHERAL_CLEARANCE',
-          ruleRef: 'ITPO D5',
-          message:
-            `${fmt(clearance)} m peripheral clearance from the external wall is violated ` +
-            `(${fmt(nearest)} m left).`,
-          geometry: bands,
-          relatedStallIds: [],
-        });
-      }
-    }
-  }
-
-  // Other stalls: overlap, and the minimum passage between separate stalls (ITPO D1).
-  const passage = ctx.rules.minPassageWidth[ctx.eventType];
-  const overlapped: PlacementStall[] = [];
-  const overlapAreas: ViolationGeometry[] = [];
-
-  for (const other of ctx.stalls) {
-    if (ignoreId !== null && String(other.id) === String(ignoreId)) continue;
-    if (other.status === 'CANCELLED') continue;
-
-    const otherRect = footprintRect(other);
-
-    if (rectsOverlap(rect, otherRect)) {
-      overlapped.push(other);
-      overlapAreas.push({ type: 'rect', rect: rectIntersection(rect, otherRect) });
-      continue;
-    }
-
-    // Touching (0 m) forms one island of stalls, as back-to-back stalls do. Any gap between
-    // separate stalls must be a full passage.
-    const gap = rectDistance(rect, otherRect);
-    if (gap > EPS && gap < passage - EPS) {
-      violations.push({
-        code: 'PATHWAY_WIDTH',
-        ruleRef: 'ITPO D1',
-        message:
-          `Required ${fmt(passage)} m passage (${ctx.eventType}) is blocked: ` +
-          `only ${fmt(gap)} m left next to ${stallLabel(other)}.`,
-        geometry: [{ type: 'rect', rect: gapRect(rect, otherRect) }],
-        relatedStallIds: [String(other.id)],
-      });
-    }
-  }
-
-  if (overlapped.length) {
-    violations.unshift({
-      code: 'STALL_OVERLAP',
-      ruleRef: 'Occupancy',
-      message:
-        overlapped.length === 1
-          ? `Overlaps existing stall ${stallLabel(overlapped[0])}.`
-          : `Overlaps ${overlapped.length} existing stalls (${overlapped.map(stallLabel).join(', ')}).`,
-      geometry: overlapAreas,
-      relatedStallIds: overlapped.map((s) => String(s.id)),
-    });
-  }
-
-  // Restricted zones, with their configured clearance (ITPO D3, D4, D6, D7, D11, D12).
-  for (const zone of ctx.zones) {
-    if (!zone.polygon || zone.polygon.length < 3) continue;
-
-    const clearance = zoneClearanceFor(zone, ctx.rules);
-    const inside = rectOverlapsPolygon(rect, zone.polygon);
-    const distance = inside ? 0 : polygonRectDistance(zone.polygon, rect);
-
-    if (inside || distance < clearance - EPS) {
-      violations.push({
-        code: 'RESTRICTED_ZONE',
-        ruleRef: ZONE_RULE_REF[zone.kind],
-        message: inside
-          ? `Overlaps ${zone.label} (${ZONE_TEXT[zone.kind]}).`
-          : `Keep ${fmt(clearance)} m free around ${zone.label} (${fmt(distance)} m left).`,
-        geometry: [
-          { type: 'polygon', points: zone.polygon },
-          ...(inside ? [{ type: 'rect' as const, rect: rectIntersection(rect, polygonBounds(zone.polygon)) }] : []),
-        ],
-        relatedStallIds: [],
-      });
-    }
-  }
-
-  // Access in front of doors (ITPO D2, D3, D11).
-  for (const opening of ctx.openings) {
-    const access = openingAccessRect(opening, ctx.rules, ctx.eventType);
-    if (!access || !rectsOverlap(rect, access)) continue;
-
-    const emergency = opening.kind === 'EMERGENCY';
-    violations.push({
-      code: emergency ? 'EMERGENCY_ACCESS' : 'ENTRY_EXIT_BLOCKED',
-      ruleRef: emergency ? 'ITPO D3' : 'ITPO D2',
-      message: emergency
-        ? `Stall overlaps the access zone of emergency exit ${opening.label}.`
-        : `Stall blocks the access zone of ${opening.kind.toLowerCase()} ${opening.label}.`,
-      geometry: [{ type: 'rect', rect: access }, { type: 'rect', rect: rectIntersection(rect, access) }],
-      relatedStallIds: [],
-    });
-  }
-
-  return { valid: violations.length === 0, violations };
+  return validateOrientedPlacement(candidate, ctx, ignoreId);
 }
 
 /** One audit entry per stall that currently breaks a rule. */
@@ -388,7 +255,11 @@ export function auditLayout(ctx: PlacementContext): AuditEntry[] {
     });
 
     if (kept.length) {
-      entries.push({ stallId: String(stall.id), stallNumber: stall.stallNumber ?? null, violations: kept });
+      entries.push({
+        stallId: String(stall.id),
+        stallNumber: stall.stallNumber ?? null,
+        violations: kept,
+      });
     }
   }
 
@@ -431,49 +302,6 @@ export function zoneClearanceFor(zone: HallZone, rules: LayoutRules): number {
 /** Formats a stall number the way it is persisted: prefix + zero-padded sequence. */
 export function formatStallNumber(prefix: string, sequence: number): string {
   return `${prefix}${String(sequence).padStart(3, '0')}`;
-}
-
-const ZONE_TEXT: Record<ZoneKind, string> = {
-  PASSAGE: 'compulsory passage for entry/exit/services',
-  NO_CONSTRUCTION: 'no construction zone',
-  EMERGENCY_EXIT_ACCESS: 'emergency exit access zone',
-  ENTRY_EXIT_ACCESS: 'entry/exit access zone',
-  FACILITY_ACCESS: 'fire-safety / public facility access',
-  FOYER: 'foyer / pre-function restriction',
-  PARTITION: 'collapsible partition path',
-  SMOKE_CURTAIN: 'area below a smoke curtain',
-};
-
-const ZONE_RULE_REF: Record<ZoneKind, string> = {
-  PASSAGE: 'ITPO D2',
-  NO_CONSTRUCTION: 'ITPO D4',
-  EMERGENCY_EXIT_ACCESS: 'ITPO D3',
-  ENTRY_EXIT_ACCESS: 'ITPO D2',
-  FACILITY_ACCESS: 'ITPO D4',
-  FOYER: 'ITPO D11',
-  PARTITION: 'ITPO D6',
-  SMOKE_CURTAIN: 'ITPO D7',
-};
-
-function validDimensions(f: Footprint, snapStep: number): boolean {
-  const { width, length } = f;
-  if (![width, length, f.posX, f.posZ].every(Number.isFinite)) return false;
-  if (width <= EPS || length <= EPS) return false;
-  if (!(snapStep > 0)) return true;
-  return isMultiple(width, snapStep) && isMultiple(length, snapStep);
-}
-
-function isMultiple(value: number, step: number): boolean {
-  const ratio = value / step;
-  return Math.abs(ratio - Math.round(ratio)) < 1e-6;
-}
-
-function stallLabel(stall: PlacementStall): string {
-  return stall.stallNumber || 'an unsaved stall';
-}
-
-function fmt(value: number): string {
-  return String(Math.round(value * 100) / 100);
 }
 
 // --- geometry ----------------------------------------------------------------------------------
@@ -672,44 +500,12 @@ function pointSegmentDistance(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
   const dz = b.z - a.z;
   const lengthSq = dx * dx + dz * dz;
-  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / lengthSq));
+  const t =
+    lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / lengthSq));
   return Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz));
 }
 
 /** The strip between a wall edge and a rectangle that is too close to it, for drawing. */
-function edgeGapRect(a: Point, b: Point, rect: Rect): Rect {
-  const minEdgeX = Math.min(a.x, b.x);
-  const maxEdgeX = Math.max(a.x, b.x);
-  const minEdgeZ = Math.min(a.z, b.z);
-  const maxEdgeZ = Math.max(a.z, b.z);
-  const thin = 0.05;
-
-  if (Math.abs(a.z - b.z) < EPS) {
-    // Horizontal wall.
-    const x1 = Math.max(rect.minX, minEdgeX);
-    const x2 = Math.min(rect.maxX, maxEdgeX);
-    const z = a.z;
-    const [z1, z2] = z <= rect.minZ ? [z, rect.minZ] : [rect.maxZ, z];
-    return { minX: Math.min(x1, x2), maxX: Math.max(x1, x2), minZ: z1, maxZ: Math.max(z2, z1 + thin) };
-  }
-
-  if (Math.abs(a.x - b.x) < EPS) {
-    // Vertical wall.
-    const z1 = Math.max(rect.minZ, minEdgeZ);
-    const z2 = Math.min(rect.maxZ, maxEdgeZ);
-    const x = a.x;
-    const [x1, x2] = x <= rect.minX ? [x, rect.minX] : [rect.maxX, x];
-    return { minX: x1, maxX: Math.max(x2, x1 + thin), minZ: Math.min(z1, z2), maxZ: Math.max(z1, z2) };
-  }
-
-  // Diagonal wall: the box spanning the edge's extent near the rectangle.
-  return {
-    minX: Math.min(minEdgeX, rect.minX),
-    maxX: Math.max(maxEdgeX, rect.maxX),
-    minZ: Math.min(minEdgeZ, rect.minZ),
-    maxZ: Math.max(maxEdgeZ, rect.maxZ),
-  };
-}
 
 // --- hall floor from the source plan's rectangles -----------------------------------------------
 
@@ -756,7 +552,11 @@ export interface FloorRegion {
  * Exact for axis-aligned input (coordinate compression, no sampling). Regions come back largest
  * first. Returns [] when the plan has no outside/wall rectangle, i.e. the hall is its rectangle.
  */
-export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallLength: number): FloorRegion[] {
+export function traceFloor(
+  areas: readonly FloorArea[],
+  hallWidth: number,
+  hallLength: number,
+): FloorRegion[] {
   const valid = areas.filter(
     (a) =>
       a &&
@@ -776,7 +576,12 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
   const solid = valid.filter((a) => a.kind === 'outside' || a.kind === 'wall').map(toRect);
   if (!solid.length || !(hallWidth > 0) || !(hallLength > 0)) return [];
 
-  const hall: Rect = { minX: -hallWidth / 2, maxX: hallWidth / 2, minZ: -hallLength / 2, maxZ: hallLength / 2 };
+  const hall: Rect = {
+    minX: -hallWidth / 2,
+    maxX: hallWidth / 2,
+    minZ: -hallLength / 2,
+    maxZ: hallLength / 2,
+  };
   const canvas = { ...hall };
   for (const r of valid.filter((a) => a.kind !== 'outside').map(toRect)) {
     canvas.minX = Math.min(canvas.minX, r.minX);
@@ -789,8 +594,16 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
     [...new Set([lo, hi, hall.minX, hall.maxX, hall.minZ, hall.maxZ, ...values].map(snapCut))]
       .filter((v) => v >= lo - 1e-9 && v <= hi + 1e-9)
       .sort((a, b) => a - b);
-  const xs = cuts(canvas.minX, canvas.maxX, solid.flatMap((r) => [r.minX, r.maxX]));
-  const zs = cuts(canvas.minZ, canvas.maxZ, solid.flatMap((r) => [r.minZ, r.maxZ]));
+  const xs = cuts(
+    canvas.minX,
+    canvas.maxX,
+    solid.flatMap((r) => [r.minX, r.maxX]),
+  );
+  const zs = cuts(
+    canvas.minZ,
+    canvas.maxZ,
+    solid.flatMap((r) => [r.minZ, r.maxZ]),
+  );
   const nx = xs.length - 1;
   const nz = zs.length - 1;
   if (nx < 1 || nz < 1) return [];
@@ -831,7 +644,12 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
       const i = Math.floor(k / nz);
       const j = k % nz;
       if (i === 0 || j === 0 || i === nx - 1 || j === nz - 1) reachesEdge = true;
-      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [di, dj] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
         const ni = i + di;
         const nj = j + dj;
         if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue;
@@ -857,7 +675,8 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
       if (inHall || !open[piece[k]]) floor[k] = 1;
     }
   }
-  const isFloor = (i: number, j: number): boolean => i >= 0 && j >= 0 && i < nx && j < nz && floor[i * nz + j] === 1;
+  const isFloor = (i: number, j: number): boolean =>
+    i >= 0 && j >= 0 && i < nx && j < nz && floor[i * nz + j] === 1;
 
   // 4. Boundary edges, directed with the floor on the right (in x-right / z-down plan space),
   //    stitched into rings. At a vertex shared by two rings (diagonally touching cells) the
@@ -908,7 +727,8 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
       const r = ring[(k + 1) % ring.length];
       return Math.abs((q.x - p.x) * (r.z - q.z) - (q.z - p.z) * (r.x - q.x)) > 1e-9;
     });
-    if (simplified.length >= 3) rings.push(simplified.map((p) => ({ x: roundCoord(p.x), z: roundCoord(p.z) })));
+    if (simplified.length >= 3)
+      rings.push(simplified.map((p) => ({ x: roundCoord(p.x), z: roundCoord(p.z) })));
   }
 
   // 5. Outer rings run clockwise on screen (positive signed area in x-right / z-down space with
@@ -922,7 +742,12 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
   const outers = rings.filter((r) => signed(r) > 0);
   const holes = rings.filter((r) => signed(r) < 0);
 
-  const regions: FloorRegion[] = outers.map((outer) => ({ outer, holes: [], sample: outer[0], area: signed(outer) }));
+  const regions: FloorRegion[] = outers.map((outer) => ({
+    outer,
+    holes: [],
+    sample: outer[0],
+    area: signed(outer),
+  }));
   for (const hole of holes) {
     const probe = { x: (hole[0].x + hole[1].x) / 2, z: (hole[0].z + hole[1].z) / 2 };
     const owner = regions
@@ -953,7 +778,10 @@ export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallL
  * Floor regions that are not already covered by `boundary`, as outlines for
  * `PlacementContext.regions`. With no boundary, every region counts.
  */
-export function extraFloorRegions(boundary: Point[] | null | undefined, floor: FloorRegion[]): Point[][] {
+export function extraFloorRegions(
+  boundary: Point[] | null | undefined,
+  floor: FloorRegion[],
+): Point[][] {
   const main = boundary && boundary.length >= 3 ? boundary : null;
   return floor.filter((r) => !main || !pointInPolygon(r.sample, main)).map((r) => r.outer);
 }

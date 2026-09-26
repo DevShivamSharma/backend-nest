@@ -16,7 +16,7 @@ import type {
   LayoutDetailResponse,
   LayoutSummaryResponse,
 } from './dto/layout-response.dto';
-import { LayoutSaveRequestDto } from './dto/layout-save-request.dto';
+import { LayoutSaveRequestDto, SplitStallDto } from './dto/layout-save-request.dto';
 import { LayoutService } from './layout.service';
 
 /**
@@ -55,6 +55,16 @@ export class LayoutController {
     @Body() request: LayoutSaveRequestDto,
   ): Promise<LayoutDetailResponse> {
     return this.layoutService.update(id, request);
+  }
+
+  @Post(':id/stalls/:stallNumber/split')
+  @HttpCode(200)
+  split(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('stallNumber') number: string,
+    @Body() request: SplitStallDto,
+  ): Promise<LayoutDetailResponse> {
+    return this.layoutService.split(id, number, request);
   }
 
   /** Rule audit of the saved layout (reporting only, never blocks). 200: nothing is created. */

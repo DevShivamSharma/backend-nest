@@ -15,14 +15,29 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
   let app: INestApplication;
   let db: DataSource;
 
-  const squareHall = { id: 1, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0 };
+  const squareHall = {
+    id: 1,
+    name: 'Main Hall',
+    shape: 'SQUARE',
+    width: 40,
+    length: 40,
+    radius: 0,
+  };
   const stall = (posX: number, posZ: number, extra: object = {}) => ({
-    name: 'Shop', width: 5, length: 5, height: 4, posX, posZ, color: '#3498db', gateSide: 'FRONT', ...extra,
+    name: 'Shop',
+    width: 5,
+    length: 5,
+    height: 4,
+    posX,
+    posZ,
+    color: '#3498db',
+    gateSide: 'FRONT',
+    ...extra,
   });
   const body = (extra: object = {}) => ({
     layoutName: 'Expo 2026',
     hall: squareHall,
-    stalls: [stall(-8, 16, { name: 'Alpha' }), stall(0, 0, { name: 'Beta', gateSide: 'left' })],
+    stalls: [stall(-8, 12, { name: 'Alpha' }), stall(0, 0, { name: 'Beta', gateSide: 'left' })],
     ...extra,
   });
 
@@ -58,12 +73,22 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
       const res = await http().post('/api/layout/save').send(body()).expect(201);
 
       expect(res.body.message).toBe('Layout saved successfully.');
-      expect(res.body.layout).toMatchObject({ name: 'Expo 2026', hallWidth: 40, hallLength: 40, hallHeight: 0 });
+      expect(res.body.layout).toMatchObject({
+        name: 'Expo 2026',
+        hallWidth: 40,
+        hallLength: 40,
+        hallHeight: 0,
+      });
       expect(res.body.hall).toMatchObject({ name: 'Main Hall', shape: 'SQUARE', width: 40 });
       expect(res.body.stalls).toHaveLength(2);
       expect(res.body.layout.hall).toEqual(res.body.hall);
       expect(res.body.layout.stalls).toEqual(res.body.stalls);
-      expect(res.body.stalls[1]).toMatchObject({ name: 'Beta', gateSide: 'LEFT', posX: 0, posZ: 0 });
+      expect(res.body.stalls[1]).toMatchObject({
+        name: 'Beta',
+        gateSide: 'LEFT',
+        posX: 0,
+        posZ: 0,
+      });
       expect(res.body.stalls[0]).not.toHaveProperty('layoutId');
 
       expect(await count('hall')).toBe(1);
@@ -92,15 +117,24 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
         .send(body({ stalls: [stall(0, 0, { name: 'A' }), stall(2, 0, { name: 'B' })] }))
         .expect(400);
 
-      expect(res.body).toEqual({ success: false, status: 400, message: 'Stall 1 (B) overlaps stall 0 (A).' });
+      expect(res.body).toMatchObject({
+        success: false,
+        status: 400,
+        violations: expect.arrayContaining([expect.objectContaining({ code: 'STALL_OVERLAP' })]),
+      });
       expect(await count('hall')).toBe(0);
       expect(await count('layouts')).toBe(0);
     });
 
-    it('out of bounds -> 400 with Java-formatted coordinates', async () => {
-      const res = await http().post('/api/layout/save').send(body({ stalls: [stall(-8, 18)] })).expect(400);
+    it('out of bounds -> 400 with structured geometry', async () => {
+      const res = await http()
+        .post('/api/layout/save')
+        .send(body({ stalls: [stall(-8, 18)] }))
+        .expect(400);
 
-      expect(res.body.message).toBe('Stall 0 (Shop) is outside hall boundary. Center X=-8.0, Z=18.0');
+      expect(res.body.violations).toContainEqual(
+        expect.objectContaining({ code: 'OUTSIDE_HALL', stallIndex: 0 }),
+      );
     });
 
     it('missing hall -> the Java message, not a generic pipe message', async () => {
@@ -131,7 +165,10 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
     it('saves a circular layout with hallWidth 0', async () => {
       const res = await http()
         .post('/api/layout/save')
-        .send({ hall: { name: 'Lounge', shape: 'circle', width: 0, length: 0, radius: 20 }, stalls: [stall(0, 0)] })
+        .send({
+          hall: { name: 'Lounge', shape: 'circle', width: 0, length: 0, radius: 20 },
+          stalls: [stall(0, 0)],
+        })
         .expect(201);
 
       expect(res.body.layout).toMatchObject({ name: 'Lounge', hallWidth: 0, hallLength: 0 });
@@ -152,7 +189,11 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
     it('unknown id -> 400 "Layout not found" (ADR-003)', async () => {
       const res = await http().get('/api/layout/424242').expect(400);
 
-      expect(res.body).toEqual({ success: false, status: 400, message: 'Layout not found: 424242' });
+      expect(res.body).toEqual({
+        success: false,
+        status: 400,
+        message: 'Layout not found: 424242',
+      });
     });
 
     it('non-numeric id -> 400', async () => {
@@ -167,7 +208,13 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
 
       const res = await http()
         .put(`/api/layout/${saved.layout.id}`)
-        .send(body({ layoutName: 'Renamed', hall: { ...squareHall, name: 'Hall B', width: 50 }, stalls: [stall(10, 10, { name: 'Only' })] }))
+        .send(
+          body({
+            layoutName: 'Renamed',
+            hall: { ...squareHall, name: 'Hall B', width: 50 },
+            stalls: [stall(10, 10, { name: 'Only' })],
+          }),
+        )
         .expect(200);
 
       expect(res.body.message).toBe('Layout updated successfully.');
@@ -184,7 +231,10 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
     it('an invalid update leaves the stored layout untouched', async () => {
       const saved = (await http().post('/api/layout/save').send(body())).body;
 
-      await http().put(`/api/layout/${saved.layout.id}`).send(body({ stalls: [stall(99, 0)] })).expect(400);
+      await http()
+        .put(`/api/layout/${saved.layout.id}`)
+        .send(body({ stalls: [stall(99, 0)] }))
+        .expect(400);
 
       const after = (await http().get(`/api/layout/${saved.layout.id}`)).body;
       expect(after.stalls).toEqual(saved.stalls);
@@ -222,15 +272,26 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
     });
 
     it('newest first, exact LayoutSummary shape, numeric stallCount (BR-21)', async () => {
-      await http().post('/api/layout/save').send(body({ layoutName: 'First' }));
-      await http().post('/api/layout/save').send(body({ layoutName: 'Second', stalls: [] }));
+      await http()
+        .post('/api/layout/save')
+        .send(body({ layoutName: 'First' }));
+      await http()
+        .post('/api/layout/save')
+        .send(body({ layoutName: 'Second', stalls: [] }));
 
       const res = await http().get('/api/layouts').expect(200);
 
       expect(res.body.map((l: { name: string }) => l.name)).toEqual(['Second', 'First']);
       expect(res.body[1]).toEqual({
-        id: 1000, name: 'First', hallId: 1000, hallName: 'Main Hall', shape: 'SQUARE',
-        hallWidth: 40, hallLength: 40, radius: 0, stallCount: 2,
+        id: 1000,
+        name: 'First',
+        hallId: 1000,
+        hallName: 'Main Hall',
+        shape: 'SQUARE',
+        hallWidth: 40,
+        hallLength: 40,
+        radius: 0,
+        stallCount: 2,
       });
       expect(res.body[0].stallCount).toBe(0);
     });
@@ -246,7 +307,10 @@ describe('Layouts API (e2e, real PostgreSQL)', () => {
 
   describe('cross-cutting', () => {
     it('readiness reports the database up', async () => {
-      expect((await http().get('/health/ready').expect(200)).body).toEqual({ status: 'ok', database: 'up' });
+      expect((await http().get('/health/ready').expect(200)).body).toEqual({
+        status: 'ok',
+        database: 'up',
+      });
     });
 
     it('CORS: allowed origin echoed, others not', async () => {

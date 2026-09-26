@@ -1,8 +1,11 @@
 import { BadRequestDomainError } from '../common/errors/domain.errors';
-import type { HallDto, LayoutSaveRequestDto, StallDto } from './dto/layout-save-request.dto';
-import { formatJavaDouble } from './java-double';
-import { HallShape, isInsideHall, stallsOverlap } from './layout.geometry';
-import { normalizeEventType, normalizeStatus, validateHallGeometry } from './placement/hall-geometry';
+import type { HallDto, LayoutSaveRequestDto } from './dto/layout-save-request.dto';
+import { HallShape } from './layout.geometry';
+import {
+  normalizeEventType,
+  normalizeStatus,
+  validateHallGeometry,
+} from './placement/hall-geometry';
 
 /**
  * Business validation — a line-for-line port of LayoutService.validate()
@@ -82,11 +85,6 @@ export function normalizeOpenSidesList(
   return sides.length ? sides : [gateFallback];
 }
 
-/** LayoutService.safeName() (LayoutService.java:566-574). Note: NOT trimmed, as in the Java. */
-function safeName(stall: StallDto): string {
-  return isBlank(stall.name) ? 'Shop' : (stall.name as string);
-}
-
 export function validateLayoutRequest(
   request: LayoutSaveRequestDto | null | undefined,
 ): asserts request is LayoutSaveRequestDto & { hall: HallDto } {
@@ -120,13 +118,6 @@ export function validateLayoutRequest(
     throw new BadRequestDomainError('Hall radius must be greater than 0.');
   }
 
-  const bounds = {
-    shape,
-    width: n(hall.width),
-    length: n(hall.length),
-    radius: n(hall.radius),
-  };
-
   // BR-07 — no stalls is a valid layout.
   const stalls = request.stalls ?? [];
 
@@ -152,6 +143,7 @@ export function validateLayoutRequest(
       !Number.isFinite(footprint.width) ||
       !Number.isFinite(footprint.length) ||
       !Number.isFinite(height) ||
+      !Number.isFinite(stall.rotation ?? 0) ||
       !Number.isFinite(footprint.posX) ||
       !Number.isFinite(footprint.posZ)
     ) {
@@ -163,14 +155,6 @@ export function validateLayoutRequest(
       throw new BadRequestDomainError(`Invalid stall dimensions at index ${i}.`);
     }
 
-    // BR-11
-    if (!isInsideHall(bounds, footprint)) {
-      throw new BadRequestDomainError(
-        `Stall ${i} (${safeName(stall)}) is outside hall boundary. ` +
-          `Center X=${formatJavaDouble(footprint.posX)}, Z=${formatJavaDouble(footprint.posZ)}`,
-      );
-    }
-
     // BR-12 — called only for its exception; the value is used later, when copying.
     normalizeGate(stall.gateSide);
 
@@ -178,27 +162,7 @@ export function validateLayoutRequest(
     validateOpenSides(stall.openSides);
 
     // BR-23 — status value.
-    const cancelled = normalizeStatus(stall.status) === 'CANCELLED';
-
-    // BR-13 — against every EARLIER stall. Earlier ones are already known non-null and valid.
-    for (let j = 0; j < i; j++) {
-      const other = stalls[j] as StallDto;
-      // A cancelled stall keeps its number but no longer occupies space.
-      if (cancelled || normalizeStatus(other.status) === 'CANCELLED') continue;
-
-      const otherFootprint = {
-        width: n(other.width),
-        length: n(other.length),
-        posX: n(other.posX),
-        posZ: n(other.posZ),
-      };
-
-      if (stallsOverlap(footprint, otherFootprint)) {
-        throw new BadRequestDomainError(
-          `Stall ${i} (${safeName(stall)}) overlaps stall ${j} (${safeName(other)}).`,
-        );
-      }
-    }
+    normalizeStatus(stall.status);
   }
 
   // BR-22 — rule-driven hall geometry, checked last so every older message keeps its place.
