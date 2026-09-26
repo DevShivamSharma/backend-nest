@@ -1,5 +1,5 @@
 import { BadRequestDomainError } from '../../common/errors/domain.errors';
-import type { HallMarker } from '../entities/hall.entity';
+import type { HallAmenity, HallMarker } from '../entities/hall.entity';
 import {
   DEFAULT_LAYOUT_RULES,
   effectiveRules,
@@ -31,6 +31,7 @@ export interface HallGeometryInput {
   zones?: unknown[] | null;
   openings?: unknown[] | null;
   markers?: unknown[] | null;
+  amenities?: unknown[] | null;
   rules?: Record<string, unknown> | null;
 }
 
@@ -39,6 +40,7 @@ export interface HallGeometry {
   zones: HallZone[] | null;
   openings: HallOpening[] | null;
   markers: HallMarker[] | null;
+  amenities: HallAmenity[] | null;
   rules: Partial<LayoutRules> | null;
 }
 
@@ -49,6 +51,7 @@ export function validateHallGeometry(input: HallGeometryInput): HallGeometry {
     zones: input.zones == null ? null : input.zones.map((z, i) => zone(z, i)),
     openings: input.openings == null ? null : input.openings.map((o, i) => opening(o, i)),
     markers: input.markers == null ? null : input.markers.map((m, i) => marker(m, i)),
+    amenities: input.amenities == null ? null : input.amenities.map((a, i) => amenity(a, i)),
     rules: input.rules == null ? null : rules(input.rules),
   };
 }
@@ -206,6 +209,26 @@ function marker(raw: unknown, index: number): HallMarker {
   }
 
   return { text: m.text, position: { x: m.position!.x as number, z: m.position!.z as number } };
+}
+
+/**
+ * A utility icon. Visual only, so there is no bounds check: the source plan legitimately places
+ * amenities OUTSIDE the hall outline (Hall 8-9-10's Hall 10 toilet block sits above FOYER C).
+ */
+function amenity(raw: unknown, index: number): HallAmenity {
+  const a = (raw ?? {}) as { kind?: unknown; label?: unknown; position?: { x?: unknown; z?: unknown } };
+
+  if (typeof a.kind !== 'string' || !a.kind.trim() || !finite(a.position?.x) || !finite(a.position?.z)) {
+    throw new BadRequestDomainError(
+      `Amenity ${index} needs a kind and a position with numeric x and z.`,
+    );
+  }
+
+  return {
+    kind: a.kind.trim(),
+    label: typeof a.label === 'string' ? a.label : a.kind.trim(),
+    position: { x: a.position!.x as number, z: a.position!.z as number },
+  };
 }
 
 function rules(raw: Record<string, unknown>): Partial<LayoutRules> {

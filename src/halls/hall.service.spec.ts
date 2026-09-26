@@ -37,6 +37,10 @@ function setup() {
   return { repo, service };
 }
 
+/** `expect.objectContaining`, named so the intent reads clearly in the assertion above. */
+const jasmineLikeObjectContaining = (shape: Record<string, unknown>): unknown =>
+  expect.objectContaining(shape);
+
 const hall = (overrides: Partial<HallDto> = {}): HallDto => ({
   name: 'Main Hall',
   shape: 'SQUARE',
@@ -47,6 +51,77 @@ const hall = (overrides: Partial<HallDto> = {}): HallDto => ({
 });
 
 describe('HallService', () => {
+  /**
+   * The amenity round trip: write -> stored -> response.
+   *
+   * These are the SelfCare utility icons (toilets, stairs, entries). They were silently lost
+   * once already: the field existed on the entity and in the response, but `copyHall` builds
+   * the write from `validateHallGeometry`, which did not know about amenities — so the seeder's
+   * icons never reached the database and no icon ever rendered. The write assertions below are
+   * the ones that matter; asserting only the response shape would not have caught it.
+   */
+  describe('amenities', () => {
+    const icons = [
+      { kind: 'toilet-male', label: 'Toilet (Male)', position: { x: -59, z: -27.5 } },
+      { kind: 'entry-up', label: 'Entry', position: { x: -3.75, z: 21.25 } },
+    ];
+
+    it('stores amenities given to create', async () => {
+      const { repo, service } = setup();
+
+      await service.create(hall({ amenities: icons }));
+
+      expect(repo.create.mock.calls[0][0].amenities).toEqual(icons);
+    });
+
+    it('stores amenities given to update — the path the seeder uses', async () => {
+      const { repo, service } = setup();
+
+      await service.update(1000, hall({ amenities: icons }));
+
+      expect(repo.update.mock.calls[0][1].amenities).toEqual(icons);
+    });
+
+    it('returns stored amenities on read', async () => {
+      const { repo, service } = setup();
+      repo.findAll.mockResolvedValueOnce([entity({ amenities: icons })]);
+
+      await expect(service.list()).resolves.toEqual([
+        jasmineLikeObjectContaining({ amenities: icons }),
+      ]);
+    });
+
+    it('defaults a missing label to the kind, and keeps amenities outside the hall', async () => {
+      const { repo, service } = setup();
+
+      // Outside the 40 x 40 hall on purpose: SelfCare places the Hall 10 toilets above FOYER C.
+      await service.create(hall({ amenities: [{ kind: 'stairs', position: { x: 500, z: -500 } }] }));
+
+      expect(repo.create.mock.calls[0][0].amenities).toEqual([
+        { kind: 'stairs', label: 'stairs', position: { x: 500, z: -500 } },
+      ]);
+    });
+
+    it('rejects an amenity with no kind or a non-numeric position', async () => {
+      const { service } = setup();
+
+      await expect(service.create(hall({ amenities: [{ position: { x: 1, z: 2 } }] }))).rejects.toThrow(
+        BadRequestDomainError,
+      );
+      await expect(
+        service.create(hall({ amenities: [{ kind: 'stairs', position: { x: 'n', z: 2 } }] })),
+      ).rejects.toThrow(BadRequestDomainError);
+    });
+
+    it('leaves amenities null when the request omits them', async () => {
+      const { repo, service } = setup();
+
+      await service.create(hall());
+
+      expect(repo.create.mock.calls[0][0].amenities).toBeNull();
+    });
+  });
+
   describe('read', () => {
     it('lists every hall', async () => {
       const { service } = setup();
@@ -98,6 +173,7 @@ describe('HallService', () => {
         zones: null,
         openings: null,
         markers: null,
+        amenities: null,
         rules: null,
       });
     });
@@ -213,6 +289,7 @@ describe('HallService', () => {
         zones: null,
         openings: null,
         markers: null,
+        amenities: null,
         rules: null,
       });
     });
