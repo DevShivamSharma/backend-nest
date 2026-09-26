@@ -18,7 +18,7 @@
             "reason": "overlaps blocked area (outside at 39,31.5)"
           }
         ],
-        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 27"
+        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 63"
       },
       "hall": {
         "name": "Hall 1GF",
@@ -3467,7 +3467,7 @@
         "stallsInEvent": 48,
         "seeded": 48,
         "dropped": [],
-        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 18"
+        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 59"
       },
       "hall": {
         "name": "Hall 2GF",
@@ -4531,7 +4531,7 @@
             "row": 10
           }
         ],
-        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 6"
+        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 75"
       },
       "hall": {
         "name": "Hall 12",
@@ -5046,7 +5046,7 @@
         "stallsInEvent": 71,
         "seeded": 71,
         "dropped": [],
-        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 2"
+        "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 79"
       },
       "hall": {
         "name": "Hall 8-9-10",
@@ -5062,6 +5062,15 @@
             "length": 3,
             "kind": "outside",
             "color": "#ffffff"
+          },
+          {
+            "posX": -7,
+            "posZ": 4,
+            "width": 1,
+            "length": 1,
+            "kind": "zone",
+            "color": "gray",
+            "title": "Pillar"
           },
           {
             "posX": -2,
@@ -5200,38 +5209,6 @@
             "color": "#742371"
           },
           {
-            "posX": -34.5,
-            "posZ": -16.5,
-            "width": 8,
-            "length": 4,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -47.5,
-            "posZ": 9.5,
-            "width": 2,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -10.5,
-            "posZ": 9.5,
-            "width": 2,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -10.75,
-            "posZ": -18,
-            "width": 2.5,
-            "length": 1,
-            "kind": "zone",
-            "color": "saddlebrown"
-          },
-          {
             "posX": 35.5,
             "posZ": 21.5,
             "width": 62,
@@ -5318,30 +5295,6 @@
             "length": 0.5,
             "kind": "wall",
             "color": "#742371"
-          },
-          {
-            "posX": 7,
-            "posZ": 9.5,
-            "width": 3,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 36.75,
-            "posZ": -5.5,
-            "width": 5.5,
-            "length": 4,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 38.5,
-            "posZ": 14,
-            "width": 2,
-            "length": 9,
-            "kind": "zone",
-            "color": "red"
           },
           {
             "posX": 62.5,
@@ -5494,14 +5447,6 @@
             "length": 0.5,
             "kind": "wall",
             "color": "#742371"
-          },
-          {
-            "posX": 54.75,
-            "posZ": 6.5,
-            "width": 0.5,
-            "length": 5,
-            "kind": "zone",
-            "color": "saddlebrown"
           }
         ],
         "boundary": [
@@ -5626,200 +5571,7 @@
             "z": 15.5
           }
         ],
-        "zones": [
-          {
-            "id": "zone-1",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": -38.5,
-                "z": -18.5
-              },
-              {
-                "x": -30.5,
-                "z": -18.5
-              },
-              {
-                "x": -30.5,
-                "z": -14.5
-              },
-              {
-                "x": -38.5,
-                "z": -14.5
-              }
-            ]
-          },
-          {
-            "id": "zone-2",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": -48.5,
-                "z": 3.5
-              },
-              {
-                "x": -46.5,
-                "z": 3.5
-              },
-              {
-                "x": -46.5,
-                "z": 15.5
-              },
-              {
-                "x": -48.5,
-                "z": 15.5
-              }
-            ]
-          },
-          {
-            "id": "zone-3",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": -11.5,
-                "z": 3.5
-              },
-              {
-                "x": -9.5,
-                "z": 3.5
-              },
-              {
-                "x": -9.5,
-                "z": 15.5
-              },
-              {
-                "x": -11.5,
-                "z": 15.5
-              }
-            ]
-          },
-          {
-            "id": "zone-4",
-            "kind": "NO_CONSTRUCTION",
-            "label": "NC - No Construction Zone",
-            "color": "saddlebrown",
-            "polygon": [
-              {
-                "x": -12,
-                "z": -18.5
-              },
-              {
-                "x": -9.5,
-                "z": -18.5
-              },
-              {
-                "x": -9.5,
-                "z": -17.5
-              },
-              {
-                "x": -12,
-                "z": -17.5
-              }
-            ]
-          },
-          {
-            "id": "zone-5",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": 5.5,
-                "z": 3.5
-              },
-              {
-                "x": 8.5,
-                "z": 3.5
-              },
-              {
-                "x": 8.5,
-                "z": 15.5
-              },
-              {
-                "x": 5.5,
-                "z": 15.5
-              }
-            ]
-          },
-          {
-            "id": "zone-6",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": 34,
-                "z": -7.5
-              },
-              {
-                "x": 39.5,
-                "z": -7.5
-              },
-              {
-                "x": 39.5,
-                "z": -3.5
-              },
-              {
-                "x": 34,
-                "z": -3.5
-              }
-            ]
-          },
-          {
-            "id": "zone-7",
-            "kind": "PASSAGE",
-            "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
-            "polygon": [
-              {
-                "x": 37.5,
-                "z": 9.5
-              },
-              {
-                "x": 39.5,
-                "z": 9.5
-              },
-              {
-                "x": 39.5,
-                "z": 18.5
-              },
-              {
-                "x": 37.5,
-                "z": 18.5
-              }
-            ]
-          },
-          {
-            "id": "zone-8",
-            "kind": "NO_CONSTRUCTION",
-            "label": "NC - No Construction Zone",
-            "color": "saddlebrown",
-            "polygon": [
-              {
-                "x": 54.5,
-                "z": 4
-              },
-              {
-                "x": 55,
-                "z": 4
-              },
-              {
-                "x": 55,
-                "z": 9
-              },
-              {
-                "x": 54.5,
-                "z": 9
-              }
-            ]
-          }
-        ],
+        "zones": [],
         "openings": [],
         "markers": [
           {

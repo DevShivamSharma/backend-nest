@@ -68,6 +68,10 @@ export class HallDto {
   markers?: unknown[] | null;
 
   @IsOptional()
+  @IsArray()
+  amenities?: unknown[] | null;
+
+  @IsOptional()
   @IsObject()
   rules?: Record<string, unknown> | null;
 }

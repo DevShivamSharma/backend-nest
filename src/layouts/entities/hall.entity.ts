@@ -71,9 +71,24 @@ export class HallEntity {
   @Column({ type: 'jsonb', nullable: true })
   markers!: HallMarker[] | null;
 
+  /**
+   * Utility icons from the source layout's `helper_text` — toilets, stairs/lifts, entries.
+   * Visual only: the plan places some of them OUTSIDE the hall outline, so they are never
+   * treated as geometry and never take part in placement validation.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  amenities!: HallAmenity[] | null;
+
   /** Placement rules in metres. NULL = the hall is not rule-driven (legacy checks only). */
   @Column({ type: 'jsonb', nullable: true })
   rules!: Partial<LayoutRules> | null;
+}
+
+/** A utility icon on the plan. `kind` is also the SVG's base name under `assets/images/`. */
+export interface HallAmenity {
+  kind: string;
+  label: string;
+  position: Point;
 }
 
 /** A text label on the plan, e.g. a gate name. */

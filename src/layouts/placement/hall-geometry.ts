@@ -59,12 +59,14 @@ export function hallGeometryResponse(hall: {
   zones?: unknown[] | null;
   openings?: unknown[] | null;
   markers?: unknown[] | null;
+  amenities?: unknown[] | null;
   rules?: object | null;
 }): {
   boundary: unknown[] | null;
   zones: unknown[] | null;
   openings: unknown[] | null;
   markers: unknown[] | null;
+  amenities: unknown[] | null;
   rules: Record<string, unknown> | null;
 } {
   return {
@@ -72,6 +74,7 @@ export function hallGeometryResponse(hall: {
     zones: hall.zones ?? null,
     openings: hall.openings ?? null,
     markers: hall.markers ?? null,
+    amenities: hall.amenities ?? null,
     rules: (hall.rules as Record<string, unknown> | null | undefined) ?? null,
   };
 }

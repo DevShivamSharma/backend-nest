@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
 import type { LayoutSummaryResponse } from './dto/layout-response.dto';
-import { BlockedArea, HallEntity, HallMarker } from './entities/hall.entity';
+import { BlockedArea, HallAmenity, HallEntity, HallMarker } from './entities/hall.entity';
 import { LayoutEntity } from './entities/layout.entity';
 import { StallEntity } from './entities/stall.entity';
 import type { HallOpening, HallZone, LayoutRules, Point } from './placement/placement-rules';
@@ -18,6 +18,7 @@ export interface HallWrite {
   zones?: HallZone[] | null;
   openings?: HallOpening[] | null;
   markers?: HallMarker[] | null;
+  amenities?: HallAmenity[] | null;
   rules?: Partial<LayoutRules> | null;
 }
 

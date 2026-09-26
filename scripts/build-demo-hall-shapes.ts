@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
  * `T_EVENT_HALL_LAYOUT_DATA.csv`, and rewrites `data/demo-layouts.json` so each
  * layout's hall carries the same `blockedAreas`.
  *
- * For each of the five demo halls the CSV row with the most `nonClickableAreas`
+ * For each of the five demo halls the CSV row most recently authored
  * wins. Every area is converted from top-left origin to the planner's
  * centre-origin system:
  *
@@ -67,6 +67,9 @@ interface CsvRow {
   breadth: string;
   legends: string;
   exit_labels: string;
+  helper_text: string;
+  updated_at: string;
+  created_at: string;
 }
 
 interface Point {
@@ -86,6 +89,27 @@ interface HallMarker {
   text: string;
   position: Point;
 }
+
+/**
+ * A utility icon from the CSV's `helper_text`. Mirrors `HallAmenity` in the frontend's
+ * hall.model.ts; the kind is also the SVG's base name under `assets/images/`.
+ */
+interface HallAmenity {
+  kind: string;
+  label: string;
+  position: Point;
+}
+
+/** `helper_text` icon URL -> amenity kind. The URL is the SelfCare contract, so match on it. */
+const AMENITY_BY_URL: Record<string, string> = {
+  'toilet-male.svg': 'toilet-male',
+  'toilet-female.svg': 'toilet-female',
+  'stairs.svg': 'stairs',
+  'entry-up.svg': 'entry-up',
+};
+
+/** Metres between neighbouring icons of one `helper_text` cluster, matching the frontend. */
+const AMENITY_SPACING = 2.5;
 
 /** Stored on every hall that gets a boundary. Metres; see LayoutRules in placement-rules.ts. */
 const ITPO_RULES = {
@@ -375,6 +399,52 @@ function typedZones(areas: BlockedArea[], legends: unknown): HallZone[] {
   return zones;
 }
 
+/**
+ * `helper_text` -> amenities. One entry is a ROW of icons sharing a pixel position, so they are
+ * spread along X to stay readable at plan scale, exactly as the frontend importer does.
+ */
+function amenities(helperText: unknown, hallW: number, hallL: number): HallAmenity[] {
+  const out: HallAmenity[] = [];
+  for (const group of Array.isArray(helperText) ? helperText : []) {
+    const entry = group as { image?: unknown; positionX?: unknown; positionY?: unknown };
+    if (typeof entry.positionX !== 'number' || typeof entry.positionY !== 'number') continue;
+
+    const images = Array.isArray(entry.image) ? entry.image : [];
+    images.forEach((image, i) => {
+      const item = image as { url?: unknown; label?: unknown };
+      const file = String(item.url ?? '')
+        .split('/')
+        .pop()
+        ?.toLowerCase();
+      const kind = file ? AMENITY_BY_URL[file] : undefined;
+      if (!kind) return;
+
+      const baseX = (entry.positionX as number) / PX_PER_UNIT - hallW / 2;
+      out.push({
+        kind,
+        label: typeof item.label === 'string' ? item.label : kind,
+        position: {
+          x: round(baseX + (i - (images.length - 1) / 2) * AMENITY_SPACING),
+          z: round((entry.positionY as number) / PX_PER_UNIT - hallL / 2),
+        },
+      });
+    });
+  }
+  return out;
+}
+
+/** True when `a` is the later-authored row. Ties fall back to the higher id. */
+function rowIsNewer(a: CsvRow, b: CsvRow): boolean {
+  const stamp = (r: CsvRow): number => {
+    const t = Date.parse(r.updated_at) || Date.parse(r.created_at);
+    return Number.isFinite(t) ? t : 0;
+  };
+  const ta = stamp(a);
+  const tb = stamp(b);
+  if (ta !== tb) return ta > tb;
+  return (Number(a.id) || 0) > (Number(b.id) || 0);
+}
+
 function exitMarkers(labels: unknown, hallW: number, hallL: number): HallMarker[] {
   const markers: HallMarker[] = [];
   for (const label of Array.isArray(labels) ? labels : []) {
@@ -419,6 +489,9 @@ function main(): void {
   const cBreadth = col('breadth');
   const cLegends = col('legends');
   const cExitLabels = col('exit_labels');
+  const cHelperText = col('helper_text');
+  const cUpdatedAt = col('updated_at');
+  const cCreatedAt = col('created_at');
 
   const dataRows: CsvRow[] = rows.slice(1).map((r) => ({
     id: r[cId],
@@ -428,6 +501,9 @@ function main(): void {
     breadth: r[cBreadth],
     legends: r[cLegends],
     exit_labels: r[cExitLabels],
+    helper_text: r[cHelperText],
+    updated_at: r[cUpdatedAt],
+    created_at: r[cCreatedAt],
   }));
 
   const shapes: Record<
@@ -441,12 +517,26 @@ function main(): void {
       zones: HallZone[];
       openings: never[];
       markers: HallMarker[];
+      amenities: HallAmenity[];
       rules: typeof ITPO_RULES | null;
     }
   > = {};
 
   for (const demo of DEMO_HALLS) {
-    // Pick the row for this hall with the most nonClickableAreas.
+    /**
+     * Pick the hall's MOST RECENT row.
+     *
+     * This used to pick the row with the most `nonClickableAreas`, which silently seeded stale
+     * geometry: a hall's layout is re-authored per event (the CSV holds one row per event), and
+     * the biggest row is not the current one. Hall 8-9-10 is the worked example — its Aug-2025
+     * row has 56 areas including 6 red "compulsory passage" and 2 saddlebrown "no construction"
+     * rectangles, while every row since Nov-2025 has 48-49 areas and none at all. Seeding the
+     * biggest row therefore drew passages on a hall whose current official plan marks none, and
+     * that mismatch is exactly what the layout review flagged.
+     *
+     * Ordering is by `updated_at`, then `created_at`, then id, so the newest authored layout
+     * wins regardless of how many rectangles it happens to contain.
+     */
     let best: { row: CsvRow; areas: CsvArea[] } | null = null;
     for (const row of dataRows) {
       if (Number(row.hall_id) !== demo.hallId || !row.layout_data) continue;
@@ -457,7 +547,7 @@ function main(): void {
       } catch {
         continue;
       }
-      if (!best || areas.length > best.areas.length) best = { row, areas };
+      if (!best || rowIsNewer(row, best.row)) best = { row, areas };
     }
 
     if (!best || best.areas.length === 0) {
@@ -471,6 +561,7 @@ function main(): void {
         zones: [],
         openings: [],
         markers: [],
+        amenities: [],
         rules: null,
       };
       continue;
@@ -490,6 +581,7 @@ function main(): void {
     const boundary = rings.length === 1 ? rings[0] : null;
     const zones = typedZones(blockedAreas, parseJson(best.row.legends));
     const markers = exitMarkers(parseJson(best.row.exit_labels), hallW, hallL);
+    const hallAmenities = amenities(parseJson(best.row.helper_text), hallW, hallL);
 
     shapes[demo.name] = {
       hallName: demo.name,
@@ -503,12 +595,13 @@ function main(): void {
       zones,
       openings: [],
       markers,
+      amenities: hallAmenities,
       rules: boundary ? ITPO_RULES : null,
     };
 
     console.log(
       `      ${demo.name} geometry: ${boundary ? `boundary ${boundary.length} vertices` : `no single boundary (${rings.length} rings)`}, ` +
-        `zones: ${zones.length}, markers: ${markers.length}`,
+        `zones: ${zones.length}, markers: ${markers.length}, amenities: ${hallAmenities.length}`,
     );
 
     console.log(
@@ -525,7 +618,8 @@ function main(): void {
       {
         _provenance:
           'Generated by scripts/build-demo-hall-shapes.ts from T_EVENT_HALL_LAYOUT_DATA.csv. ' +
-          'Per hall, the CSV row with the most nonClickableAreas was converted to centre-origin ' +
+          'Per hall, the most recently authored CSV row (by updated_at, then created_at, then id) '
+          + 'was converted to centre-origin ' +
           'coordinates (posX = x + w/2 - W/2, posZ = y + h/2 - L/2; W = csv length, L = csv breadth). ' +
           'Colour mapping: #ffffff -> outside, #742371 -> wall, else zone. No production system was read or written.',
         halls: shapes,

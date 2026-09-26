@@ -49,7 +49,7 @@ interface DemoHall {
 /** One hall's geometry from demo-hall-shapes.json. Every field but blockedAreas may be absent. */
 type DemoHallGeometry = Pick<
   HallDto,
-  'blockedAreas' | 'boundary' | 'zones' | 'openings' | 'markers' | 'rules'
+  'blockedAreas' | 'boundary' | 'zones' | 'openings' | 'markers' | 'amenities' | 'rules'
 >;
 
 interface DemoHallShapesFile {
@@ -75,6 +75,7 @@ function loadGeometry(): Map<string, DemoHallGeometry> {
         zones: shape.zones ?? null,
         openings: shape.openings ?? null,
         markers: shape.markers ?? null,
+        amenities: shape.amenities ?? null,
         rules: shape.rules ?? null,
       },
     ]),

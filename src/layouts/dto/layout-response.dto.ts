@@ -14,6 +14,7 @@ export interface HallResponse {
   zones: unknown[] | null;
   openings: unknown[] | null;
   markers: unknown[] | null;
+  amenities: unknown[] | null;
   rules: Record<string, unknown> | null;
 }
 
