@@ -108,8 +108,13 @@ const AMENITY_BY_URL: Record<string, string> = {
   'entry-up.svg': 'entry-up',
 };
 
-/** Metres between neighbouring icons of one `helper_text` cluster, matching the frontend. */
-const AMENITY_SPACING = 2.5;
+/**
+ * Metres between neighbouring icons of one `helper_text` cluster. Must match the frontend's
+ * value in selfcare-layout.ts, and must stay above the renderer's ICON_SIZE or a cluster's
+ * chips overlap. SelfCare gives one position per icon row, so this spread is the only
+ * placement value not taken from the data; the cluster stays centred on what SelfCare gives.
+ */
+const AMENITY_SPACING = 5;
 
 /** Stored on every hall that gets a boundary. Metres; see LayoutRules in placement-rules.ts. */
 const ITPO_RULES = {
