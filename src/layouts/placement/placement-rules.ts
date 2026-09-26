@@ -68,6 +68,11 @@ export interface HallZone {
   /** Metres to keep free around the zone. Overrides `LayoutRules.zoneClearance[kind]`. */
   clearance?: number | null;
   color?: string | null;
+  /**
+   * Not drawn in the planner's view (SelfCare `visibleInView: false`, e.g. fire-curtain lines).
+   * Display only: a hidden zone restricts placement exactly like a visible one.
+   */
+  hidden?: boolean | null;
 }
 
 export type OpeningKind = 'ENTRY' | 'EXIT' | 'SERVICE' | 'EMERGENCY';
@@ -149,6 +154,12 @@ export interface PlacementStall extends Footprint {
 export interface PlacementContext {
   /** Hall outline. null = the rectangle/circle check done elsewhere is the only boundary. */
   boundary: Point[] | null;
+  /**
+   * Further floor regions of the same hall that are NOT connected to `boundary`, e.g. the foyer
+   * below Hall 1GF / 14GF, which the plan separates from the main floor by an outside strip. A
+   * stall inside any of them is inside the hall. See `traceFloor` / `extraFloorRegions`.
+   */
+  regions?: Point[][] | null;
   zones: HallZone[];
   openings: HallOpening[];
   rules: LayoutRules;
@@ -216,9 +227,14 @@ export function validatePlacement(
 
   const rect = footprintRect(candidate);
 
-  // Hall boundary and peripheral passage (ITPO D5).
-  if (ctx.boundary && ctx.boundary.length >= 3) {
-    if (!rectInsidePolygon(rect, ctx.boundary)) {
+  // Hall boundary and peripheral passage (ITPO D5). The stall must sit wholly inside ONE floor
+  // region; the peripheral clearance is measured against the walls of that region.
+  const outlines = [ctx.boundary, ...(ctx.regions ?? [])].filter(
+    (o): o is Point[] => !!o && o.length >= 3,
+  );
+  if (outlines.length) {
+    const home = outlines.find((o) => rectInsidePolygon(rect, o));
+    if (!home) {
       violations.push({
         code: 'OUTSIDE_HALL',
         ruleRef: 'Hall boundary',
@@ -231,7 +247,7 @@ export function validatePlacement(
       const bands: ViolationGeometry[] = [];
       let nearest = Infinity;
 
-      forEachEdge(ctx.boundary, (a, b) => {
+      forEachEdge(home, (a, b) => {
         const d = segmentRectDistance(a, b, rect);
         if (d < clearance - EPS) {
           nearest = Math.min(nearest, d);
@@ -693,4 +709,290 @@ function edgeGapRect(a: Point, b: Point, rect: Rect): Rect {
     minZ: Math.min(minEdgeZ, rect.minZ),
     maxZ: Math.max(maxEdgeZ, rect.maxZ),
   };
+}
+
+// --- hall floor from the source plan's rectangles -----------------------------------------------
+
+/**
+ * One rectangle of the source plan (SelfCare `nonClickableAreas`, stored as the hall's
+ * `blockedAreas`): centre-origin metres, like stalls. Only the fields the floor needs.
+ */
+export interface FloorArea {
+  posX: number;
+  posZ: number;
+  width: number;
+  length: number;
+  kind: 'outside' | 'wall' | 'zone';
+}
+
+/** One connected piece of hall floor: its outer ring and any interior holes. */
+export interface FloorRegion {
+  outer: Point[];
+  holes: Point[][];
+  /** A point strictly inside the floor of this region (a cell centre), for containment tests. */
+  sample: Point;
+  area: number;
+}
+
+/**
+ * The hall floor as it appears on the source plan: every connected region, with its holes.
+ *
+ * WHY THIS EXISTS. The plan is a canvas of `hallWidth x hallLength` metres on which white
+ * ('outside') rectangles hide what is not hall and purple ('wall') rectangles draw the walls.
+ * Two things about real plans broke the old single-polygon outline:
+ *   1. A hall can have SEVERAL floor regions. Hall 1GF / 14GF have a foyer below the main floor,
+ *      separated from it by an outside strip; one polygon cannot hold both, so the foyer was
+ *      either dropped or the whole outline was discarded.
+ *   2. Walls and zones may lie partly OUTSIDE `length x breadth` (Hall 8-9-10 reaches y = 45 on a
+ *      43 m canvas; the 14GF foyer walls reach past its breadth). Clipping to the canvas cut the
+ *      bottom of the plan off.
+ *
+ * So the canvas here is the hall rectangle GROWN to cover every wall and zone rectangle. White
+ * masks never grow it: they only hide. A cell is floor when no outside/wall rectangle covers it
+ * and either it lies inside the original hall rectangle or it is enclosed (its connected piece
+ * does not reach the edge of the grown canvas) - so the grown margin never turns into open
+ * floor, while a foyer closed off by its own walls beyond the breadth does.
+ *
+ * Exact for axis-aligned input (coordinate compression, no sampling). Regions come back largest
+ * first. Returns [] when the plan has no outside/wall rectangle, i.e. the hall is its rectangle.
+ */
+export function traceFloor(areas: readonly FloorArea[], hallWidth: number, hallLength: number): FloorRegion[] {
+  const valid = areas.filter(
+    (a) =>
+      a &&
+      Number.isFinite(a.posX) &&
+      Number.isFinite(a.posZ) &&
+      Number.isFinite(a.width) &&
+      Number.isFinite(a.length) &&
+      a.width > 0 &&
+      a.length > 0,
+  );
+  const toRect = (a: FloorArea): Rect => ({
+    minX: a.posX - a.width / 2,
+    maxX: a.posX + a.width / 2,
+    minZ: a.posZ - a.length / 2,
+    maxZ: a.posZ + a.length / 2,
+  });
+  const solid = valid.filter((a) => a.kind === 'outside' || a.kind === 'wall').map(toRect);
+  if (!solid.length || !(hallWidth > 0) || !(hallLength > 0)) return [];
+
+  const hall: Rect = { minX: -hallWidth / 2, maxX: hallWidth / 2, minZ: -hallLength / 2, maxZ: hallLength / 2 };
+  const canvas = { ...hall };
+  for (const r of valid.filter((a) => a.kind !== 'outside').map(toRect)) {
+    canvas.minX = Math.min(canvas.minX, r.minX);
+    canvas.maxX = Math.max(canvas.maxX, r.maxX);
+    canvas.minZ = Math.min(canvas.minZ, r.minZ);
+    canvas.maxZ = Math.max(canvas.maxZ, r.maxZ);
+  }
+
+  const cuts = (lo: number, hi: number, values: number[]): number[] =>
+    [...new Set([lo, hi, hall.minX, hall.maxX, hall.minZ, hall.maxZ, ...values].map(snapCut))]
+      .filter((v) => v >= lo - 1e-9 && v <= hi + 1e-9)
+      .sort((a, b) => a - b);
+  const xs = cuts(canvas.minX, canvas.maxX, solid.flatMap((r) => [r.minX, r.maxX]));
+  const zs = cuts(canvas.minZ, canvas.maxZ, solid.flatMap((r) => [r.minZ, r.maxZ]));
+  const nx = xs.length - 1;
+  const nz = zs.length - 1;
+  if (nx < 1 || nz < 1) return [];
+
+  // 1. Covered cells: mark each solid rectangle's index range (no per-cell rectangle scan).
+  const covered = new Uint8Array(nx * nz);
+  const lower = (arr: number[], v: number): number => {
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid] < v - 1e-9) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  for (const r of solid) {
+    const i0 = lower(xs, snapCut(r.minX));
+    const i1 = lower(xs, snapCut(r.maxX));
+    const j0 = lower(zs, snapCut(r.minZ));
+    const j1 = lower(zs, snapCut(r.maxZ));
+    for (let i = Math.max(0, i0); i < Math.min(nx, i1); i++) {
+      for (let j = Math.max(0, j0); j < Math.min(nz, j1); j++) covered[i * nz + j] = 1;
+    }
+  }
+
+  // 2. Connected pieces of uncovered cells, and whether each reaches the canvas edge.
+  const piece = new Int32Array(nx * nz).fill(-1);
+  const open: boolean[] = [];
+  for (let start = 0; start < nx * nz; start++) {
+    if (covered[start] || piece[start] !== -1) continue;
+    const id = open.length;
+    let reachesEdge = false;
+    const stack = [start];
+    piece[start] = id;
+    while (stack.length) {
+      const k = stack.pop() as number;
+      const i = Math.floor(k / nz);
+      const j = k % nz;
+      if (i === 0 || j === 0 || i === nx - 1 || j === nz - 1) reachesEdge = true;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di;
+        const nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue;
+        const nk = ni * nz + nj;
+        if (!covered[nk] && piece[nk] === -1) {
+          piece[nk] = id;
+          stack.push(nk);
+        }
+      }
+    }
+    open.push(reachesEdge);
+  }
+
+  // 3. Floor cells.
+  const floor = new Uint8Array(nx * nz);
+  for (let i = 0; i < nx; i++) {
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    for (let j = 0; j < nz; j++) {
+      const k = i * nz + j;
+      if (covered[k]) continue;
+      const cz = (zs[j] + zs[j + 1]) / 2;
+      const inHall = cx > hall.minX && cx < hall.maxX && cz > hall.minZ && cz < hall.maxZ;
+      if (inHall || !open[piece[k]]) floor[k] = 1;
+    }
+  }
+  const isFloor = (i: number, j: number): boolean => i >= 0 && j >= 0 && i < nx && j < nz && floor[i * nz + j] === 1;
+
+  // 4. Boundary edges, directed with the floor on the right (in x-right / z-down plan space),
+  //    stitched into rings. At a vertex shared by two rings (diagonally touching cells) the
+  //    rightmost turn is taken, so rings never cross.
+  const key = (x: number, z: number): string => `${x},${z}`;
+  const outgoing = new Map<string, Point[]>();
+  const add = (a: Point, b: Point): void => {
+    const k = key(a.x, a.z);
+    const list = outgoing.get(k);
+    if (list) list.push(b);
+    else outgoing.set(k, [b]);
+  };
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      if (!isFloor(i, j)) continue;
+      const [x0, x1, z0, z1] = [xs[i], xs[i + 1], zs[j], zs[j + 1]];
+      if (!isFloor(i, j - 1)) add({ x: x0, z: z0 }, { x: x1, z: z0 });
+      if (!isFloor(i + 1, j)) add({ x: x1, z: z0 }, { x: x1, z: z1 });
+      if (!isFloor(i, j + 1)) add({ x: x1, z: z1 }, { x: x0, z: z1 });
+      if (!isFloor(i - 1, j)) add({ x: x0, z: z1 }, { x: x0, z: z0 });
+    }
+  }
+
+  const rings: Point[][] = [];
+  while (outgoing.size) {
+    const [startKey, firstTargets] = outgoing.entries().next().value as [string, Point[]];
+    const [sx, sz] = startKey.split(',').map(Number);
+    const ring: Point[] = [{ x: sx, z: sz }];
+    let prev: Point = { x: sx, z: sz };
+    let target = firstTargets.pop() as Point;
+    if (!firstTargets.length) outgoing.delete(startKey);
+
+    for (let guard = 0; guard < 1e6; guard++) {
+      if (target.x === sx && target.z === sz) break;
+      ring.push(target);
+      const k = key(target.x, target.z);
+      const options = outgoing.get(k);
+      if (!options?.length) break;
+      const next = pickTurn(prev, target, options);
+      options.splice(options.indexOf(next), 1);
+      if (!options.length) outgoing.delete(k);
+      prev = target;
+      target = next;
+    }
+
+    const simplified = ring.filter((q, k) => {
+      const p = ring[(k - 1 + ring.length) % ring.length];
+      const r = ring[(k + 1) % ring.length];
+      return Math.abs((q.x - p.x) * (r.z - q.z) - (q.z - p.z) * (r.x - q.x)) > 1e-9;
+    });
+    if (simplified.length >= 3) rings.push(simplified.map((p) => ({ x: roundCoord(p.x), z: roundCoord(p.z) })));
+  }
+
+  // 5. Outer rings run clockwise on screen (positive signed area in x-right / z-down space with
+  //    the floor on the right); holes run the other way. Each hole goes to the smallest outer ring
+  //    that contains it.
+  const signed = (ring: Point[]): number =>
+    ring.reduce((sum, p, k) => {
+      const q = ring[(k + 1) % ring.length];
+      return sum + p.x * q.z - q.x * p.z;
+    }, 0) / 2;
+  const outers = rings.filter((r) => signed(r) > 0);
+  const holes = rings.filter((r) => signed(r) < 0);
+
+  const regions: FloorRegion[] = outers.map((outer) => ({ outer, holes: [], sample: outer[0], area: signed(outer) }));
+  for (const hole of holes) {
+    const probe = { x: (hole[0].x + hole[1].x) / 2, z: (hole[0].z + hole[1].z) / 2 };
+    const owner = regions
+      .filter((r) => pointInPolygon(nudgeInside(probe, hole), r.outer))
+      .sort((a, b) => a.area - b.area)[0];
+    if (owner) {
+      owner.holes.push(hole);
+      owner.area += signed(hole);
+    }
+  }
+
+  // A sample point strictly inside each region's floor: the centre of one of its floor cells.
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      if (!floor[i * nz + j]) continue;
+      const c = { x: (xs[i] + xs[i + 1]) / 2, z: (zs[j] + zs[j + 1]) / 2 };
+      const owner = regions
+        .filter((r) => pointInPolygon(c, r.outer))
+        .sort((a, b) => a.area - b.area)[0];
+      if (owner && owner.sample === owner.outer[0]) owner.sample = c;
+    }
+  }
+
+  return regions.sort((a, b) => b.area - a.area);
+}
+
+/**
+ * Floor regions that are not already covered by `boundary`, as outlines for
+ * `PlacementContext.regions`. With no boundary, every region counts.
+ */
+export function extraFloorRegions(boundary: Point[] | null | undefined, floor: FloorRegion[]): Point[][] {
+  const main = boundary && boundary.length >= 3 ? boundary : null;
+  return floor.filter((r) => !main || !pointInPolygon(r.sample, main)).map((r) => r.outer);
+}
+
+/** Of several outgoing edges at a vertex, the one turning furthest right (keeps rings simple). */
+function pickTurn(prev: Point, at: Point, options: Point[]): Point {
+  if (options.length === 1) return options[0];
+  const inX = at.x - prev.x;
+  const inZ = at.z - prev.z;
+  let best = options[0];
+  let bestScore = -Infinity;
+  for (const o of options) {
+    const outX = o.x - at.x;
+    const outZ = o.z - at.z;
+    // In x-right / z-down space a positive cross product is a right (clockwise) turn.
+    const cross = inX * outZ - inZ * outX;
+    const dot = inX * outX + inZ * outZ;
+    const score = Math.atan2(cross, dot);
+    if (score > bestScore) {
+      bestScore = score;
+      best = o;
+    }
+  }
+  return best;
+}
+
+/** A point just off a hole's first edge, on the floor side, for the containment test. */
+function nudgeInside(p: Point, hole: Point[]): Point {
+  const a = hole[0];
+  const b = hole[1];
+  const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+  // Hole rings run with the floor on their right too; right of (dx, dz) is (-dz, dx) here.
+  return { x: p.x - ((b.z - a.z) / len) * 1e-3, z: p.z + ((b.x - a.x) / len) * 1e-3 };
+}
+
+function snapCut(v: number): number {
+  return Math.round(v * 1e6) / 1e6;
+}
+
+function roundCoord(v: number): number {
+  return Math.round(v * 1e6) / 1e6;
 }

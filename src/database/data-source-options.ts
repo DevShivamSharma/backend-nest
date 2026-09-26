@@ -10,6 +10,7 @@ import { AddBlockedAreas1758240100000 } from './migrations/1758240100000-AddBloc
 import { AddStallOpenSides1758240200000 } from './migrations/1758240200000-AddStallOpenSides';
 import { AddLayoutRulesAndStallIdentity1758240300000 } from './migrations/1758240300000-AddLayoutRulesAndStallIdentity';
 import { AddHallAmenities1758240400000 } from './migrations/1758240400000-AddHallAmenities';
+import { AddHallCompassAndLegends1758240500000 } from './migrations/1758240500000-AddHallCompassAndLegends';
 
 // The pg driver returns int8 (bigint ids, COUNT(*)) as strings by default. The API contract
 // sends ids as JSON numbers, exactly as Jackson serialised Java `Long`. Ids here are far below
@@ -33,6 +34,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       AddStallOpenSides1758240200000,
       AddLayoutRulesAndStallIdentity1758240300000,
       AddHallAmenities1758240400000,
+      AddHallCompassAndLegends1758240500000,
     ],
     synchronize: false,
     // Run pending migrations at startup: the published deployment owns its database, so a

@@ -26,7 +26,8 @@
     "seed:demo-halls": "node --env-file=.env -r ts-node/register scripts/seed-demo-halls.ts",
     "seed:demo-layouts": "node --env-file=.env -r ts-node/register scripts/seed-demo-layouts.ts",
     "build:hall-shapes": "node -r ts-node/register scripts/build-demo-hall-shapes.ts",
-    "seed:hall-amenities": "node --env-file=.env -r ts-node/register scripts/seed-hall-amenities.ts"
+    "seed:hall-amenities": "node --env-file=.env -r ts-node/register scripts/seed-hall-amenities.ts",
+    "seed:hall-plans": "node --env-file=.env -r ts-node/register scripts/seed-hall-plans.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

@@ -1,8 +1,9 @@
 import { BadRequestDomainError } from '../../common/errors/domain.errors';
-import type { HallAmenity, HallMarker } from '../entities/hall.entity';
+import type { BlockedArea, HallAmenity, HallCompass, HallLegend, HallMarker } from '../entities/hall.entity';
 import {
   DEFAULT_LAYOUT_RULES,
   effectiveRules,
+  extraFloorRegions,
   EVENT_TYPES,
   EventType,
   HallOpening,
@@ -15,6 +16,7 @@ import {
   Point,
   STALL_STATUSES,
   StallStatus,
+  traceFloor,
   ZONE_KINDS,
 } from './placement-rules';
 
@@ -32,6 +34,8 @@ export interface HallGeometryInput {
   openings?: unknown[] | null;
   markers?: unknown[] | null;
   amenities?: unknown[] | null;
+  compass?: Record<string, unknown> | null;
+  legends?: unknown[] | null;
   rules?: Record<string, unknown> | null;
 }
 
@@ -41,6 +45,8 @@ export interface HallGeometry {
   openings: HallOpening[] | null;
   markers: HallMarker[] | null;
   amenities: HallAmenity[] | null;
+  compass: HallCompass | null;
+  legends: HallLegend[] | null;
   rules: Partial<LayoutRules> | null;
 }
 
@@ -52,6 +58,8 @@ export function validateHallGeometry(input: HallGeometryInput): HallGeometry {
     openings: input.openings == null ? null : input.openings.map((o, i) => opening(o, i)),
     markers: input.markers == null ? null : input.markers.map((m, i) => marker(m, i)),
     amenities: input.amenities == null ? null : input.amenities.map((a, i) => amenity(a, i)),
+    compass: input.compass == null ? null : compass(input.compass),
+    legends: input.legends == null ? null : input.legends.map((l, i) => legend(l, i)),
     rules: input.rules == null ? null : rules(input.rules),
   };
 }
@@ -63,6 +71,8 @@ export function hallGeometryResponse(hall: {
   openings?: unknown[] | null;
   markers?: unknown[] | null;
   amenities?: unknown[] | null;
+  compass?: object | null;
+  legends?: unknown[] | null;
   rules?: object | null;
 }): {
   boundary: unknown[] | null;
@@ -70,6 +80,8 @@ export function hallGeometryResponse(hall: {
   openings: unknown[] | null;
   markers: unknown[] | null;
   amenities: unknown[] | null;
+  compass: Record<string, unknown> | null;
+  legends: unknown[] | null;
   rules: Record<string, unknown> | null;
 } {
   return {
@@ -78,6 +90,8 @@ export function hallGeometryResponse(hall: {
     openings: hall.openings ?? null,
     markers: hall.markers ?? null,
     amenities: hall.amenities ?? null,
+    compass: (hall.compass as Record<string, unknown> | null | undefined) ?? null,
+    legends: hall.legends ?? null,
     rules: (hall.rules as Record<string, unknown> | null | undefined) ?? null,
   };
 }
@@ -110,8 +124,18 @@ export function isRuleDriven(hall: { rules?: Partial<LayoutRules> | null }): boo
   return hall.rules != null;
 }
 
+/**
+ * The rules' view of a hall. Besides the stored boundary and zones it carries what the plan's
+ * rectangles imply, exactly as the planner derives it (same functions, placement-rules.ts):
+ *   - `regions`: floor regions the single boundary polygon cannot hold, e.g. a foyer separated
+ *     from the main floor (Hall 1GF / 14GF), traced WITHOUT clipping to width x length.
+ */
 export function buildPlacementContext(
   hall: {
+    width?: number | null;
+    length?: number | null;
+    radius?: number | null;
+    blockedAreas?: BlockedArea[] | null;
     boundary?: Point[] | null;
     zones?: HallZone[] | null;
     openings?: HallOpening[] | null;
@@ -120,8 +144,14 @@ export function buildPlacementContext(
   eventType: EventType,
   stalls: PlacementStall[],
 ): PlacementContext {
+  const width = Number(hall.width) > 0 ? Number(hall.width) : Number(hall.radius ?? 0) * 2;
+  const length = Number(hall.length) > 0 ? Number(hall.length) : Number(hall.radius ?? 0) * 2;
+  const areas = hall.blockedAreas ?? [];
+  const floor = traceFloor(areas, width, length);
+
   return {
     boundary: hall.boundary ?? null,
+    regions: extraFloorRegions(hall.boundary, floor),
     zones: hall.zones ?? [],
     openings: hall.openings ?? [],
     rules: effectiveRules(hall.rules),
@@ -167,6 +197,7 @@ function zone(raw: unknown, index: number): HallZone {
     polygon: polygon(z['polygon'], `${what} polygon`),
     ...(z['clearance'] != null ? { clearance: z['clearance'] as number } : {}),
     ...(typeof z['color'] === 'string' ? { color: z['color'] } : {}),
+    ...(z['hidden'] === true ? { hidden: true } : {}),
   };
 }
 
@@ -216,7 +247,13 @@ function marker(raw: unknown, index: number): HallMarker {
  * amenities OUTSIDE the hall outline (Hall 8-9-10's Hall 10 toilet block sits above FOYER C).
  */
 function amenity(raw: unknown, index: number): HallAmenity {
-  const a = (raw ?? {}) as { kind?: unknown; label?: unknown; position?: { x?: unknown; z?: unknown } };
+  const a = (raw ?? {}) as {
+    kind?: unknown;
+    label?: unknown;
+    position?: { x?: unknown; z?: unknown };
+    anchor?: unknown;
+    slot?: unknown;
+  };
 
   if (typeof a.kind !== 'string' || !a.kind.trim() || !finite(a.position?.x) || !finite(a.position?.z)) {
     throw new BadRequestDomainError(
@@ -224,10 +261,77 @@ function amenity(raw: unknown, index: number): HallAmenity {
     );
   }
 
+  const anchor = a.anchor as { x?: unknown; z?: unknown } | null | undefined;
+  const slot = a.slot;
   return {
     kind: a.kind.trim(),
     label: typeof a.label === 'string' ? a.label : a.kind.trim(),
     position: { x: a.position!.x as number, z: a.position!.z as number },
+    ...(anchor && finite(anchor.x) && finite(anchor.z)
+      ? { anchor: { x: anchor.x as number, z: anchor.z as number } }
+      : {}),
+    ...(Number.isInteger(slot) && (slot as number) >= 0 ? { slot: slot as number } : {}),
+  };
+}
+
+/** The north arrow. Visual only, so like amenities it may sit outside the outline. */
+function compass(raw: Record<string, unknown>): HallCompass {
+  const position = raw['position'] as { x?: unknown; z?: unknown } | undefined;
+  const offset = (raw['labelOffset'] ?? { x: 0, z: 0 }) as { x?: unknown; z?: unknown };
+  if (!finite(position?.x) || !finite(position?.z)) {
+    throw new BadRequestDomainError('Compass needs a position with numeric x and z.');
+  }
+  if (raw['size'] != null && (!finite(raw['size']) || (raw['size'] as number) <= 0)) {
+    throw new BadRequestDomainError('Compass size must be a positive number of metres.');
+  }
+  if (raw['rotation'] != null && !finite(raw['rotation'])) {
+    throw new BadRequestDomainError('Compass rotation must be a number of degrees.');
+  }
+  if (!finite(offset.x) || !finite(offset.z)) {
+    throw new BadRequestDomainError('Compass labelOffset needs numeric x and z.');
+  }
+  return {
+    position: { x: position!.x as number, z: position!.z as number },
+    size: (raw['size'] as number | undefined) ?? 5,
+    rotation: (raw['rotation'] as number | undefined) ?? 0,
+    label: typeof raw['label'] === 'string' && raw['label'].trim() ? raw['label'].trim().slice(0, 8) : 'N',
+    labelOffset: { x: offset.x as number, z: offset.z as number },
+  };
+}
+
+/**
+ * A legend row. `htmlContent` is stored as the text it is (bounded), never interpreted here; the
+ * frontend reduces it to plain text runs and never binds it as HTML.
+ */
+function legend(raw: unknown, index: number): HallLegend {
+  const l = (raw ?? {}) as Record<string, unknown>;
+  if (typeof l['label'] !== 'string' || !l['label'].trim()) {
+    throw new BadRequestDomainError(`Legend ${index} needs a label.`);
+  }
+  const text = (key: string, max: number): string | undefined => {
+    const v = l[key];
+    if (v == null) return undefined;
+    if (typeof v !== 'string' || v.length > max) {
+      throw new BadRequestDomainError(`Legend ${index} ${key} must be text of at most ${max} characters.`);
+    }
+    return v;
+  };
+  const flag = (key: string): boolean | undefined => {
+    const v = l[key];
+    if (v == null) return undefined;
+    if (typeof v !== 'boolean') throw new BadRequestDomainError(`Legend ${index} ${key} must be true or false.`);
+    return v;
+  };
+  const colorCode = text('colorCode', 40);
+  const htmlContent = text('htmlContent', 2000);
+  const inView = flag('visibleInViewMode');
+  const inBook = flag('visibleInBookMode');
+  return {
+    label: l['label'].trim().slice(0, 500),
+    ...(colorCode !== undefined ? { colorCode } : {}),
+    ...(htmlContent !== undefined ? { htmlContent } : {}),
+    ...(inView !== undefined ? { visibleInViewMode: inView } : {}),
+    ...(inBook !== undefined ? { visibleInBookMode: inBook } : {}),
   };
 }
 

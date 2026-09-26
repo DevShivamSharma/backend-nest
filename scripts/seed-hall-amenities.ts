@@ -24,7 +24,16 @@ import { HallService } from '../src/halls/hall.service';
  */
 interface AmenitiesFile {
   _provenance: string;
-  halls: Record<string, Array<{ kind: string; label: string; position: { x: number; z: number } }>>;
+  halls: Record<
+    string,
+    Array<{
+      kind: string;
+      label: string;
+      position: { x: number; z: number };
+      anchor?: { x: number; z: number };
+      slot?: number;
+    }>
+  >;
 }
 
 async function seed(): Promise<void> {
@@ -71,6 +80,8 @@ async function seed(): Promise<void> {
         zones: current.zones,
         openings: current.openings,
         markers: current.markers,
+        compass: current.compass,
+        legends: current.legends,
         rules: current.rules,
         amenities,
       });

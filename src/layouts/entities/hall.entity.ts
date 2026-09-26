@@ -20,7 +20,11 @@ export interface BlockedArea {
   length: number;
   kind: BlockedAreaKind;
   color: string;
+  strokeColor?: string;
+  /** Hover text of the source plan, e.g. "Pillar". */
   title?: string;
+  /** SelfCare `visibleInView: false` (fire curtains): not drawn in the view, still blocking. */
+  hidden?: boolean;
 }
 
 /**
@@ -79,16 +83,48 @@ export class HallEntity {
   @Column({ type: 'jsonb', nullable: true })
   amenities!: HallAmenity[] | null;
 
+  /** The plan's north arrow (SelfCare `direction`). Visual only. */
+  @Column({ type: 'jsonb', nullable: true })
+  compass!: HallCompass | null;
+
+  /** The plan's own legend rows (SelfCare `legends`). Visual only; markup is stored as text. */
+  @Column({ type: 'jsonb', nullable: true })
+  legends!: HallLegend[] | null;
+
   /** Placement rules in metres. NULL = the hall is not rule-driven (legacy checks only). */
   @Column({ type: 'jsonb', nullable: true })
   rules!: Partial<LayoutRules> | null;
 }
 
-/** A utility icon on the plan. `kind` is also the SVG's base name under `assets/images/`. */
+/**
+ * A utility icon on the plan. `kind` is also the SVG's base name under `assets/images/`.
+ * `position` is the icon centre; `anchor` (top-left of the SelfCare icon card it belongs to) and
+ * `slot` (its place in that card's row) let the frontend draw the card as the plan does.
+ */
 export interface HallAmenity {
   kind: string;
   label: string;
   position: Point;
+  anchor?: Point | null;
+  slot?: number | null;
+}
+
+/** The plan's north arrow: rose centre, side in metres, clockwise degrees, letter offset. */
+export interface HallCompass {
+  position: Point;
+  size: number;
+  rotation: number;
+  label: string;
+  labelOffset: Point;
+}
+
+/** One legend row: a colour swatch OR a markup note (untrusted; the frontend renders text only). */
+export interface HallLegend {
+  label: string;
+  colorCode?: string | null;
+  htmlContent?: string | null;
+  visibleInViewMode?: boolean;
+  visibleInBookMode?: boolean;
 }
 
 /** A text label on the plan, e.g. a gate name. */

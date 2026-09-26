@@ -71,6 +71,16 @@ export class HallDto {
   @IsArray()
   amenities?: unknown[] | null;
 
+  /** The plan's north arrow. Checked by validateHallGeometry(). */
+  @IsOptional()
+  @IsObject()
+  compass?: Record<string, unknown> | null;
+
+  /** The plan's legend rows. Checked by validateHallGeometry(). */
+  @IsOptional()
+  @IsArray()
+  legends?: unknown[] | null;
+
   @IsOptional()
   @IsObject()
   rules?: Record<string, unknown> | null;

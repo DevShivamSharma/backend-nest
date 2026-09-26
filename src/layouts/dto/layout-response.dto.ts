@@ -15,6 +15,8 @@ export interface HallResponse {
   openings: unknown[] | null;
   markers: unknown[] | null;
   amenities: unknown[] | null;
+  compass: Record<string, unknown> | null;
+  legends: unknown[] | null;
   rules: Record<string, unknown> | null;
 }
 

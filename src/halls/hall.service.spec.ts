@@ -113,6 +113,60 @@ describe('HallService', () => {
       ).rejects.toThrow(BadRequestDomainError);
     });
 
+    it('keeps an amenity\'s card anchor and slot, so the icon row survives a save', async () => {
+      const { repo, service } = setup();
+
+      await service.create(
+        hall({
+          amenities: [
+            { kind: 'drinking-water', label: 'Drinking Water', position: { x: 3, z: 4 }, anchor: { x: 1, z: 2 }, slot: 1 },
+          ],
+        }),
+      );
+
+      expect(repo.create.mock.calls[0][0].amenities).toEqual([
+        { kind: 'drinking-water', label: 'Drinking Water', position: { x: 3, z: 4 }, anchor: { x: 1, z: 2 }, slot: 1 },
+      ]);
+    });
+
+    it('persists the plan\'s compass and legend, and keeps a hidden zone hidden', async () => {
+      const { repo, service } = setup();
+
+      await service.create(
+        hall({
+          compass: { position: { x: 66.5, z: 29 }, size: 5, rotation: -90, label: 'N', labelOffset: { x: -4.4, z: -4.75 } },
+          legends: [
+            { label: 'Compulsory passage', colorCode: 'red' },
+            { label: 'Toilet', htmlContent: '<p>T:</p>', visibleInViewMode: true, visibleInBookMode: false },
+          ],
+          zones: [
+            {
+              id: 'sc-zone-1',
+              kind: 'SMOKE_CURTAIN',
+              label: 'Fire curtain',
+              polygon: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 1, z: 1 }],
+              hidden: true,
+            },
+          ],
+        }),
+      );
+
+      const write = repo.create.mock.calls[0][0];
+      expect(write.compass).toEqual({ position: { x: 66.5, z: 29 }, size: 5, rotation: -90, label: 'N', labelOffset: { x: -4.4, z: -4.75 } });
+      expect(write.legends?.[1]).toEqual({ label: 'Toilet', htmlContent: '<p>T:</p>', visibleInViewMode: true, visibleInBookMode: false });
+      expect(write.zones?.[0].hidden).toBe(true);
+    });
+
+    it('rejects a malformed compass or legend', async () => {
+      const { service } = setup();
+
+      await expect(service.create(hall({ compass: { position: { x: 'a', z: 1 } } }))).rejects.toThrow(BadRequestDomainError);
+      await expect(service.create(hall({ legends: [{ colorCode: 'red' }] }))).rejects.toThrow(BadRequestDomainError);
+      await expect(
+        service.create(hall({ legends: [{ label: 'x', visibleInViewMode: 'no' }] })),
+      ).rejects.toThrow(BadRequestDomainError);
+    });
+
     it('leaves amenities null when the request omits them', async () => {
       const { repo, service } = setup();
 
@@ -127,7 +181,7 @@ describe('HallService', () => {
       const { service } = setup();
 
       await expect(service.list()).resolves.toEqual([
-        { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, blockedAreas: null, boundary: null, zones: null, openings: null, markers: null, amenities: null, rules: null },
+        { id: 1000, name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, blockedAreas: null, boundary: null, zones: null, openings: null, markers: null, amenities: null, compass: null, legends: null, rules: null },
       ]);
     });
 
@@ -174,6 +228,8 @@ describe('HallService', () => {
         openings: null,
         markers: null,
         amenities: null,
+        compass: null,
+        legends: null,
         rules: null,
       });
     });
@@ -290,6 +346,8 @@ describe('HallService', () => {
         openings: null,
         markers: null,
         amenities: null,
+        compass: null,
+        legends: null,
         rules: null,
       });
     });
