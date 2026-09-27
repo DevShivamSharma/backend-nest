@@ -7,6 +7,7 @@ import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HallsModule } from './halls/halls.module';
 import { LayoutsModule } from './layouts/layouts.module';
+import { AssistModule } from './layouts/assist/assist.module';
 
 /** Root composition. HallsModule serves /api/halls: ported but deprecated, no known consumer (ADR-002). */
 @Module({
@@ -23,6 +24,7 @@ import { LayoutsModule } from './layouts/layouts.module';
     DatabaseModule,
     LayoutsModule,
     HallsModule,
+    AssistModule,
   ],
   controllers: [HealthController],
 })

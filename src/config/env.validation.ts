@@ -26,6 +26,19 @@ export enum Environment {
 }
 
 export class EnvironmentVariables {
+  /** Optional: only the assistant uses these; no key enables the simple parser. */
+  @IsString()
+  @IsOptional()
+  AI_PROVIDER?: string;
+
+  @IsString()
+  @IsOptional()
+  AI_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  AI_MODEL?: string;
+
   @IsEnum(Environment, {
     message: 'NODE_ENV must be one of: development, production, test',
   })
