@@ -49,7 +49,15 @@ interface DemoHall {
 /** One hall's geometry from demo-hall-shapes.json. Every field but blockedAreas may be absent. */
 type DemoHallGeometry = Pick<
   HallDto,
-  'blockedAreas' | 'boundary' | 'zones' | 'openings' | 'markers' | 'amenities' | 'rules'
+  | 'blockedAreas'
+  | 'boundary'
+  | 'zones'
+  | 'openings'
+  | 'markers'
+  | 'amenities'
+  | 'compass'
+  | 'legends'
+  | 'rules'
 >;
 
 interface DemoHallShapesFile {
@@ -61,10 +69,13 @@ interface DemoHallShapesFile {
  * `scripts/build-demo-hall-shapes.ts` from T_EVENT_HALL_LAYOUT_DATA.csv.
  * Missing entry -> the hall is seeded as a plain rectangle, as before.
  */
-function loadGeometry(): Map<string, DemoHallGeometry> {
+export function loadGeometry(): Map<string, DemoHallGeometry> {
   const file = JSON.parse(
     readFileSync(join(__dirname, 'data', 'demo-hall-shapes.json'), 'utf-8'),
   ) as DemoHallShapesFile;
+  const annotations = JSON.parse(
+    readFileSync(join(__dirname, 'data', 'hall-annotations.json'), 'utf-8'),
+  ) as { halls: Record<string, DemoHallGeometry> };
 
   return new Map(
     Object.entries(file.halls).map(([name, shape]) => [
@@ -74,8 +85,10 @@ function loadGeometry(): Map<string, DemoHallGeometry> {
         boundary: shape.boundary ?? null,
         zones: shape.zones ?? null,
         openings: shape.openings ?? null,
-        markers: shape.markers ?? null,
-        amenities: shape.amenities ?? null,
+        markers: annotations.halls[name]?.markers ?? shape.markers ?? null,
+        amenities: annotations.halls[name]?.amenities ?? shape.amenities ?? null,
+        compass: annotations.halls[name]?.compass ?? shape.compass ?? null,
+        legends: annotations.halls[name]?.legends ?? shape.legends ?? null,
         rules: shape.rules ?? null,
       },
     ]),
@@ -167,7 +180,9 @@ async function seed(): Promise<void> {
         ...(geometryByName.get(demo.name) ?? { blockedAreas: [] }),
       });
 
-      logger.log(`create ${hall.name} (id ${hall.id}) ${demo.width}x${demo.length} — ${demo.source}`);
+      logger.log(
+        `create ${hall.name} (id ${hall.id}) ${demo.width}x${demo.length} — ${demo.source}`,
+      );
       created++;
     }
 
@@ -177,7 +192,8 @@ async function seed(): Promise<void> {
   }
 }
 
-void seed().catch((error: unknown) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module)
+  void seed().catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

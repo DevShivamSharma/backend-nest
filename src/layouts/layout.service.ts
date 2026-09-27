@@ -55,7 +55,7 @@ import {
   PlacementStall,
 } from './placement/placement-rules';
 
-/** Options for trusted callers only (seed scripts); never reachable from HTTP. */
+/** Options for trusted imports only (scripts and the token-protected seed-import route). */
 export interface WriteOptions {
   /**
    * Import of EXISTING production placements. Skips BR-24: those stalls are existing layout
@@ -343,6 +343,12 @@ function assignNewNumbers(write: LayoutWrite, nextSeq: number): number {
   for (const stall of write.stalls) {
     if (stall.stallNumber === null) {
       do {
+        // Use the same cap as explicit numeric identifiers so generated numbers can
+        // be reloaded and saved again, and next_stall_seq remains a PostgreSQL int.
+        if (!Number.isSafeInteger(seq) || seq >= 2147483646)
+          throw new BadRequestDomainError(
+            'Numeric stall identifier exceeds the sequence capacity.',
+          );
         stall.stallNumber = formatStallNumber(prefix, seq++);
       } while (
         write.stalls.some((other) => other !== stall && other.stallNumber === stall.stallNumber)

@@ -95,6 +95,10 @@ export class HallRepository {
           order: { id: 'ASC' },
         });
         assertPlacements(write, normalizeEventType(owner.eventType), stalls);
+        await manager.update(LayoutEntity, owner.id, {
+          hallWidth: write.width ?? 0,
+          hallLength: write.length ?? 0,
+        });
       }
       return manager.save(manager.merge(HallEntity, existing, write));
     });

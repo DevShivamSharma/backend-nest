@@ -1,4 +1,5 @@
-import { BadRequestDomainError } from '../common/errors/domain.errors';
+import { BadRequestDomainError, PlacementRejectedError } from '../common/errors/domain.errors';
+import { isRepresentableFootprint } from './placement/polygon-geometry';
 import type { HallDto, LayoutSaveRequestDto } from './dto/layout-save-request.dto';
 import { HallShape } from './layout.geometry';
 import {
@@ -153,6 +154,21 @@ export function validateLayoutRequest(
     // BR-10
     if (footprint.width <= 0 || footprint.length <= 0 || height <= 0) {
       throw new BadRequestDomainError(`Invalid stall dimensions at index ${i}.`);
+    }
+    if (!isRepresentableFootprint({ ...footprint, rotation: stall.rotation ?? 0 })) {
+      throw new PlacementRejectedError(
+        `Stall ${i} geometry cannot be represented at metre precision.`,
+        [
+          {
+            code: 'INVALID_DIMENSIONS',
+            stallIndex: i,
+            stallNumber: stall.stallNumber ?? null,
+            message: 'Dimensions and position must form finite, non-degenerate edges.',
+            relatedStallIds: [],
+            geometry: [],
+          },
+        ],
+      );
     }
 
     // BR-12 — called only for its exception; the value is used later, when copying.

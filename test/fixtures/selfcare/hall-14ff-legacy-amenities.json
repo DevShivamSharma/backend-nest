@@ -1,0 +1,98 @@
+[
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": -63.5,
+      "z": 42
+    }
+  },
+  {
+    "kind": "toilet-male",
+    "label": "Toilet (Male)",
+    "position": {
+      "x": -53.5,
+      "z": 42
+    }
+  },
+  {
+    "kind": "toilet-female",
+    "label": "Toilet (Female)",
+    "position": {
+      "x": -48.5,
+      "z": 42
+    }
+  },
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": 42,
+      "z": -25.5
+    }
+  },
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": 23,
+      "z": -56
+    }
+  },
+  {
+    "kind": "toilet-male",
+    "label": "Toilet (Male)",
+    "position": {
+      "x": -6,
+      "z": -63.5
+    }
+  },
+  {
+    "kind": "toilet-female",
+    "label": "Toilet (Female)",
+    "position": {
+      "x": -19.5,
+      "z": -60.5
+    }
+  },
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": -50.5,
+      "z": -48
+    }
+  },
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": -52,
+      "z": -13
+    }
+  },
+  {
+    "kind": "stairs",
+    "label": "Stairs/Elevators",
+    "position": {
+      "x": 24,
+      "z": 42
+    }
+  },
+  {
+    "kind": "toilet-male",
+    "label": "Toilet (Male)",
+    "position": {
+      "x": 29,
+      "z": 42
+    }
+  },
+  {
+    "kind": "toilet-female",
+    "label": "Toilet (Female)",
+    "position": {
+      "x": 34,
+      "z": 42
+    }
+  }
+]

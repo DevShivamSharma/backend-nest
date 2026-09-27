@@ -16,6 +16,7 @@ import {
   distance,
   edges,
   EPS,
+  isRepresentableFootprint,
   openSides,
   overlaps,
   ring,
@@ -57,11 +58,12 @@ export function validateOrientedPlacement(
       candidate.rotation ?? 0,
     ].every(Number.isFinite) ||
     candidate.width <= 0 ||
-    candidate.length <= 0
+    candidate.length <= 0 ||
+    !isRepresentableFootprint(candidate)
   ) {
     add(
       'INVALID_DIMENSIONS',
-      'Stall dimensions and position must be finite; dimensions must be positive.',
+      'Stall dimensions and position must form finite, non-degenerate edges at metre precision.',
       [],
     );
     return { valid: false, violations };

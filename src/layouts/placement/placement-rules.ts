@@ -247,7 +247,9 @@ export function auditLayout(ctx: PlacementContext): AuditEntry[] {
 
     const result = validatePlacement(stall, ctx, String(stall.id));
     const kept = result.violations.filter((v) => {
-      if (v.relatedStallIds.length === 0) return true;
+      // Open-side violations are directional: the neighbour can have a separate
+      // blocked face which the client must also highlight.
+      if (v.relatedStallIds.length === 0 || v.code === 'OPEN_SIDE_BLOCKED') return true;
       const key = `${v.code}|${[String(stall.id), ...v.relatedStallIds].sort().join(',')}`;
       if (reportedPairs.has(key)) return false;
       reportedPairs.add(key);

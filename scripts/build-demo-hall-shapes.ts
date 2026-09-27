@@ -311,7 +311,7 @@ function cardSlots(captions: string[]): Array<{ iconX: number; iconZ: number }> 
   });
 }
 
-function buildPlan(row: SourceRow, hallName: string): HallPlan | null {
+export function buildPlan(row: SourceRow, hallName: string): HallPlan | null {
   const data = (parseJson(row.layout_data) ?? {}) as { nonClickableAreas?: SourceArea[] };
   const areas = (Array.isArray(data.nonClickableAreas) ? data.nonClickableAreas : []).filter(
     (a) =>
@@ -612,7 +612,7 @@ function csvRows(path: string): SourceRow[] {
   }));
 }
 
-function jsonRows(path: string): SourceRow[] {
+export function jsonRows(path: string): SourceRow[] {
   const payload = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
   const bodies = Array.isArray(payload) ? payload : [payload];
   return bodies
@@ -649,7 +649,10 @@ function main(): void {
   const outIdx = args.indexOf('--out');
   const dataDir = join(__dirname, 'data');
   const outDir = outIdx >= 0 ? resolve(args[outIdx + 1]) : dataDir;
-  const inputs = args.filter((_, i) => outIdx < 0 || (i !== outIdx && i !== outIdx + 1));
+  const annotationsOnly = args.includes('--annotations-only');
+  const inputs = args.filter(
+    (arg, i) => arg !== '--annotations-only' && (outIdx < 0 || (i !== outIdx && i !== outIdx + 1)),
+  );
   const jsonInputs = inputs.filter((a) => a.toLowerCase().endsWith('.json')).map((a) => resolve(a));
   const csvInputs = inputs.filter((a) => a.toLowerCase().endsWith('.csv')).map((a) => resolve(a));
   if (!csvInputs.length && !jsonInputs.length) {
@@ -696,6 +699,48 @@ function main(): void {
     'and/or saved hall-layout API responses). Rectangles converted to centre-origin metres, never clipped ' +
     'to length x breadth; labels, icons and north arrow at 20 px/m, top-left anchored. No production ' +
     'system was read or written.';
+
+  // Keep both seed paths on the same annotations, including after a full regeneration.
+  {
+    const annotations = Object.fromEntries(
+      Object.entries(plans).map(([name, plan]) => [
+        name,
+        {
+          prodHallId: plan.prodHallId,
+          width: plan.width,
+          length: plan.length,
+          amenities: plan.amenities,
+          markers: plan.markers,
+          compass: plan.compass,
+          legends: plan.legends,
+        },
+      ]),
+    );
+    writeFileSync(
+      join(outDir, 'hall-annotations.json'),
+      `${JSON.stringify({ _provenance: provenance, halls: annotations }, null, 2)}\n`,
+    );
+  }
+  // Repair old imports without rewriting their geometry or saved demo-layout fixtures.
+  if (annotationsOnly) {
+    writeFileSync(
+      join(outDir, 'hall-amenities.json'),
+      `${JSON.stringify(
+        {
+          _provenance: provenance,
+          halls: Object.fromEntries(
+            Object.entries(plans).map(([name, plan]) => [name, plan.amenities]),
+          ),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    console.log(
+      `wrote hall-annotations.json and hall-amenities.json — ${Object.keys(plans).length} halls; geometry and layouts untouched`,
+    );
+    return;
+  }
 
   writeFileSync(
     join(outDir, 'hall-plans.json'),
@@ -794,4 +839,4 @@ function main(): void {
   console.log(`wrote demo-layouts.json — ${totalDropped} conflicting stall(s) dropped`);
 }
 
-main();
+if (require.main === module) main();

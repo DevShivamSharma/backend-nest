@@ -12,8 +12,10 @@ This contract supersedes the permissive touching/legacy-save behavior described 
 | `POST /api/layout/:id/validate`                  | 200     | Audit persisted state, including legacy layouts, without writing                                                    |
 | `POST /api/layout/:id/stalls/:stallNumber/split` | 200     | Atomic split; URL-encode the parent identifier                                                                      |
 | `PUT /api/halls/:id`                             | 200     | Also validates any layouts owning this hall before changing geometry/rules                                          |
+| `POST /api/layout/assist`                        | 200     | Returns proposed placements/removals without saving; see `ai-layout-assistant.md`                                    |
+| `POST /api/layout/seed-import`                   | 201     | Trusted historical import exception, enabled only with configured `SEED_TOKEN` and matching `x-seed-token` header   |
 
-There are no separate backend move, rotate, resize or auto-layout endpoints. Clients sending generated layouts must use save/PUT. PUT is still full replacement, not PATCH. Keep all stalls you want retained, including cancelled split parents. The existing list/delete/stall-type endpoints are unchanged.
+There are no separate backend move, rotate or resize endpoints. The assistant proposes a layout; clients must use save/PUT for final validation and persistence of generated placements. PUT is still full replacement, not PATCH. Keep all stalls you want retained, including cancelled split parents. The existing list/delete/stall-type endpoints are unchanged. A successful owned-hall resize updates `layout.hallWidth` and `layout.hallLength` in the same transaction as the hall.
 
 ## Coordinates, sides and geometry
 
@@ -24,6 +26,7 @@ There are no separate backend move, rotate, resize or auto-layout endpoints. Cli
 - `blockedAreas` with kind `outside` or `wall` subtract physical floor, including holes. Kind `zone` keeps its existing visual-only meaning; physical restrictions belong in `hall.zones`. Explicit boundaries are never expanded using inferred exterior floor regions.
 - Every full open-side edge has a rectangular clearance strip extending outward by the selected passage width. The entire strip must fit inside usable floor and contain no active stall. PASSAGE/door-access zones can be walked through; PARTITION, SMOKE_CURTAIN, NO_CONSTRUCTION and FACILITY_ACCESS zones cannot supply this clearance. Existing zone/door/peripheral restrictions still apply to stall footprints.
 - All footprint containment, intersections and distances use **rotated polygon edges**, including concave outlines and holes, rather than centres or axis-aligned bounds. Distance comparisons use 1e-6 m tolerance; polygon area tolerance is 1e-12 m². Contact at the far edge of the required strip is allowed.
+- Finite numeric inputs must also produce finite, non-degenerate stall edges accurate within 1e-6 m. Inputs that collapse or overflow derived geometry receive HTTP 400 with `INVALID_DIMENSIONS`, `stallIndex` and an empty geometry list; unusable coordinates are not passed to polygon clipping.
 - A corner stall has its footprint within the selected passage width of **both incident segments of an actual non-collinear usable-floor vertex**. Convex and concave corners and physical cut-outs count; collinear vertices and a circle's bounding box do not. Corner stalls require at least the selected edge-to-edge distance from other active stalls. For nearest neighbours, the complete gap region (convex hull joining their footprints minus the footprints themselves) must fit inside walkable floor, excluding physical restricted zones; a narrow floor sliver or exterior notch cannot be counted as passage.
 - Non-corner contact is permitted only along a positive-length shared edge when **each stall has exactly one open side**, the two world-space open normals are opposite, and both point directly away from that shared edge. Side-by-side, point-only or open-face touching is rejected. Nonzero gaps retain the existing minimum-passage rule.
 - CANCELLED stalls occupy no space, but their identifiers remain reserved while retained. Split parents are permanently cancelled containers and cannot be resurrected, removed or geometrically changed through PUT.
@@ -173,6 +176,8 @@ Geometry rejection is HTTP **400**, retaining the existing envelope and adding s
 
 On save/PUT/split, `stallIndex` and `relatedStallIds` refer to zero-based final-layout array indexes (split response includes the parent). Audit uses persisted numeric row IDs serialized as strings. Open-side failures include `side` and `requiredWidth`. Geometry is a polygon for rotated shapes; render the complete supplied geometry, not assumed axis-aligned rectangles.
 
+Audit returns `{layoutId, ruleDriven, valid, entries}`. Each entry carries `stallId`, `stallNumber` and `violations`. Symmetric pair errors are deduplicated, but each affected open side keeps its own `OPEN_SIDE_BLOCKED` error. Numeric identifiers generated with the configured prefix must stay below 2147483646; exhaustion is rejected with HTTP 400 before database writes.
+
 Codes: `INVALID_DIMENSIONS`, `OUTSIDE_HALL`, `STALL_OVERLAP`, `CORNER_PASSAGE`, `INVALID_BACK_TO_BACK`, `PATHWAY_WIDTH`, `OPEN_SIDE_PASSAGE`, `OPEN_SIDE_BLOCKED`, `PERIPHERAL_CLEARANCE`, `RESTRICTED_ZONE`, `ENTRY_EXIT_BLOCKED`, `EMERGENCY_ACCESS`, `SPLIT_OUTSIDE_PARENT`, `INVALID_STALL_IDENTIFIER`. Invalid passage settings use `INVALID_PASSAGE_WIDTH` with `field`, `value`, `min: 3`, `max: 5` instead of stall geometry. Existing malformed-input/type errors retain HTTP 400 and `message`; split conflicts and database constraints use 409.
 
 ## Migration and existing data
@@ -181,7 +186,11 @@ Codes: `INVALID_DIMENSIONS`, `OUTSIDE_HALL`, `STALL_OVERLAP`, `CORNER_PASSAGE`, 
 
 Run `npm run migration:show` then `npm run migration:run` with the intended environment. The application's existing `migrationsRun: true` also applies pending migrations on startup. This change was applied only to the local isolated test database during verification, not to the development/production database.
 
-Legacy invalid layouts remain readable/auditable. Every new HTTP save/update validates the whole final state, including unchanged stalls, rule changes, rotation and open-side changes; repair invalid placements before saving. Trusted seed scripts keep their existing explicit placement-rule bypass, which is not exposed through HTTP.
+Legacy invalid layouts remain readable/auditable. Normal planner save/update/split and owned-hall updates validate the whole final state, including unchanged stalls, rule changes, rotation and open-side changes; repair invalid placements before saving.
+
+**Historical-import exception:** trusted seed scripts and the existing `POST /api/layout/seed-import` route deliberately call `skipPlacementRules: true`. The route returns 404 without a configured matching seed token. Authorized imports still validate DTOs, numeric geometry, hall input and identifiers, but may persist overlapping stalls or insufficient passages. The planner must not use this route; imported violations remain visible through audit. This exception was already present when the September 27 adversarial audit began and was preserved. It is not a guarantee that every HTTP write enforces placement rules.
+
+The September 27 audit required no additional schema migration. Detailed coverage, reproduced failures and executed commands are in `planner-validation-test-report.md`.
 
 ## Tests
 

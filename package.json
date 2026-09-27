@@ -27,6 +27,7 @@
     "seed:demo-layouts": "node --env-file=.env -r ts-node/register scripts/seed-demo-layouts.ts",
     "build:hall-shapes": "node -r ts-node/register scripts/build-demo-hall-shapes.ts",
     "seed:hall-amenities": "node --env-file=.env -r ts-node/register scripts/seed-hall-amenities.ts",
+    "seed:hall-annotations": "node --env-file=.env -r ts-node/register scripts/seed-hall-annotations.ts",
     "seed:hall-plans": "node --env-file=.env -r ts-node/register scripts/seed-hall-plans.ts",
     "test:api": "playwright test"
   },

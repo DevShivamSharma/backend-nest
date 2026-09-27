@@ -88,6 +88,23 @@ const request = (overrides: Partial<LayoutSaveRequestDto> = {}): LayoutSaveReque
 });
 
 describe('LayoutService', () => {
+  it('ADV-N01 rejects automatic identifier sequence exhaustion before persistence', async () => {
+    const { service, repo } = setup();
+    const make = (posX: number, stallNumber?: string) => ({
+      name: 'Sequence limit',
+      width: 2,
+      length: 2,
+      height: 3,
+      posX,
+      posZ: 0,
+      openSides: ['FRONT'],
+      stallNumber,
+    });
+    await expect(
+      service.save(request({ stalls: [make(-10, 'STALL-2147483645'), make(0), make(10)] })),
+    ).rejects.toThrow('sequence capacity');
+    expect(repo.create).not.toHaveBeenCalled();
+  });
   describe('BR-14 layout name', () => {
     it('uses the trimmed layoutName', async () => {
       const { repo, service } = setup();

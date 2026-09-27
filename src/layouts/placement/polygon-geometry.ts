@@ -15,7 +15,9 @@ export function area(p: MultiPolygon): number {
           Math.abs(
             r.reduce((s, v, j) => {
               const w = r[(j + 1) % r.length];
-              return s + v[0] * w[1] - v[1] * w[0];
+              // Translate to a local origin before the cross product: global coordinates
+              // can otherwise cancel a small, real intersection to zero.
+              return s + (v[0] - r[0][0]) * (w[1] - r[0][1]) - (v[1] - r[0][1]) * (w[0] - r[0][0]);
             }, 0),
           ) / 2;
         return sum + (i === 0 ? a : -a);
@@ -39,7 +41,7 @@ export function contained(p: Point[], floor: MultiPolygon): boolean {
   return area(difference(ring(p), floor)) <= EPS * EPS;
 }
 export function rotate(p: Point, degrees: number): Point {
-  const t = (degrees * Math.PI) / 180;
+  const t = ((degrees % 360) * Math.PI) / 180;
   return { x: p.x * Math.cos(t) - p.z * Math.sin(t), z: p.x * Math.sin(t) + p.z * Math.cos(t) };
 }
 export function stallPolygon(f: Footprint): Point[] {
@@ -52,6 +54,26 @@ export function stallPolygon(f: Footprint): Point[] {
     const p = rotate({ x: (x * f.width) / 2, z: (z * f.length) / 2 }, f.rotation ?? 0);
     return { x: p.x + f.posX, z: p.z + f.posZ };
   });
+}
+/** Reject finite inputs whose derived edges collapse or overflow in double precision. */
+export function isRepresentableFootprint(f: Footprint): boolean {
+  if (
+    ![f.width, f.length, f.posX, f.posZ, f.rotation ?? 0, f.width * f.length].every(
+      Number.isFinite,
+    ) ||
+    f.width <= 0 ||
+    f.length <= 0
+  )
+    return false;
+  const p = stallPolygon(f);
+  return (
+    p.every((v) => Number.isFinite(v.x) && Number.isFinite(v.z)) &&
+    edges(p).every(([a, b], i) => {
+      const actual = Math.hypot(b.x - a.x, b.z - a.z);
+      const expected = i % 2 === 0 ? f.width : f.length;
+      return actual > 0 && Number.isFinite(actual) && Math.abs(actual - expected) <= EPS;
+    })
+  );
 }
 export function pointSegmentDistance(p: Point, a: Point, b: Point): number {
   const ab = sub(b, a);
@@ -89,15 +111,24 @@ export function gapInsideFloor(a: Point[], b: Point[], floor: MultiPolygon): boo
   const half = (ps: Point[]) => {
     const hull: Point[] = [];
     for (const p of ps) {
-      while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], p) <= 0)
+      while (hull.length >= 2) {
+        const a = hull[hull.length - 2],
+          b = hull[hull.length - 1];
+        const tolerance =
+          EPS *
+          EPS *
+          Math.max(1, Math.hypot(b.x - a.x, b.z - a.z) * Math.hypot(p.x - a.x, p.z - a.z));
+        if (cross(a, b, p) > tolerance) break;
         hull.pop();
+      }
       hull.push(p);
     }
     return hull.slice(0, -1);
   };
   const hull = [...half(points), ...half([...points].reverse())];
-  const gap = difference(ring(hull), ring(a), ring(b));
-  return area(difference(gap, floor)) <= EPS * EPS;
+  // Footprints are independently required to be inside the floor. Checking the hull
+  // therefore checks the same gap without constructing coincident cut edges twice.
+  return contained(hull, floor);
 }
 export const sideIndexes: Record<string, number> = { BACK: 0, RIGHT: 1, FRONT: 2, LEFT: 3 };
 export function normal(p: Point[], side: number): Point {
