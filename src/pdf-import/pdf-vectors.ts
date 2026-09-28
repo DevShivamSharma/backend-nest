@@ -89,7 +89,12 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
 
     // Graphics state stack: CTM, colours, width.
     type State = { ctm: number[]; stroke: string | null; fill: string | null; width: number };
-    let state: State = { ctm: viewport.transform.slice(), stroke: '#000000', fill: '#000000', width: 1 };
+    let state: State = {
+      ctm: viewport.transform.slice(),
+      stroke: '#000000',
+      fill: '#000000',
+      width: 1,
+    };
     const stack: State[] = [];
     const layers: string[] = [];
     const paths: VectorPath[] = [];
@@ -125,7 +130,9 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
           break;
         case O.beginMarkedContentProps: {
           const props = args[1] as { type?: string; id?: string } | null;
-          layers.push(args[0] === 'OC' && props?.id ? layerName(props.id) : (layers[layers.length - 1] ?? ''));
+          layers.push(
+            args[0] === 'OC' && props?.id ? layerName(props.id) : (layers[layers.length - 1] ?? ''),
+          );
           break;
         }
         case O.beginMarkedContent:
@@ -168,7 +175,12 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
 
     const texts: TextSpan[] = [];
     const content = await page.getTextContent();
-    for (const item of content.items as Array<{ str?: string; transform?: number[]; width?: number; height?: number }>) {
+    for (const item of content.items as Array<{
+      str?: string;
+      transform?: number[];
+      width?: number;
+      height?: number;
+    }>) {
       const text = (item.str ?? '').trim();
       if (!text || !item.transform) continue;
       const m = multiply(viewport.transform, item.transform);
@@ -229,7 +241,12 @@ function pathSegments(
       k += 4;
     } else if (op === O.rectangle) {
       const [x, y, w, h] = coords.slice(k, k + 4);
-      const p = [apply(ctm, x, y), apply(ctm, x + w, y), apply(ctm, x + w, y + h), apply(ctm, x, y + h)];
+      const p = [
+        apply(ctm, x, y),
+        apply(ctm, x + w, y),
+        apply(ctm, x + w, y + h),
+        apply(ctm, x, y + h),
+      ];
       for (let j = 0; j < 4; j++) {
         out.push({ x1: p[j][0], y1: p[j][1], x2: p[(j + 1) % 4][0], y2: p[(j + 1) % 4][1] });
       }
@@ -262,8 +279,13 @@ function multiply(a: number[], b: number[]): number[] {
 function hex(args: unknown): string {
   const list = args as ArrayLike<unknown>;
   if (typeof list?.[0] === 'string') return (list[0] as string).toLowerCase();
-  const bytes = typeof list?.[0] === 'object' && list[0] !== null ? (list[0] as ArrayLike<number>) : (list as ArrayLike<number>);
-  const rgb = [bytes?.[0], bytes?.[1], bytes?.[2]].map((v) => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
+  const bytes =
+    typeof list?.[0] === 'object' && list[0] !== null
+      ? (list[0] as ArrayLike<number>)
+      : (list as ArrayLike<number>);
+  const rgb = [bytes?.[0], bytes?.[1], bytes?.[2]].map((v) =>
+    Math.max(0, Math.min(255, Math.round(Number(v) || 0))),
+  );
   return `#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 }
 

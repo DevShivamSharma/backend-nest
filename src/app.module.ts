@@ -8,6 +8,7 @@ import { DatabaseModule } from './database/database.module';
 import { HallsModule } from './halls/halls.module';
 import { LayoutsModule } from './layouts/layouts.module';
 import { AssistModule } from './layouts/assist/assist.module';
+import { PdfImportModule } from './pdf-import/pdf-import.module';
 
 /** Root composition. HallsModule serves /api/halls: ported but deprecated, no known consumer (ADR-002). */
 @Module({
@@ -25,6 +26,7 @@ import { AssistModule } from './layouts/assist/assist.module';
     LayoutsModule,
     HallsModule,
     AssistModule,
+    PdfImportModule,
   ],
   controllers: [HealthController],
 })

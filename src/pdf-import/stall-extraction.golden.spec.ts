@@ -31,7 +31,9 @@ run('extractStalls on the IITF 2026 Halls 8-11 plan', () => {
   it('leaves the detail drawing out and flags the known conflicts', () => {
     expect(result.stalls.length).toBeGreaterThanOrEqual(140);
     expect(result.excluded.length).toBeGreaterThan(0);
-    expect(result.stalls.find((s) => s.name === '11-09 B')?.issues.map((i) => i.code)).toContain('AREA_MISMATCH');
+    expect(result.stalls.find((s) => s.name === '11-09 B')?.issues.map((i) => i.code)).toContain(
+      'AREA_MISMATCH',
+    );
     expect(result.unresolved.length).toBe(3);
     expect(new Set(result.stalls.map((s) => s.name)).size).toBe(result.stalls.length);
   });

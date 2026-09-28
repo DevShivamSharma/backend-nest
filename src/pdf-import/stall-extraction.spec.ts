@@ -9,8 +9,18 @@ import { extractStalls, fitOrigin, globalPitch } from './stall-extraction';
 const M = 10;
 const O = 100;
 const pt = (m: number) => O + m * M;
-const seg = (x1: number, y1: number, x2: number, y2: number): VectorSegment => ({ x1: pt(x1), y1: pt(y1), x2: pt(x2), y2: pt(y2) });
-const path = (layer: string, stroke: string, width: number, segments: VectorSegment[]): VectorPath => ({ layer, stroke, fill: null, width, segments });
+const seg = (x1: number, y1: number, x2: number, y2: number): VectorSegment => ({
+  x1: pt(x1),
+  y1: pt(y1),
+  x2: pt(x2),
+  y2: pt(y2),
+});
+const path = (
+  layer: string,
+  stroke: string,
+  width: number,
+  segments: VectorSegment[],
+): VectorPath => ({ layer, stroke, fill: null, width, segments });
 
 function grid(w: number, h: number, dx = 0, dy = 0): VectorPath {
   const s: VectorSegment[] = [];
@@ -24,16 +34,37 @@ function dashed(x1: number, y1: number, x2: number, y2: number): VectorSegment[]
   const len = Math.hypot(x2 - x1, y2 - y1);
   for (let t = 0; t < len; t += 0.75) {
     const e = Math.min(t + 0.5, len);
-    out.push(seg(x1 + ((x2 - x1) * t) / len, y1 + ((y2 - y1) * t) / len, x1 + ((x2 - x1) * e) / len, y1 + ((y2 - y1) * e) / len));
+    out.push(
+      seg(
+        x1 + ((x2 - x1) * t) / len,
+        y1 + ((y2 - y1) * t) / len,
+        x1 + ((x2 - x1) * e) / len,
+        y1 + ((y2 - y1) * e) / len,
+      ),
+    );
   }
   return out;
 }
 const partition = (...s: VectorSegment[]) => path('PARTITION', '#ff0000', 1.44, s);
 const facia = (...s: VectorSegment[]) => path('FACIA', '#ff00ff', 1.08, s);
-const text = (t: string, x: number, y: number) => ({ text: t, x: pt(x), y: pt(y), size: 7, vertical: false });
+const text = (t: string, x: number, y: number) => ({
+  text: t,
+  x: pt(x),
+  y: pt(y),
+  size: 7,
+  vertical: false,
+});
 
 function page(paths: VectorPath[], texts: PageVectors['texts']): PageVectors {
-  return { width: 1000, height: 800, rotation: 0, paths, texts, layers: [...new Set(paths.map((p) => p.layer))], pageCount: 1 };
+  return {
+    width: 1000,
+    height: 800,
+    rotation: 0,
+    paths,
+    texts,
+    layers: [...new Set(paths.map((p) => p.layer))],
+    pageCount: 1,
+  };
 }
 
 /**
@@ -43,28 +74,48 @@ function page(paths: VectorPath[], texts: PageVectors['texts']): PageVectors {
  *   Rectangle D: x 9..12, z 2..6 (12 m², unlabelled area -> default), partition all round
  *     except its bottom (fascia).
  */
-function blockPlan(extra: { paths?: VectorPath[]; texts?: PageVectors['texts'] } = {}): PageVectors {
+function blockPlan(
+  extra: { paths?: VectorPath[]; texts?: PageVectors['texts'] } = {},
+): PageVectors {
   return page(
     [
       grid(30, 20),
       // L: closed top and right sides.
       partition(seg(2, 2, 9, 2), seg(9, 2, 9, 8)),
       // L: open sides (bottom of the right arm, the two notch edges, the left end).
-      facia(...dashed(9, 8, 6, 8), ...dashed(6, 8, 6, 5), ...dashed(6, 5, 2, 5), ...dashed(2, 5, 2, 2)),
+      facia(
+        ...dashed(9, 8, 6, 8),
+        ...dashed(6, 8, 6, 5),
+        ...dashed(6, 5, 2, 5),
+        ...dashed(2, 5, 2, 2),
+      ),
       // D next to it, sharing x = 9.
       partition(seg(9, 2, 12, 2), seg(12, 2, 12, 6)),
       facia(...dashed(12, 6, 9, 6)),
       ...(extra.paths ?? []),
     ],
-    [text('C', 3, 3), text('30m²', 5, 3.5), text('D', 10.5, 3), text('01-02', 11, 9), ...(extra.texts ?? [])],
+    [
+      text('C', 3, 3),
+      text('30m²', 5, 3.5),
+      text('D', 10.5, 3),
+      text('01-02', 11, 9),
+      ...(extra.texts ?? []),
+    ],
   );
 }
 
 describe('extractStalls', () => {
   it('measures the metre from the 1 m grid', () => {
     const g = grid(20, 10).segments;
-    expect(globalPitch(g.filter((s) => s.x1 === s.x2).map((s) => s.x1), g.filter((s) => s.y1 === s.y2).map((s) => s.y1))).toBeCloseTo(10, 6);
-    expect(fitOrigin([103, 113, 123, 133, 147.5], 10)).toEqual(expect.objectContaining({ origin: expect.closeTo(103, 6), used: 4 }));
+    expect(
+      globalPitch(
+        g.filter((s) => s.x1 === s.x2).map((s) => s.x1),
+        g.filter((s) => s.y1 === s.y2).map((s) => s.y1),
+      ),
+    ).toBeCloseTo(10, 6);
+    expect(fitOrigin([103, 113, 123, 133, 147.5], 10)).toEqual(
+      expect.objectContaining({ origin: expect.closeTo(103, 6), used: 4 }),
+    );
   });
 
   it('extracts an L-shaped stall as ONE six-corner outline with its notch empty', () => {
@@ -81,7 +132,14 @@ describe('extractStalls', () => {
     const x0 = Math.min(...c.outline.map((p) => p.x));
     const z0 = Math.min(...c.outline.map((p) => p.z));
     expect(c.outline.map((p) => ({ x: p.x - x0, z: p.z - z0 }))).toEqual(
-      expect.arrayContaining([{ x: 0, z: 0 }, { x: 7, z: 0 }, { x: 7, z: 6 }, { x: 4, z: 6 }, { x: 4, z: 3 }, { x: 0, z: 3 }]),
+      expect.arrayContaining([
+        { x: 0, z: 0 },
+        { x: 7, z: 0 },
+        { x: 7, z: 6 },
+        { x: 4, z: 6 },
+        { x: 4, z: 3 },
+        { x: 0, z: 3 },
+      ]),
     );
     expect(c.issues.filter((i) => i.severity === 'error')).toEqual([]);
   });
@@ -117,7 +175,13 @@ describe('extractStalls', () => {
   it('never turns grid or annotation lines into stalls', () => {
     const r = extractStalls(
       blockPlan({
-        paths: [path('DIM', '#000000', 0.5, [seg(15, 10, 25, 10), seg(15, 9, 15, 11), seg(25, 9, 25, 11)])],
+        paths: [
+          path('DIM', '#000000', 0.5, [
+            seg(15, 10, 25, 10),
+            seg(15, 9, 15, 11),
+            seg(25, 9, 25, 11),
+          ]),
+        ],
         texts: [text('10m', 20, 9.5)],
       }),
     );
@@ -127,14 +191,20 @@ describe('extractStalls', () => {
   it('flags an area label that disagrees with the drawn outline', () => {
     const r = extractStalls(blockPlan({ texts: [text('14m²', 10.5, 4)] }));
     const d = r.stalls.find((s) => s.letter === 'D')!;
-    expect(d.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'AREA_MISMATCH', severity: 'error' })]));
+    expect(d.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'AREA_MISMATCH', severity: 'error' }),
+      ]),
+    );
     expect(d.confidence).toBe('low');
   });
 
   it('excludes a separate detail drawing that is not on the hall grid', () => {
     const r = extractStalls(
       blockPlan({
-        paths: [partition(seg(40, 2, 47, 2), seg(47, 2, 47, 8), seg(47, 8, 40, 8), seg(40, 8, 40, 2))],
+        paths: [
+          partition(seg(40, 2, 47, 2), seg(47, 2, 47, 8), seg(47, 8, 40, 8), seg(40, 8, 40, 2)),
+        ],
         texts: [text('C', 42, 4), text('01-02', 45, 7)],
       }),
     );
@@ -152,7 +222,9 @@ describe('extractStalls', () => {
       }),
     );
     expect(r.stalls.some((s) => s.letter === 'E')).toBe(false);
-    expect(r.unresolved).toEqual([expect.objectContaining({ texts: expect.arrayContaining(['E']) })]);
+    expect(r.unresolved).toEqual([
+      expect.objectContaining({ texts: expect.arrayContaining(['E']) }),
+    ]);
   });
 
   it('flags several stall letters in one outline (a missing partition)', () => {
@@ -164,13 +236,18 @@ describe('extractStalls', () => {
 
   it('calibrates every hall on its own grid origin', () => {
     // A second hall whose grid is offset by 0.3 m: its stall still lands on whole metres.
-    const shifted = (x1: number, y1: number, x2: number, y2: number) => seg(x1 + 50.3, y1 + 0.3, x2 + 50.3, y2 + 0.3);
+    const shifted = (x1: number, y1: number, x2: number, y2: number) =>
+      seg(x1 + 50.3, y1 + 0.3, x2 + 50.3, y2 + 0.3);
     const r = extractStalls(
       blockPlan({
         paths: [
           grid(10, 10, 50.3, 0.3),
           partition(shifted(2, 2, 6, 2), shifted(6, 2, 6, 5), shifted(2, 2, 2, 5)),
-          facia(...[[6, 5, 2, 5]].flatMap(([a, b, c, d]) => dashed(a + 50.3, b + 0.3, c + 50.3, d + 0.3))),
+          facia(
+            ...[[6, 5, 2, 5]].flatMap(([a, b, c, d]) =>
+              dashed(a + 50.3, b + 0.3, c + 50.3, d + 0.3),
+            ),
+          ),
         ],
         texts: [text('A', 53.3, 3.3), text('02-01', 57.3, 6.3)],
       }),

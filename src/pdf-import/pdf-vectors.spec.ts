@@ -63,6 +63,8 @@ describe('readPageVectors', () => {
   });
 
   it('rejects data that is not a PDF', async () => {
-    await expect(readPageVectors(new TextEncoder().encode('hello'))).rejects.toBeInstanceOf(PdfReadError);
+    await expect(readPageVectors(new TextEncoder().encode('hello'))).rejects.toBeInstanceOf(
+      PdfReadError,
+    );
   });
 });
