@@ -1,7 +1,12 @@
 import { buildPlacementContext } from './hall-geometry';
 import { validatePlacement, type PlacementStall, type Point } from './placement-rules';
 import { stallPolygon } from './polygon-geometry';
-import { normalizeFootprint, normalizeOpenEdges, polygonArea, sidesOfEdges } from './stall-footprint';
+import {
+  normalizeFootprint,
+  normalizeOpenEdges,
+  polygonArea,
+  sidesOfEdges,
+} from './stall-footprint';
 
 /*
  * The L-shaped stall "H" of block 11-13/11-14 in the IITF 2026 Hall 8-11 plan: a 7 x 3 m arm
@@ -59,10 +64,38 @@ describe('normalizeFootprint', () => {
   });
 
   it.each([
-    [[{ x: 0, z: 0 }, { x: 1, z: 0 }], 'at least 3'],
-    [[{ x: 0, z: 0 }, { x: 2, z: 2 }, { x: 2, z: 0 }, { x: 0, z: 2 }], 'cross'],
-    [[{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 2, z: 0 }], 'at least 3'],
-    [[{ x: 0, z: 'a' }, { x: 1, z: 0 }, { x: 1, z: 1 }], 'finite'],
+    [
+      [
+        { x: 0, z: 0 },
+        { x: 1, z: 0 },
+      ],
+      'at least 3',
+    ],
+    [
+      [
+        { x: 0, z: 0 },
+        { x: 2, z: 2 },
+        { x: 2, z: 0 },
+        { x: 0, z: 2 },
+      ],
+      'cross',
+    ],
+    [
+      [
+        { x: 0, z: 0 },
+        { x: 1, z: 0 },
+        { x: 2, z: 0 },
+      ],
+      'at least 3',
+    ],
+    [
+      [
+        { x: 0, z: 'a' },
+        { x: 1, z: 0 },
+        { x: 1, z: 1 },
+      ],
+      'finite',
+    ],
     ['nope', 'list'],
   ])('rejects %j', (raw, message) => {
     expect(normalizeFootprint(raw)).toEqual(expect.stringContaining(message));

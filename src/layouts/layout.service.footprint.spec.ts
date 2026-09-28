@@ -18,10 +18,12 @@ function setup() {
       };
       return stored;
     }),
-    replace: jest.fn(async (_id: number, build: (c: LayoutAggregate, m: never) => Promise<LayoutWrite | null>) => {
-      const write = await build(stored as LayoutAggregate, { query: async () => [] } as never);
-      return write ? { ...(stored as LayoutAggregate), stalls: write.stalls as never } : stored;
-    }),
+    replace: jest.fn(
+      async (_id: number, build: (c: LayoutAggregate, m: never) => Promise<LayoutWrite | null>) => {
+        const write = await build(stored as LayoutAggregate, { query: async () => [] } as never);
+        return write ? { ...(stored as LayoutAggregate), stalls: write.stalls as never } : stored;
+      },
+    ),
     findById: jest.fn(async () => stored),
     delete: jest.fn(),
     listSummaries: jest.fn(),
@@ -29,7 +31,10 @@ function setup() {
   const config = { getOrThrow: () => ({ maxStallsPerLayout: 2000 }) };
   return {
     repo,
-    service: new LayoutService(repo as unknown as LayoutRepository, config as unknown as ConfigService),
+    service: new LayoutService(
+      repo as unknown as LayoutRepository,
+      config as unknown as ConfigService,
+    ),
   };
 }
 
@@ -99,7 +104,15 @@ describe('LayoutService — custom (L-shaped) stalls', () => {
   });
 
   it.each([
-    [{ footprint: [{ x: 0, z: 0 }, { x: 1, z: 0 }] }, 'at least 3'],
+    [
+      {
+        footprint: [
+          { x: 0, z: 0 },
+          { x: 1, z: 0 },
+        ],
+      },
+      'at least 3',
+    ],
     [{ footprint: L, openEdges: [9] }, 'openEdges'],
     [{ openEdges: [0] }, 'needs a footprint'],
   ])('rejects %j', async (extra, message) => {
@@ -113,8 +126,24 @@ describe('LayoutService — custom (L-shaped) stalls', () => {
     // A 1 x 1 m box in the notch (local x 0..4, z 3..6 -> plan x -10..-6, z -7..-4): no overlap.
     const inNotch = { name: 'N', height: 3, width: 1, length: 1, posX: -9.5, posZ: -5.5 };
     const onArm = { ...inNotch, posX: -4, posZ: -9 };
-    const hall = { name: 'Main Hall', shape: 'SQUARE', width: 40, length: 40, radius: 0, rules: { peripheralClearance: 0 } };
-    const lStall = { name: 'L', height: 3, width: 7, length: 6, posX: -10, posZ: -10, footprint: L, openEdges: [0] };
+    const hall = {
+      name: 'Main Hall',
+      shape: 'SQUARE',
+      width: 40,
+      length: 40,
+      radius: 0,
+      rules: { peripheralClearance: 0 },
+    };
+    const lStall = {
+      name: 'L',
+      height: 3,
+      width: 7,
+      length: 6,
+      posX: -10,
+      posZ: -10,
+      footprint: L,
+      openEdges: [0],
+    };
     const save = (other: Record<string, unknown>) =>
       service.save({ layoutName: 'x', hall, stalls: [lStall, other] } as never);
     await expect(save(onArm)).rejects.toThrow(/Overlaps/);

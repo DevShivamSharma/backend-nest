@@ -165,7 +165,8 @@ export function validateLayoutRequest(
         throw new BadRequestDomainError(`Stall at index ${i}: ${normalized}`);
       }
       const edges = normalizeOpenEdges(stall.openEdges, normalized.points.length);
-      if (typeof edges === 'string') throw new BadRequestDomainError(`Stall at index ${i}: ${edges}`);
+      if (typeof edges === 'string')
+        throw new BadRequestDomainError(`Stall at index ${i}: ${edges}`);
       outline = { footprint: normalized.points };
       footprint.width = normalized.width;
       footprint.length = normalized.length;

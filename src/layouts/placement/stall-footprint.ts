@@ -57,7 +57,13 @@ export function normalizeFootprint(raw: unknown): NormalizedFootprint | string {
   const input: Point[] = [];
   for (const v of raw) {
     const p = v as { x?: unknown; z?: unknown } | null;
-    if (!p || typeof p.x !== 'number' || typeof p.z !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.z)) {
+    if (
+      !p ||
+      typeof p.x !== 'number' ||
+      typeof p.z !== 'number' ||
+      !Number.isFinite(p.x) ||
+      !Number.isFinite(p.z)
+    ) {
       return 'Footprint points must have finite numeric x and z.';
     }
     input.push({ x: p.x, z: p.z });
@@ -70,14 +76,17 @@ export function normalizeFootprint(raw: unknown): NormalizedFootprint | string {
   // each surviving edge continues so open edges can be carried over.
   let pts = input.map((p, i) => ({ ...p, edge: i }));
   if (pts.length > 1 && same(pts[0], pts[pts.length - 1])) pts = pts.slice(0, -1);
-  for (let changed = true; changed && pts.length >= 3; ) {
+  for (let changed = true; changed && pts.length >= 3;) {
     changed = false;
     for (let i = 0; i < pts.length; i++) {
       const prev = pts[(i - 1 + pts.length) % pts.length];
       const cur = pts[i];
       const next = pts[(i + 1) % pts.length];
       const cross = (cur.x - prev.x) * (next.z - cur.z) - (cur.z - prev.z) * (next.x - cur.x);
-      if (same(prev, cur) || Math.abs(cross) <= EPS * Math.max(1, dist(prev, cur) * dist(cur, next))) {
+      if (
+        same(prev, cur) ||
+        Math.abs(cross) <= EPS * Math.max(1, dist(prev, cur) * dist(cur, next))
+      ) {
         // `cur` is redundant: the edge prev->cur and cur->next merge into prev's edge.
         pts.splice(i, 1);
         changed = true;
@@ -203,7 +212,10 @@ function segmentsTouch(a: Point, b: Point, c: Point, d: Point): boolean {
   const d2 = o(c, d, b);
   const d3 = o(a, b, c);
   const d4 = o(a, b, d);
-  if (((d1 > EPS && d2 < -EPS) || (d1 < -EPS && d2 > EPS)) && ((d3 > EPS && d4 < -EPS) || (d3 < -EPS && d4 > EPS))) {
+  if (
+    ((d1 > EPS && d2 < -EPS) || (d1 < -EPS && d2 > EPS)) &&
+    ((d3 > EPS && d4 < -EPS) || (d3 < -EPS && d4 > EPS))
+  ) {
     return true;
   }
   return (
