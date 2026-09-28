@@ -1,5 +1,10 @@
 import { PdfReadError, readPageVectors } from './pdf-vectors';
-import { ExtractionError, extractStalls, type ExtractionResult } from './stall-extraction';
+import {
+  ExtractionError,
+  extractStalls,
+  stallLayerModes,
+  type ExtractionResult,
+} from './stall-extraction';
 
 export interface PdfImportJob {
   data: Uint8Array;
@@ -13,7 +18,8 @@ export type PdfImportOutcome =
 
 export async function runImport(job: PdfImportJob): Promise<PdfImportOutcome> {
   try {
-    const vectors = await readPageVectors(job.data, job.page);
+    // Only what the extraction uses is kept: a full hall plan then fits a small server.
+    const vectors = await readPageVectors(job.data, job.page, { layerMode: stallLayerModes });
     return { ok: true, result: extractStalls(vectors) };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

@@ -1,5 +1,5 @@
 import type { PageVectors, VectorPath, VectorSegment } from './pdf-vectors';
-import { extractStalls, fitOrigin, globalPitch } from './stall-extraction';
+import { extractStalls, fitOrigin, globalPitch, stallLayerModes } from './stall-extraction';
 
 /*
  * Synthetic CAD plans, built the way AutoCAD exports them: a 1 m grid on layer GRID, stall
@@ -267,6 +267,40 @@ describe('extractStalls', () => {
     expect(r.stalls.find((s) => s.letter === 'C')?.shape).toBe('L-shape');
     expect(r.stalls.every((s) => s.confidence !== 'high')).toBe(true);
     expect(r.issues.join(' ')).toContain('no stall layers');
+  });
+
+  it('reads only the stall layers of a layered drawing, hatching as midpoints', () => {
+    const modes = stallLayerModes([
+      'GRID',
+      'PARTITION',
+      'FACIA',
+      'Premium Stall',
+      'MARQUE CO.',
+      'MCP FIRE',
+      '0',
+    ])!;
+    expect(['GRID', 'PARTITION', 'FACIA', 'Kiosk'].map(modes)).toEqual([
+      'keep',
+      'keep',
+      'keep',
+      'keep',
+    ]);
+    expect(['Premium Stall', 'MARQUE CO.'].map(modes)).toEqual(['midpoints', 'midpoints']);
+    expect(['MCP FIRE', '0', 'TEXT'].map(modes)).toEqual(['skip', 'skip', 'skip']);
+    // No stall layer: everything is read (colour fallback).
+    expect(stallLayerModes(['0', 'TEXT'])).toBeNull();
+  });
+
+  it('classifies a stall from hatching read as midpoints', () => {
+    const plan = blockPlan();
+    // 300 hatch midpoints inside stall D (x 9..12, z 2..6): 25 per m².
+    const xy: number[] = [];
+    for (let i = 0; i < 300; i++)
+      xy.push(pt(9.2 + (i % 20) * 0.13), pt(2.2 + Math.floor(i / 20) * 0.24));
+    plan.marks = { 'Premium Stall': xy };
+    const d = extractStalls(plan).stalls.find((s) => s.letter === 'D')!;
+    expect(d.category).toBe('premium');
+    expect(extractStalls(plan).stalls.find((s) => s.letter === 'C')!.category).toBe('standard');
   });
 
   it('refuses a drawing without a measurable grid', () => {

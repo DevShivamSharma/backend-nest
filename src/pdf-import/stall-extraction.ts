@@ -1,6 +1,6 @@
 import type { Point } from '../layouts/placement/placement-rules';
 import { normalizeFootprint, polygonArea } from '../layouts/placement/stall-footprint';
-import type { PageVectors, VectorPath, VectorSegment } from './pdf-vectors';
+import type { LayerMode, PageVectors, VectorPath, VectorSegment } from './pdf-vectors';
 
 /**
  * Stall extraction from a CAD-exported hall plan (vector PDF).
@@ -27,6 +27,22 @@ export const DEFAULT_LAYER_ROLES: Array<[LayerRole, RegExp]> = [
   ['marquee', /marque/i],
   ['kiosk', /kiosk/i],
 ];
+
+/**
+ * What the extraction needs from each layer of a layered drawing (for `readPageVectors`): stall
+ * lines and grid in full, hatching (premium / marquee) as midpoints only, nothing else. null when
+ * the drawing has no stall layer: then every line is read, for the colour fallback.
+ */
+export function stallLayerModes(layers: string[]): ((layer: string) => LayerMode) | null {
+  const roleOf = (layer: string): LayerRole | 'ignore' =>
+    DEFAULT_LAYER_ROLES.find(([, re]) => re.test(layer))?.[0] ?? 'ignore';
+  if (!layers.some((l) => roleOf(l) === 'closed')) return null;
+  return (layer) => {
+    const role = roleOf(layer);
+    if (role === 'premium' || role === 'marquee') return 'midpoints';
+    return role === 'ignore' ? 'skip' : 'keep';
+  };
+}
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -136,8 +152,10 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     for (const [role, re] of DEFAULT_LAYER_ROLES) if (re.test(layer)) return role;
     return 'ignore';
   };
-  const layerCount = new Map<string, number>();
-  for (const p of page.paths) layerCount.set(p.layer, (layerCount.get(p.layer) ?? 0) + 1);
+  const layerCount = new Map<string, number>(Object.entries(page.layerPaths ?? {}));
+  if (!page.layerPaths) {
+    for (const p of page.paths) layerCount.set(p.layer, (layerCount.get(p.layer) ?? 0) + 1);
+  }
   const layers = [...layerCount.entries()]
     .map(([name, paths]) => ({ name, role: roleOf(name), paths }))
     .sort((a, b) => b.paths - a.paths);
@@ -175,6 +193,12 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     } else if (r === 'kiosk') {
       kiosks.push(...p.segments);
     }
+  }
+  // Hatching read as midpoints only (see `stallLayerModes`).
+  for (const [layer, xy] of Object.entries(page.marks ?? {})) {
+    const r = usedLayers ? roleOf(layer) : 'ignore';
+    if (r !== 'premium' && r !== 'marquee') continue;
+    for (let i = 0; i + 1 < xy.length; i += 2) hatch.push({ x: xy[i], y: xy[i + 1], kind: r });
   }
   if (!usedLayers && !edgeSegs.length) {
     throw new ExtractionError(

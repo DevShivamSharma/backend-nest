@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { readPageVectors } from './pdf-vectors';
-import { extractStalls } from './stall-extraction';
+import { extractStalls, stallLayerModes } from './stall-extraction';
 
 /**
  * Golden check against the real IITF 2026 Halls 8-11 plan. The drawing is not part of this
@@ -14,7 +14,12 @@ run('extractStalls on the IITF 2026 Halls 8-11 plan', () => {
   jest.setTimeout(60_000);
   let result: ReturnType<typeof extractStalls>;
   beforeAll(async () => {
-    result = extractStalls(await readPageVectors(new Uint8Array(readFileSync(fixture!))));
+    // As the import endpoint reads it: stall layers only, hatching as midpoints.
+    result = extractStalls(
+      await readPageVectors(new Uint8Array(readFileSync(fixture!)), 1, {
+        layerMode: stallLayerModes,
+      }),
+    );
   });
 
   it('finds the four halls on their own grids', () => {

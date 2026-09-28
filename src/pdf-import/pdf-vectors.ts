@@ -8,9 +8,17 @@
  * i.e. how the drawing looks when opened.
  */
 
-// pdf.js 3.x ships a CommonJS "legacy" build, which runs in Node and under Jest as-is.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as PdfJs;
+/**
+ * pdf.js 3.x ships a CommonJS "legacy" build, which runs in Node and under Jest as-is. Loaded on
+ * first use, not at startup: the API process never needs it when imports run in a worker, and a
+ * small server should not carry it (or its startup warnings) for nothing.
+ */
+let pdfjsModule: PdfJs | null = null;
+function loadPdfJs(): PdfJs {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  pdfjsModule ??= require('pdfjs-dist/legacy/build/pdf.js') as PdfJs;
+  return pdfjsModule;
+}
 
 export interface VectorSegment {
   x1: number;
@@ -51,6 +59,25 @@ export interface PageVectors {
   /** Layer names present on the page (optional-content groups). */
   layers: string[];
   pageCount: number;
+  /**
+   * Segment midpoints of the layers read in `midpoints` mode, as flat [x0, y0, x1, y1, ...] in
+   * display points (see `ReadOptions.layerMode`).
+   */
+  marks?: Record<string, number[]>;
+  /** Painted paths per layer, including those not kept in `paths`. */
+  layerPaths?: Record<string, number>;
+}
+
+/** How one layer is read: in full, as segment midpoints only (e.g. hatching), or only counted. */
+export type LayerMode = 'keep' | 'midpoints' | 'skip';
+
+export interface ReadOptions {
+  /**
+   * Given the page's layer names, how to read each layer; null reads everything. Large plans
+   * carry hundreds of thousands of hatch and service lines: not keeping what is not needed keeps
+   * an import within a small server's memory.
+   */
+  layerMode?: (layers: string[]) => ((layer: string) => LayerMode) | null;
 }
 
 export class PdfReadError extends Error {}
@@ -58,7 +85,12 @@ export class PdfReadError extends Error {}
 /** Maximum operator count read from one page; a denial-of-service guard, far above real plans. */
 const MAX_OPERATORS = 5_000_000;
 
-export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise<PageVectors> {
+export async function readPageVectors(
+  data: Uint8Array,
+  pageNumber = 1,
+  options: ReadOptions = {},
+): Promise<PageVectors> {
+  const pdfjs = loadPdfJs();
   let doc: PdfDocument;
   try {
     doc = await pdfjs.getDocument({
@@ -80,8 +112,19 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
     const viewport = page.getViewport({ scale: 1 });
     const oc = await doc.getOptionalContentConfig();
     const layerName = (id: string): string => oc?.getGroup?.(id)?.name ?? '';
+    const layerNames = Object.values(oc?.getGroups?.() ?? {}).map((g) => g.name ?? '');
+    const modeOf = options.layerMode?.(layerNames) ?? null;
+    const modes = new Map<string, LayerMode>();
+    const mode = (layer: string): LayerMode => {
+      if (!modeOf) return 'keep';
+      let m = modes.get(layer);
+      if (!m) modes.set(layer, (m = modeOf(layer)));
+      return m;
+    };
+    const marks: Record<string, number[]> = {};
+    const layerPaths: Record<string, number> = {};
 
-    const ops = await page.getOperatorList();
+    let ops: { fnArray: number[]; argsArray: unknown[] } | null = await page.getOperatorList();
     if (ops.fnArray.length > MAX_OPERATORS) {
       throw new PdfReadError('The PDF page is too complex to import.');
     }
@@ -141,9 +184,13 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
         case O.endMarkedContent:
           layers.pop();
           break;
-        case O.constructPath:
+        case O.constructPath: {
+          const layer = layers[layers.length - 1] ?? '';
           pending = pathSegments(args as [number[], number[]], state.ctm, apply, O);
+          // A skipped layer is only counted at the paint operator; its geometry is dropped here.
+          if (pending.length && mode(layer) === 'skip') pending = SKIPPED;
           break;
+        }
         case O.stroke:
         case O.closeStroke:
         case O.fillStroke:
@@ -152,16 +199,24 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
         case O.closeEOFillStroke:
         case O.fill:
         case O.eoFill:
-          if (pending?.length) {
-            const stroked = fn !== O.fill && fn !== O.eoFill;
-            const filled = fn !== O.stroke && fn !== O.closeStroke;
-            paths.push({
-              layer: layers[layers.length - 1] ?? '',
-              stroke: stroked ? state.stroke : null,
-              fill: filled ? state.fill : null,
-              width: stroked ? state.width * scaleOf(state.ctm) : 0,
-              segments: pending,
-            });
+          if (pending === SKIPPED || pending?.length) {
+            const layer = layers[layers.length - 1] ?? '';
+            layerPaths[layer] = (layerPaths[layer] ?? 0) + 1;
+            const m = mode(layer);
+            if (m === 'midpoints' && pending !== SKIPPED) {
+              const out = (marks[layer] ??= []);
+              for (const s of pending!) out.push((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2);
+            } else if (m === 'keep' && pending !== SKIPPED) {
+              const stroked = fn !== O.fill && fn !== O.eoFill;
+              const filled = fn !== O.stroke && fn !== O.closeStroke;
+              paths.push({
+                layer,
+                stroke: stroked ? state.stroke : null,
+                fill: filled ? state.fill : null,
+                width: stroked ? state.width * scaleOf(state.ctm) : 0,
+                segments: pending!,
+              });
+            }
           }
           pending = null;
           break;
@@ -172,6 +227,9 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
           break;
       }
     }
+    // The operator list is by far the largest thing held: let it go before reading the text.
+    ops = null;
+    page.cleanup?.();
 
     const texts: TextSpan[] = [];
     const content = await page.getTextContent();
@@ -194,20 +252,23 @@ export async function readPageVectors(data: Uint8Array, pageNumber = 1): Promise
       texts.push({ text, x: cx, y: cy, size, vertical: Math.abs(dir[1]) > Math.abs(dir[0]) });
     }
 
-    const groups = oc?.getGroups?.() ?? {};
     return {
       width: viewport.width,
       height: viewport.height,
       rotation: page.rotate ?? 0,
       paths,
       texts,
-      layers: Object.values(groups).map((g) => g.name ?? ''),
+      layers: layerNames,
       pageCount: doc.numPages,
+      ...(modeOf ? { marks, layerPaths } : {}),
     };
   } finally {
     await doc.destroy();
   }
 }
+
+/** Marks a path on a skipped layer between its construction and its paint operator. */
+const SKIPPED: VectorSegment[] = [];
 
 function pathSegments(
   args: [number[], number[]],
@@ -311,4 +372,5 @@ interface PdfPage {
   getViewport(o: { scale: number }): { width: number; height: number; transform: number[] };
   getOperatorList(): Promise<{ fnArray: number[]; argsArray: unknown[] }>;
   getTextContent(): Promise<{ items: unknown[] }>;
+  cleanup?(): boolean;
 }

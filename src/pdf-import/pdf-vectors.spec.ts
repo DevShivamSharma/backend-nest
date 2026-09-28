@@ -62,6 +62,24 @@ describe('readPageVectors', () => {
     expect(v.texts[0].size).toBeCloseTo(8, 6);
   });
 
+  it('keeps only what the layer mode asks for, and still counts every painted path', async () => {
+    const skipped = await readPageVectors(tinyPdf(), 1, { layerMode: () => () => 'skip' });
+    expect(skipped.paths).toEqual([]);
+    expect(skipped.layerPaths).toEqual({ PARTITION: 1, '': 1 });
+
+    const hatch = await readPageVectors(tinyPdf(), 1, {
+      layerMode: () => (layer) => (layer === 'PARTITION' ? 'midpoints' : 'keep'),
+    });
+    expect(hatch.paths.map((p) => p.layer)).toEqual(['']);
+    // The red line's midpoint, (150, 100) in PDF space, shown on the 90°-rotated page.
+    expect(hatch.marks?.['PARTITION']).toHaveLength(2);
+    expect(hatch.marks?.['PARTITION'][0]).toBeCloseTo(100, 6);
+
+    const all = await readPageVectors(tinyPdf(), 1, { layerMode: () => null });
+    expect(all.paths).toHaveLength(2);
+    expect(all.marks).toBeUndefined();
+  });
+
   it('rejects data that is not a PDF', async () => {
     await expect(readPageVectors(new TextEncoder().encode('hello'))).rejects.toBeInstanceOf(
       PdfReadError,

@@ -22,7 +22,8 @@ import type { ExtractionResult } from './stall-extraction';
 @Injectable()
 export class PdfImportService {
   static readonly TIMEOUT_MS = 90_000;
-  static readonly MAX_PARALLEL = 2;
+  /** One at a time: a full hall plan needs a few hundred MB while it is read. */
+  static readonly MAX_PARALLEL = 1;
 
   private readonly logger = new Logger(PdfImportService.name);
   private running = 0;
