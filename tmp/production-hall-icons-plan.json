@@ -1,0 +1,170 @@
+[
+  {
+    "id": 1014,
+    "name": "Hall 1GF",
+    "before": 12,
+    "after": 24,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1015,
+    "name": "Hall 2GF",
+    "before": 16,
+    "after": 25,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1016,
+    "name": "Hall 12",
+    "before": 3,
+    "after": 4,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1017,
+    "name": "Hall 8-9-10",
+    "before": 7,
+    "after": 8,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1018,
+    "name": "Convention Center",
+    "before": 0,
+    "after": 1,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1026,
+    "name": "Hall 1FF",
+    "before": 12,
+    "after": 25,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1027,
+    "name": "Hall 2FF",
+    "before": 14,
+    "after": 20,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1028,
+    "name": "Hall 3GF",
+    "before": 12,
+    "after": 21,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1029,
+    "name": "Hall 3FF",
+    "before": 12,
+    "after": 16,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1030,
+    "name": "Hall 4GF",
+    "before": 12,
+    "after": 21,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1031,
+    "name": "Hall 4FF",
+    "before": 13,
+    "after": 17,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1032,
+    "name": "Hall 5GF",
+    "before": 14,
+    "after": 24,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1033,
+    "name": "Hall 5FF",
+    "before": 14,
+    "after": 23,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1034,
+    "name": "Hall 6",
+    "before": 10,
+    "after": 28,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1035,
+    "name": "Hall 14GF",
+    "before": 12,
+    "after": 27,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1036,
+    "name": "Hall 14FF",
+    "before": 12,
+    "after": 22,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1037,
+    "name": "Hall 11",
+    "before": 8,
+    "after": 11,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1038,
+    "name": "Hall 12A",
+    "before": 5,
+    "after": 10,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1042,
+    "name": "Hall 1A & Hall 1B",
+    "before": 2,
+    "after": 8,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1043,
+    "name": "Hall 2 & 3",
+    "before": 0,
+    "after": 4,
+    "dimensionsMatch": true,
+    "compass": true
+  },
+  {
+    "id": 1044,
+    "name": "HN1 to HN4",
+    "before": 8,
+    "after": 14,
+    "dimensionsMatch": true,
+    "compass": true
+  }
+]
