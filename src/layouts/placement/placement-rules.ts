@@ -144,6 +144,13 @@ export const STALL_STATUSES: readonly StallStatus[] = ['AVAILABLE', 'BOOKED', 'C
 
 export interface Footprint {
   rotation?: number;
+  /**
+   * Custom (polygon) stall: its outline in local metres before rotation, clockwise, centred on
+   * its bounding box (see stall-footprint.ts). null/absent = the width x length rectangle.
+   */
+  footprint?: Point[] | null;
+  /** Open edges of a custom stall (edge i = footprint[i] -> footprint[i + 1]). */
+  openEdges?: number[] | null;
   openSides?: string[] | null;
   gateSide?: string | null;
   posX: number;

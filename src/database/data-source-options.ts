@@ -1,4 +1,5 @@
 import { AddPlacementAndSplits1758240600000 } from './migrations/1758240600000-AddPlacementAndSplits';
+import { AddStallFootprint1758240700000 } from './migrations/1758240700000-AddStallFootprint';
 import { types } from 'pg';
 import type { DataSourceOptions } from 'typeorm';
 
@@ -37,6 +38,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       AddHallAmenities1758240400000,
       AddHallCompassAndLegends1758240500000,
       AddPlacementAndSplits1758240600000,
+      AddStallFootprint1758240700000,
     ],
     synchronize: false,
     // Run pending migrations at startup: the published deployment owns its database, so a

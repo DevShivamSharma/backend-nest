@@ -80,6 +80,19 @@ export class HallDto {
 }
 
 export class StallDto {
+  /**
+   * Custom (polygon) stall outline, local metres before rotation, relative to (posX, posZ).
+   * Checked and canonicalised by the validator (stall-footprint.ts). Omit for a rectangle.
+   */
+  @IsOptional()
+  @IsArray()
+  footprint?: unknown[] | null;
+
+  /** Open edges of a custom stall: indices into `footprint` (edge i = point i -> i + 1). */
+  @IsOptional()
+  @IsArray()
+  openEdges?: unknown[] | null;
+
   /** Clockwise degrees in the X-right/Z-down plan; local sides rotate with the stall. */
   @IsOptional()
   @IsNumber(FINITE)

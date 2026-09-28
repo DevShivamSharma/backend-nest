@@ -21,6 +21,9 @@ export interface HallResponse {
 }
 
 export interface StallResponse {
+  /** Custom (polygon) stall outline; absent for a rectangle. */
+  footprint?: Array<{ x: number; z: number }>;
+  openEdges?: number[];
   rotation: number;
   parentStallNumber: string | null;
   isSplitParent: boolean;

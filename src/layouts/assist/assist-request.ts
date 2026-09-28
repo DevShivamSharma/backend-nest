@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { buildPlacementContext, validateHallGeometry } from '../placement/hall-geometry';
 import type { HallMarker } from '../entities/hall.entity';
 import type { PlacementStall, EventType } from '../placement/placement-rules';
+import { normalizeFootprint, normalizeOpenEdges } from '../placement/stall-footprint';
 
 export interface AssistRequest {
   requirement: string;
@@ -34,6 +35,13 @@ export function validateRequest(raw: unknown): AssistRequest {
       (s.status != null && !['AVAILABLE','BOOKED','CANCELLED'].includes(s.status)) ||
       (s.openSides != null && (!Array.isArray(s.openSides) || s.openSides.length > 4 || s.openSides.some(x => !['FRONT','BACK','LEFT','RIGHT'].includes(x)))) ||
       (s.gateSide != null && !['FRONT','BACK','LEFT','RIGHT'].includes(s.gateSide))) return fail('Invalid existing stall.');
+    // A custom (e.g. L-shaped) stall: planning must avoid its real outline, not its box.
+    if (s.footprint != null) {
+      const n = normalizeFootprint(s.footprint);
+      if (typeof n === 'string') return fail('Invalid existing stall.');
+      const edges = normalizeOpenEdges(s.openEdges, n.points.length);
+      if (typeof edges === 'string' || n.points.length !== s.footprint.length) return fail('Invalid existing stall.');
+    } else if (s.openEdges != null) return fail('Invalid existing stall.');
   }
   return v;
 }

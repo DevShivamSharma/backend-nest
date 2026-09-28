@@ -32,6 +32,8 @@ export interface HallWrite {
 }
 
 export interface StallWrite {
+  footprint?: Point[] | null;
+  openEdges?: number[] | null;
   rotation?: number;
   parentStallNumber?: string | null;
   isSplitParent?: boolean;

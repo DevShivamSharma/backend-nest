@@ -9,6 +9,17 @@ export class StallEntity {
   @Column({ type: 'double precision', default: 0 })
   rotation!: number;
 
+  /**
+   * Custom (polygon) stall outline in local metres, canonical (stall-footprint.ts). NULL = the
+   * width x length rectangle, which is every stall written before this column existed.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  footprint!: Array<{ x: number; z: number }> | null;
+
+  /** Open edges of a custom stall (indices into `footprint`). */
+  @Column({ name: 'open_edges', type: 'jsonb', nullable: true })
+  openEdges!: number[] | null;
+
   @Column({ name: 'parent_stall_number', type: 'varchar', length: 255, nullable: true })
   parentStallNumber!: string | null;
 

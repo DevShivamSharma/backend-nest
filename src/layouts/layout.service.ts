@@ -1,6 +1,12 @@
 import { assertPlacements } from './placement/assert-placements';
 import { createHash } from 'node:crypto';
-import { contained, ring, stallPolygon } from './placement/polygon-geometry';
+import { contained, ring, rotate, stallPolygon } from './placement/polygon-geometry';
+import {
+  normalizeFootprint,
+  normalizeOpenEdges,
+  sidesOfEdges,
+  type NormalizedFootprint,
+} from './placement/stall-footprint';
 import { splitSuffix } from './split-numbering';
 import { DataIntegrityDomainError } from '../common/errors/domain.errors';
 import { Injectable } from '@nestjs/common';
@@ -209,6 +215,10 @@ export class LayoutService {
       if (!parent) throw new BadRequestDomainError(`Parent stall not found: ${parentNumber}`);
       if (parent.isSplitParent || parent.status === 'CANCELLED')
         throw new DataIntegrityDomainError('Parent has already been split or cancelled.');
+      if (parent.footprint?.length)
+        throw new BadRequestDomainError(
+          'Custom-shaped stalls (e.g. L-shaped) cannot be split; edit the outline instead.',
+        );
       if (!current.hall) throw new BadRequestDomainError('Hall data is required.');
       const children = request.children.map((child, index) => ({
         ...child,
@@ -371,7 +381,8 @@ function sameFootprint(a: Footprint, b: Footprint): boolean {
     close(a.posX, b.posX) &&
     close(a.posZ, b.posZ) &&
     close(a.width, b.width) &&
-    close(a.length, b.length)
+    close(a.length, b.length) &&
+    JSON.stringify(a.footprint ?? null) === JSON.stringify(b.footprint ?? null)
   );
 }
 
@@ -416,18 +427,47 @@ function copyStalls(input: Array<StallDto | null> | null | undefined): StallWrit
 
     // gateSide stays the first open side, so the varchar column and the Java
     // contract keep working; openSides is the full list the 3D view renders.
-    const openSides = normalizeOpenSidesList(stall.openSides, normalizeGate(stall.gateSide));
+    let openSides = normalizeOpenSidesList(stall.openSides, normalizeGate(stall.gateSide));
+    const rotation = (((stall.rotation ?? 0) % 360) + 360) % 360;
+
+    // Custom (polygon) stall: store the canonical outline (validated already), its bounding box
+    // as width/length, and (posX, posZ) moved to the bounding-box centre so every field keeps the
+    // meaning it has for a rectangle. The legacy side list summarises the open edges.
+    let custom: Pick<StallWrite, 'footprint' | 'openEdges'> = { footprint: null, openEdges: null };
+    let width = n(stall.width);
+    let length = n(stall.length);
+    let posX = n(stall.posX);
+    let posZ = n(stall.posZ);
+    if (stall.footprint != null) {
+      const normalized = normalizeFootprint(stall.footprint) as NormalizedFootprint;
+      const openEdges = [
+        ...new Set(
+          ((normalizeOpenEdges(stall.openEdges, stall.footprint.length) as number[]) ?? [])
+            .map((e) => normalized.edgeMap.get(e))
+            .filter((e): e is number => e !== undefined),
+        ),
+      ].sort((a, b) => a - b);
+      const shift = rotate(normalized.offset, rotation);
+      custom = { footprint: normalized.points, openEdges };
+      width = normalized.width;
+      length = normalized.length;
+      posX = Math.round((posX + shift.x) * 1e6) / 1e6;
+      posZ = Math.round((posZ + shift.z) * 1e6) / 1e6;
+      const sides = sidesOfEdges(normalized.points, openEdges);
+      if (sides.length) openSides = sides;
+    }
 
     output.push({
-      rotation: (((stall.rotation ?? 0) % 360) + 360) % 360,
+      ...custom,
+      rotation,
       parentStallNumber: null,
       isSplitParent: false,
       name: isBlank(stall.name) ? 'Shop' : (stall.name as string).trim(),
-      width: n(stall.width),
-      length: n(stall.length),
+      width,
+      length,
       height: n(stall.height),
-      posX: n(stall.posX),
-      posZ: n(stall.posZ),
+      posX,
+      posZ,
       // Not trimmed, as in the Java (LayoutService.java:384-389).
       color: isBlank(stall.color) ? '#3498db' : (stall.color as string),
       gateSide: openSides[0],
@@ -480,6 +520,10 @@ function toStallResponse(stall: StallEntity): StallResponse {
     stallNumber: stall.stallNumber ?? null,
     status: stall.status ?? 'AVAILABLE',
     stallTypeId: stall.stallTypeId ?? null,
+    // Custom (polygon) stalls only: a rectangle's response keeps exactly its previous shape.
+    ...(stall.footprint?.length
+      ? { footprint: stall.footprint, openEdges: stall.openEdges ?? [] }
+      : {}),
   };
 }
 

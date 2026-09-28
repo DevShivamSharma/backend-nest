@@ -17,11 +17,10 @@ import {
   edges,
   EPS,
   isRepresentableFootprint,
-  openSides,
+  openEdgeList,
   overlaps,
   ring,
   segmentDistance,
-  sideIndexes,
   stallPolygon,
   sub,
 } from './polygon-geometry';
@@ -68,11 +67,14 @@ export function validateOrientedPlacement(
     );
     return { valid: false, violations };
   }
+  const onStep = (v: number) =>
+    Math.abs(v / ctx.rules.snapStep - Math.round(v / ctx.rules.snapStep)) <= EPS;
   if (
     ctx.enforceGrid &&
-    [candidate.width, candidate.length].some(
-      (v) => Math.abs(v / ctx.rules.snapStep - Math.round(v / ctx.rules.snapStep)) > EPS,
-    )
+    (candidate.footprint && candidate.footprint.length >= 3
+      ? // A custom outline: every edge, not just the bounding box, sits on the snap step.
+        !edges(candidate.footprint).every(([a, b]) => onStep(Math.hypot(b.x - a.x, b.z - a.z)))
+      : ![candidate.width, candidate.length].every(onStep))
   ) {
     add('INVALID_DIMENSIONS', `Stall size must be a multiple of ${ctx.rules.snapStep} m.`, p);
   }
@@ -144,8 +146,8 @@ export function validateOrientedPlacement(
       }
     }
   }
-  for (const side of openSides(candidate)) {
-    const access = corridor(p, sideIndexes[side], passage);
+  for (const { index, label: side } of openEdgeList(candidate)) {
+    const access = corridor(p, index, passage);
     if (!inside(access))
       add(
         'OPEN_SIDE_PASSAGE',

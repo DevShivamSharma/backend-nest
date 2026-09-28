@@ -45,6 +45,12 @@ export function rotate(p: Point, degrees: number): Point {
   return { x: p.x * Math.cos(t) - p.z * Math.sin(t), z: p.x * Math.sin(t) + p.z * Math.cos(t) };
 }
 export function stallPolygon(f: Footprint): Point[] {
+  if (f.footprint && f.footprint.length >= 3) {
+    return f.footprint.map((v) => {
+      const p = rotate(v, f.rotation ?? 0);
+      return { x: p.x + f.posX, z: p.z + f.posZ };
+    });
+  }
   return [
     [-1, -1],
     [1, -1],
@@ -66,6 +72,18 @@ export function isRepresentableFootprint(f: Footprint): boolean {
   )
     return false;
   const p = stallPolygon(f);
+  if (f.footprint && f.footprint.length >= 3) {
+    // A custom outline: every edge must survive rotation and translation intact.
+    return (
+      p.every((v) => Number.isFinite(v.x) && Number.isFinite(v.z)) &&
+      edges(p).every(([a, b], i) => {
+        const actual = Math.hypot(b.x - a.x, b.z - a.z);
+        const [c, d] = edges(f.footprint!)[i];
+        const expected = Math.hypot(d.x - c.x, d.z - c.z);
+        return actual > 0 && Number.isFinite(actual) && Math.abs(actual - expected) <= EPS;
+      })
+    );
+  }
   return (
     p.every((v) => Number.isFinite(v.x) && Number.isFinite(v.z)) &&
     edges(p).every(([a, b], i) => {
@@ -133,13 +151,13 @@ export function gapInsideFloor(a: Point[], b: Point[], floor: MultiPolygon): boo
 export const sideIndexes: Record<string, number> = { BACK: 0, RIGHT: 1, FRONT: 2, LEFT: 3 };
 export function normal(p: Point[], side: number): Point {
   const a = p[side],
-    b = p[(side + 1) % 4],
+    b = p[(side + 1) % p.length],
     size = Math.hypot(b.x - a.x, b.z - a.z);
   return { x: (b.z - a.z) / size, z: -(b.x - a.x) / size };
 }
 export function corridor(p: Point[], side: number, width: number): Point[] {
   const a = p[side],
-    b = p[(side + 1) % 4],
+    b = p[(side + 1) % p.length],
     n = normal(p, side);
   return [
     a,
@@ -151,15 +169,27 @@ export function corridor(p: Point[], side: number, width: number): Point[] {
 export function openSides(f: Footprint): string[] {
   return f.openSides?.length ? f.openSides : [f.gateSide ?? 'FRONT'];
 }
+/**
+ * Every open frontage as an edge of `stallPolygon(f)`: a rectangle's open sides (BACK = edge 0,
+ * RIGHT = 1, FRONT = 2, LEFT = 3), or a custom stall's `openEdges`. `label` names it in messages.
+ */
+export function openEdgeList(f: Footprint): Array<{ index: number; label: string }> {
+  if (f.footprint && f.footprint.length >= 3) {
+    return (f.openEdges ?? [])
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < f.footprint!.length)
+      .map((i) => ({ index: i, label: `Edge ${i + 1}` }));
+  }
+  return openSides(f).map((side) => ({ index: sideIndexes[side], label: side }));
+}
 /** Positive-length shared edge; the single open normals must point away from it. */
 export function backToBack(a: Footprint, b: Footprint): boolean {
   const ap = stallPolygon(a),
     bp = stallPolygon(b),
-    as = openSides(a),
-    bs = openSides(b);
+    as = openEdgeList(a),
+    bs = openEdgeList(b);
   if (as.length !== 1 || bs.length !== 1) return false;
-  const an = normal(ap, sideIndexes[as[0]]),
-    bn = normal(bp, sideIndexes[bs[0]]);
+  const an = normal(ap, as[0].index),
+    bn = normal(bp, bs[0].index);
   if (dot(an, bn) > -1 + EPS) return false;
   return edges(ap).some(([p, q], i) =>
     edges(bp).some(([r, s], j) => {

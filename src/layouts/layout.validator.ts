@@ -1,5 +1,6 @@
 import { BadRequestDomainError, PlacementRejectedError } from '../common/errors/domain.errors';
 import { isRepresentableFootprint } from './placement/polygon-geometry';
+import { normalizeFootprint, normalizeOpenEdges } from './placement/stall-footprint';
 import type { HallDto, LayoutSaveRequestDto } from './dto/layout-save-request.dto';
 import { HallShape } from './layout.geometry';
 import {
@@ -155,7 +156,23 @@ export function validateLayoutRequest(
     if (footprint.width <= 0 || footprint.length <= 0 || height <= 0) {
       throw new BadRequestDomainError(`Invalid stall dimensions at index ${i}.`);
     }
-    if (!isRepresentableFootprint({ ...footprint, rotation: stall.rotation ?? 0 })) {
+    // Custom (polygon) stall: the outline must be a valid simple polygon, its open edges real
+    // edges of it. Its bounding box replaces width/length when copied (layout.service).
+    let outline: Pick<import('./placement/placement-rules').Footprint, 'footprint'> = {};
+    if (stall.footprint != null) {
+      const normalized = normalizeFootprint(stall.footprint);
+      if (typeof normalized === 'string') {
+        throw new BadRequestDomainError(`Stall at index ${i}: ${normalized}`);
+      }
+      const edges = normalizeOpenEdges(stall.openEdges, normalized.points.length);
+      if (typeof edges === 'string') throw new BadRequestDomainError(`Stall at index ${i}: ${edges}`);
+      outline = { footprint: normalized.points };
+      footprint.width = normalized.width;
+      footprint.length = normalized.length;
+    } else if (stall.openEdges != null) {
+      throw new BadRequestDomainError(`Stall at index ${i}: openEdges needs a footprint.`);
+    }
+    if (!isRepresentableFootprint({ ...footprint, ...outline, rotation: stall.rotation ?? 0 })) {
       throw new PlacementRejectedError(
         `Stall ${i} geometry cannot be represented at metre precision.`,
         [
