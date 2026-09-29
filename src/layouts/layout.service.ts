@@ -227,6 +227,8 @@ export class LayoutService {
       const write = this.validateAndBuild({
         layoutName: current.layout.name,
         eventType: current.layout.eventType,
+        // A split changes stalls only: the layout keeps its chosen rules.
+        ruleIds: current.layout.ruleIds ?? [],
         hall: toHallResponse(current.hall) as HallDto,
         stalls: [
           ...current.stalls.map((s) => ({ ...s, status: s === parent ? 'CANCELLED' : s.status })),
@@ -301,6 +303,7 @@ export class LayoutService {
       // BR-15: always the literal 0 (LayoutService.java:47,193).
       hallHeight: 0,
       eventType: normalizeEventType(request.eventType),
+      ruleIds: validateRuleIds(request.ruleIds),
       // Set by the numbering step before the write.
       nextStallSeq: 1,
       stalls: copyStalls(request.stalls),
@@ -541,12 +544,29 @@ function toDetail(aggregate: LayoutAggregate, message: string | null): LayoutDet
       hallLength: aggregate.layout.hallLength,
       hallHeight: aggregate.layout.hallHeight,
       eventType: aggregate.layout.eventType ?? 'B2B',
+      ruleIds: aggregate.layout.ruleIds ?? [],
       hall,
       stalls,
     },
     hall,
     stalls,
   };
+}
+
+/**
+ * The plotting rules chosen for a layout: positive whole ids, deduplicated, in the order given.
+ * A rule deleted later simply stops being listed; the ids are not foreign keys.
+ */
+function validateRuleIds(raw: unknown[] | null | undefined): number[] {
+  const ids: number[] = [];
+  for (const value of raw ?? []) {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+      throw new BadRequestDomainError('ruleIds must be rule ids (positive whole numbers).');
+    }
+    if (!ids.includes(value)) ids.push(value);
+  }
+  if (ids.length > 500) throw new BadRequestDomainError('A layout can list at most 500 rules.');
+  return ids;
 }
 
 function validateNumbers(write: LayoutWrite): void {

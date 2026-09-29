@@ -290,6 +290,7 @@ describe('LayoutService', () => {
         hallLength: 0,
         hallHeight: 0,
         eventType: 'B2B',
+        ruleIds: [],
         nextStallSeq: 2,
       });
       aggregate.stalls[0].openSides = null as never;
@@ -729,6 +730,28 @@ describe('LayoutService — rule-driven halls', () => {
       const { service } = setup();
       await expect(service.save(request({ eventType: 'B2X' }))).rejects.toThrow(
         'eventType must be B2B or B2C.',
+      );
+    });
+  });
+
+  describe('plotting rules chosen for the layout', () => {
+    it('stores them deduplicated, in the order given, and returns them', async () => {
+      const { repo, service } = setup();
+      const result = await service.save(request({ ruleIds: [1003, 1001, 1003] }));
+      expect(repo.create.mock.calls[0][0].ruleIds).toEqual([1003, 1001]);
+      expect(result.layout.ruleIds).toEqual([1003, 1001]);
+    });
+
+    it('none chosen is an empty list', async () => {
+      const { repo, service } = setup();
+      await service.save(request());
+      expect(repo.create.mock.calls[0][0].ruleIds).toEqual([]);
+    });
+
+    it.each([[0], [-1], [1.5], ['1001'], [null]])('rejects rule id %p', async (id) => {
+      const { service } = setup();
+      await expect(service.save(request({ ruleIds: [id] }))).rejects.toThrow(
+        'ruleIds must be rule ids (positive whole numbers).',
       );
     });
   });

@@ -31,6 +31,7 @@ function setup() {
       entity({ id, ...w } as Partial<HallEntity>),
     ),
     delete: jest.fn(async () => true),
+    owningLayoutName: jest.fn(async () => null as string | null),
   };
   const service = new HallService(repo as unknown as HallRepository);
 
@@ -379,6 +380,16 @@ describe('HallService', () => {
 
       await expect(service.delete(1000)).resolves.toBeUndefined();
       expect(repo.delete).toHaveBeenCalledWith(1000);
+    });
+
+    it('refuses a saved layout\'s own hall copy, naming the layout', async () => {
+      const { repo, service } = setup();
+      repo.owningLayoutName.mockResolvedValueOnce('Expo 2026');
+
+      await expect(service.delete(1000)).rejects.toThrow(
+        'This hall belongs to the saved layout "Expo 2026". Delete that layout instead.',
+      );
+      expect(repo.delete).not.toHaveBeenCalled();
     });
 
     it('raises not found when the hall is missing', async () => {

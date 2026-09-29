@@ -111,6 +111,12 @@ export class HallRepository {
    * `AllExceptionsFilter` turns into 409 — the same status the Java produced through
    * `DataIntegrityViolationException` (02-api-inventory.md section 7-10).
    */
+  /** The saved layout whose private hall copy this is, or null for a master hall. */
+  async owningLayoutName(id: number): Promise<string | null> {
+    const layout = await this.dataSource.getRepository(LayoutEntity).findOneBy({ hallId: id });
+    return layout?.name ?? null;
+  }
+
   delete(id: number): Promise<boolean> {
     return this.dataSource.transaction(async (manager) => {
       const existing = await manager.findOneBy(HallEntity, { id });

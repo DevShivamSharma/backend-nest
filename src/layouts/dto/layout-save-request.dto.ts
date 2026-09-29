@@ -167,6 +167,11 @@ export class LayoutSaveRequestDto {
   @IsString()
   eventType?: string | null;
 
+  /** Ids of the plotting rules chosen for this layout. Checked by validateRuleIds(). */
+  @IsOptional()
+  @IsArray()
+  ruleIds?: unknown[] | null;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => HallDto)

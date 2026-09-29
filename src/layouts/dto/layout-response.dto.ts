@@ -49,6 +49,8 @@ export interface LayoutResponse {
   hallLength: number;
   hallHeight: number;
   eventType: string;
+  /** Plotting rules chosen for this layout; empty when none. */
+  ruleIds: number[];
   hall: HallResponse | null;
   stalls: StallResponse[];
 }

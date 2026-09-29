@@ -58,6 +58,8 @@ export interface LayoutWrite {
   hallLength: number;
   hallHeight: number;
   eventType: string;
+  /** Plotting rules chosen for this layout. */
+  ruleIds: number[];
   /** Sequence value to store after numbering this write's stalls. */
   nextStallSeq: number;
   hall: HallWrite;
@@ -95,6 +97,7 @@ export class LayoutRepository {
           hallHeight: write.hallHeight,
           hallId: hall.id,
           eventType: write.eventType,
+          ruleIds: write.ruleIds.length ? write.ruleIds : null,
           nextStallSeq: write.nextStallSeq,
         }),
       );
@@ -145,6 +148,7 @@ export class LayoutRepository {
       layout.hallHeight = write.hallHeight;
       layout.hallId = hall.id;
       layout.eventType = write.eventType;
+      layout.ruleIds = write.ruleIds.length ? write.ruleIds : null;
       layout.nextStallSeq = write.nextStallSeq;
       await manager.save(layout);
 

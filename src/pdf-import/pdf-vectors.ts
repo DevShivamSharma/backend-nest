@@ -66,10 +66,15 @@ export interface PageVectors {
   marks?: Record<string, number[]>;
   /** Painted paths per layer, including those not kept in `paths`. */
   layerPaths?: Record<string, number>;
+  /**
+   * Segments of the layers read in `strokes` mode, per stroke colour (`#rrggbb`), as flat
+   * [x1, y1, x2, y2, ...] in display points. No path objects: dense hatching stays small.
+   */
+  strokes?: Record<string, number[]>;
 }
 
 /** How one layer is read: in full, as segment midpoints only (e.g. hatching), or only counted. */
-export type LayerMode = 'keep' | 'midpoints' | 'skip';
+export type LayerMode = 'keep' | 'midpoints' | 'strokes' | 'skip';
 
 export interface ReadOptions {
   /**
@@ -122,6 +127,7 @@ export async function readPageVectors(
       return m;
     };
     const marks: Record<string, number[]> = {};
+    const strokes: Record<string, number[]> = {};
     const layerPaths: Record<string, number> = {};
 
     let ops: { fnArray: number[]; argsArray: unknown[] } | null = await page.getOperatorList();
@@ -206,6 +212,11 @@ export async function readPageVectors(
             if (m === 'midpoints' && pending !== SKIPPED) {
               const out = (marks[layer] ??= []);
               for (const s of pending!) out.push((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2);
+            } else if (m === 'strokes' && pending !== SKIPPED) {
+              if (fn !== O.fill && fn !== O.eoFill && state.stroke) {
+                const out = (strokes[state.stroke] ??= []);
+                for (const s of pending!) out.push(s.x1, s.y1, s.x2, s.y2);
+              }
             } else if (m === 'keep' && pending !== SKIPPED) {
               const stroked = fn !== O.fill && fn !== O.eoFill;
               const filled = fn !== O.stroke && fn !== O.closeStroke;
@@ -260,7 +271,7 @@ export async function readPageVectors(
       texts,
       layers: layerNames,
       pageCount: doc.numPages,
-      ...(modeOf ? { marks, layerPaths } : {}),
+      ...(modeOf ? { marks, layerPaths, strokes } : {}),
     };
   } finally {
     await doc.destroy();

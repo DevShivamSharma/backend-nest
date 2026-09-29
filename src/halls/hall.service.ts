@@ -66,6 +66,13 @@ export class HallService {
   }
 
   async delete(id: number): Promise<void> {
+    // A saved layout's own hall copy goes with its layout; deleting it alone would break it.
+    const layout = await this.hallRepository.owningLayoutName(id);
+    if (layout !== null) {
+      throw new BadRequestDomainError(
+        `This hall belongs to the saved layout "${layout}". Delete that layout instead.`,
+      );
+    }
     const deleted = await this.hallRepository.delete(id);
     if (!deleted) throw notFound(id);
   }

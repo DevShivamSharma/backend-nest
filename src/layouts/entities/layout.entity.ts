@@ -39,4 +39,8 @@ export class LayoutEntity {
    */
   @Column({ name: 'next_stall_seq', type: 'integer', default: 1 })
   nextStallSeq!: number;
+
+  /** Plotting rules (planner_rules ids) chosen for this layout's design. NULL = none chosen. */
+  @Column({ name: 'rule_ids', type: 'jsonb', nullable: true })
+  ruleIds!: number[] | null;
 }

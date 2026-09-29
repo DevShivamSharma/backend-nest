@@ -9,6 +9,8 @@ import { HallsModule } from './halls/halls.module';
 import { LayoutsModule } from './layouts/layouts.module';
 import { AssistModule } from './layouts/assist/assist.module';
 import { PdfImportModule } from './pdf-import/pdf-import.module';
+import { PlannerRulesModule } from './planner-rules/planner-rules.module';
+import { HallImportModule } from './hall-import/hall-import.module';
 
 /** Root composition. HallsModule serves /api/halls: ported but deprecated, no known consumer (ADR-002). */
 @Module({
@@ -27,6 +29,8 @@ import { PdfImportModule } from './pdf-import/pdf-import.module';
     HallsModule,
     AssistModule,
     PdfImportModule,
+    PlannerRulesModule,
+    HallImportModule,
   ],
   controllers: [HealthController],
 })

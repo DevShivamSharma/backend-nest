@@ -1,5 +1,8 @@
 import { AddPlacementAndSplits1758240600000 } from './migrations/1758240600000-AddPlacementAndSplits';
 import { AddStallFootprint1758240700000 } from './migrations/1758240700000-AddStallFootprint';
+import { AddPlannerRules1758240800000 } from './migrations/1758240800000-AddPlannerRules';
+import { PlannerRuleEntity } from '../planner-rules/planner-rule.entity';
+import { IndependentPlannerRules1758240900000 } from './migrations/1758240900000-IndependentPlannerRules';
 import { types } from 'pg';
 import type { DataSourceOptions } from 'typeorm';
 
@@ -29,7 +32,7 @@ types.setTypeParser(types.builtins.INT8, (value: string) => parseInt(value, 10))
 export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const base = {
     type: 'postgres' as const,
-    entities: [HallEntity, LayoutEntity, StallEntity],
+    entities: [HallEntity, LayoutEntity, StallEntity, PlannerRuleEntity],
     migrations: [
       Baseline1758240000000,
       AddBlockedAreas1758240100000,
@@ -39,6 +42,8 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       AddHallCompassAndLegends1758240500000,
       AddPlacementAndSplits1758240600000,
       AddStallFootprint1758240700000,
+      AddPlannerRules1758240800000,
+      IndependentPlannerRules1758240900000,
     ],
     synchronize: false,
     // Run pending migrations at startup: the published deployment owns its database, so a
