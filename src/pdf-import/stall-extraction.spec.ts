@@ -1,5 +1,12 @@
 import type { PageVectors, VectorPath, VectorSegment } from './pdf-vectors';
-import { extractStalls, fitOrigin, globalPitch, stallLayerModes } from './stall-extraction';
+import {
+  extractStalls,
+  fitOrigin,
+  globalPitch,
+  refineLattice,
+  snapToHalfMetres,
+  stallLayerModes,
+} from './stall-extraction';
 
 /*
  * Synthetic CAD plans, built the way AutoCAD exports them: a 1 m grid on layer GRID, stall
@@ -257,6 +264,52 @@ describe('extractStalls', () => {
     expect(a.area).toBe(12);
     expect(a.issues.map((i) => i.code)).not.toContain('OFF_GRID');
     expect(r.groups.map((g) => g.group).sort()).toEqual(['1', '2']);
+  });
+
+  it('reads floor-lettered block numbers such as 5G-26 and 5G-24AB (hall 5)', () => {
+    const r = extractStalls(
+      blockPlan({ texts: [] }),
+    );
+    expect(r.stalls.find((s) => s.letter === 'D')?.name).toBe('01-02 D');
+    const lettered = extractStalls({
+      ...blockPlan(),
+      texts: blockPlan().texts.map((t) => (t.text === '01-02' ? { ...t, text: '5G-24AB' } : t)),
+    });
+    const d = lettered.stalls.find((s) => s.letter === 'D')!;
+    expect([d.group, d.blockId, d.name]).toEqual(['5', '5G-24AB', '5G-24AB D']);
+    expect(d.issues.map((i) => i.code)).not.toContain('NO_BLOCK');
+  });
+
+  it('measures each axis on its own when a plot is scaled unevenly ("fit to paper")', () => {
+    // x is plotted 0.6 % smaller than y. Corners at whole and half metres over a 100 m span.
+    const px = 5.835, ox = 106.3;
+    const values = Array.from({ length: 201 }, (_, i) => ox + (i / 2) * px);
+    const fit = refineLattice(values, { pitch: 5.87, origin: 106, rms: 0, used: 0 });
+    expect(fit.pitch).toBeCloseTo(px, 4);
+    expect(fit.origin).toBeCloseTo(ox, 3);
+    // Too few points or an implausible change keeps the coarse fit.
+    const coarse = { pitch: 5.87, origin: 106, rms: 0, used: 0 };
+    expect(refineLattice(values.slice(0, 5), coarse)).toBe(coarse);
+  });
+
+  it('snaps corners to half metres, and lets the area label settle a midway edge', () => {
+    // A 4 x 4 stall read 3.986 wide: snaps cleanly.
+    const plain = snapToHalfMetres(
+      [{ x: 0.007, z: 0.007 }, { x: 3.993, z: 0.007 }, { x: 3.993, z: 3.993 }, { x: 0.007, z: 3.993 }],
+      16,
+    );
+    expect(plain.points).toEqual([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 4 }, { x: 0, z: 4 }]);
+    expect(plain.guided).toBe(false);
+    // 8 x 11 = 88 m², the bottom edge read at 10.748: rounding alone gives 10.5 (84 m²).
+    const midway = snapToHalfMetres(
+      [{ x: 0, z: 0 }, { x: 8, z: 0 }, { x: 8, z: 10.748 }, { x: 0, z: 10.748 }],
+      88,
+    );
+    expect(midway.points[2]).toEqual({ x: 8, z: 11 });
+    expect(midway.guided).toBe(true);
+    // Truly off the grid: kept as drawn.
+    const off = snapToHalfMetres([{ x: 0.3, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 4 }], null);
+    expect(off.offGrid).toBe(true);
   });
 
   it('falls back to line colours when the PDF has no layers, and says so', () => {

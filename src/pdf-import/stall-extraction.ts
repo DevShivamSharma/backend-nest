@@ -139,7 +139,11 @@ export interface ExtractionResult {
 export class ExtractionError extends Error {}
 
 const LETTER = /^[A-Z]\d?$/;
-const BLOCK = /^(\d{1,2})-(\d{1,2})$/;
+/**
+ * A block (island) number printed next to its stalls: `11-05` (hall 11, block 5) or, with a
+ * floor letter and suffixes, `5G-26` / `5G-24AB` (hall 5, ground floor). The first number is the hall.
+ */
+const BLOCK = /^(\d{1,2})[A-Z]{0,2}-(\d{1,3})[A-Z]{0,3}$/;
 const AREA = /^=?\s*(\d+(?:\.\d+)?)\s*(?:m²|m2|sqm|sq\.?\s*m)$/i;
 const DIMS = /(\d+(?:\.\d+)?)\s*m?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*m\b/i;
 const STARTUP = /start[\s-]?up/i;
@@ -474,8 +478,14 @@ export function extractStalls(page: PageVectors): ExtractionResult {
       .map((s) => s.y1);
     // One plot, one scale: the metre is the page's grid pitch; each hall only has its own
     // grid ORIGIN (Halls 8, 9, 10 and 11 are each drawn on their own offset grid).
-    const fx = fitOrigin(nearV, pitch);
-    const fy = fitOrigin(nearH, pitch);
+    const coarseX = fitOrigin(nearV, pitch);
+    const coarseY = fitOrigin(nearH, pitch);
+    // "Fit to paper" plots are not always scaled the same along x and y, and the grid's short
+    // spacing hides a fraction of a percent that adds up to tens of centimetres across a hall.
+    // Stall corners lie on the half-metre grid, so a regression over all of them measures each
+    // axis's scale over the whole hall.
+    const fx = refineLattice(members.flatMap((f) => f.pt.map((p) => p.x)), coarseX);
+    const fy = refineLattice(members.flatMap((f) => f.pt.map((p) => p.z)), coarseY);
     const cal: GroupCalibration = {
       group: g,
       pitchX: fx.pitch,
@@ -495,14 +505,9 @@ export function extractStalls(page: PageVectors): ExtractionResult {
 
     for (const f of members) {
       const stallIssues: ExtractionIssue[] = [];
-      let offGrid = false;
-      const outlineM = f.pt.map((p) => {
-        const m = toM(p);
-        const sx = Math.round(m.x * 2) / 2;
-        const sz = Math.round(m.z * 2) / 2;
-        if (Math.abs(sx - m.x) > 0.15 || Math.abs(sz - m.z) > 0.15) offGrid = true;
-        return offGrid ? { x: round3(m.x), z: round3(m.z) } : { x: sx, z: sz };
-      });
+      const snapped = snapToHalfMetres(f.pt.map(toM), f.areaLabels.length === 1 ? f.areaLabels[0] : null);
+      const offGrid = snapped.offGrid;
+      const outlineM = snapped.points;
       const norm = normalizeFootprint(outlineM);
       if (typeof norm === 'string') {
         excluded.push({ reason: `Unusable outline: ${norm}`, outlinePt: f.pt, texts: f.texts });
@@ -647,7 +652,13 @@ export function extractStalls(page: PageVectors): ExtractionResult {
         stallIssues.push({
           code: 'OFF_GRID',
           severity: 'warning',
-          message: 'Corners are not on the half-metre grid; the outline was kept as drawn.',
+          message: 'An edge lies midway between half-metre grid lines and was snapped to the nearest; check it.',
+        });
+      else if (snapped.guided)
+        stallIssues.push({
+          code: 'OFF_GRID',
+          severity: 'info',
+          message: 'An edge lay midway between half metres; the area label decided where it goes.',
         });
       if (f.holes)
         stallIssues.push({
@@ -1101,6 +1112,107 @@ export function globalPitch(vs: number[], hs: number[]): number | null {
   const centre = peak / 4;
   const near = diffs.filter((d) => Math.abs(d - centre) <= centre * 0.04);
   return near.reduce((s, d) => s + d, 0) / near.length;
+}
+
+/**
+ * Scale and origin of one axis from points that lie on the half-metre lattice (stall corners).
+ * A search over pitches within 3 % of the coarse one finds the lattice the most points sit on,
+ * without trusting the coarse pitch far from its origin; a least-squares fit of
+ * position = origin + k * pitch over the whole span then polishes it. The origin stays on the
+ * coarse fit's grid line. Kept only when well supported and close to the coarse pitch.
+ */
+export function refineLattice(
+  values: number[],
+  coarse: { pitch: number; origin: number; rms: number; used: number },
+): { pitch: number; origin: number; rms: number; used: number } {
+  if (values.length < 20) return coarse;
+  // Search: for each pitch, the half-metre lattice's phase by circular mean, scored by truncated
+  // squared residuals (a point more than 0.1 m off costs the same however far off it is).
+  const base = values[Math.floor(values.length / 2)];
+  let best = { score: Infinity, pitch: coarse.pitch, origin: coarse.origin };
+  for (let step = -150; step <= 150; step++) {
+    const p = coarse.pitch * (1 + step * 0.0002);
+    const h = p / 2;
+    let sx = 0;
+    let sy = 0;
+    for (const v of values) {
+      const t = (2 * Math.PI * (v - base)) / h;
+      sx += Math.cos(t);
+      sy += Math.sin(t);
+    }
+    const o = base + (Math.atan2(sy, sx) / (2 * Math.PI)) * h;
+    const cap = (0.1 * p) ** 2;
+    let score = 0;
+    for (const v of values) {
+      const r = v - (o + Math.round((v - o) / h) * h);
+      score += Math.min(r * r, cap);
+    }
+    if (score < best.score) best = { score, pitch: p, origin: o };
+  }
+  let pitch = best.pitch;
+  // The origin stays on the coarse fit's grid line (whole metres), not on a half-metre line.
+  let origin = best.origin + Math.round((coarse.origin - best.origin) / pitch) * pitch;
+  if (Math.abs(coarse.origin - origin) > pitch / 4) origin += pitch / 2 * Math.sign(coarse.origin - origin);
+  for (let pass = 0; pass < 3; pass++) {
+    let n = 0, sk = 0, sv = 0, skk = 0, skv = 0;
+    for (const v of values) {
+      const k = Math.round(((v - origin) / pitch) * 2) / 2;
+      if (Math.abs(v - (origin + k * pitch)) > 0.25 * pitch) continue;
+      n++;
+      sk += k;
+      sv += v;
+      skk += k * k;
+      skv += k * v;
+    }
+    const det = n * skk - sk * sk;
+    if (n < 20 || det <= 0) return coarse;
+    const p = (n * skv - sk * sv) / det;
+    if (!(Math.abs(p / coarse.pitch - 1) < 0.02)) return coarse;
+    pitch = p;
+    origin = (sv - p * sk) / n;
+  }
+  return { ...coarse, pitch, origin };
+}
+
+/**
+ * Stall corners onto the half-metre grid. A coordinate 0.2 m or more from it lies almost midway
+ * between two grid lines, so the rounding is a guess: when the stall has an area label, the
+ * rounding that gives that area wins (`guided`); otherwise it is rounded and reported
+ * (`offGrid`) so someone checks it.
+ */
+export function snapToHalfMetres(
+  points: Point[],
+  areaLabel: number | null,
+): { points: Point[]; offGrid: boolean; guided: boolean } {
+  const half = (v: number) => Math.round(v * 2) / 2;
+  const snapped = points.map((p) => ({ x: half(p.x), z: half(p.z) }));
+  // The distinct midway x and z values (a value is shared by the corners on one edge).
+  const ambiguous: Array<{ axis: 'x' | 'z'; raw: number; alt: number }> = [];
+  for (const axis of ['x', 'z'] as const) {
+    const seen = new Set<number>();
+    for (const p of points) {
+      const r = Math.round(p[axis] * 1000) / 1000;
+      const at = half(p[axis]);
+      if (seen.has(r) || Math.abs(at - p[axis]) < 0.2) continue;
+      seen.add(r);
+      ambiguous.push({ axis, raw: p[axis], alt: p[axis] > at ? at + 0.5 : at - 0.5 });
+    }
+  }
+  if (!ambiguous.length) return { points: snapped, offGrid: false, guided: false };
+  if (areaLabel !== null && ambiguous.length <= 4) {
+    const fits = (pts: Point[]) => Math.abs(polygonArea(pts) - areaLabel) <= Math.max(0.51, areaLabel * 0.01);
+    for (let mask = 0; mask < 1 << ambiguous.length; mask++) {
+      const trial = snapped.map((p, i) => {
+        const q = { ...p };
+        ambiguous.forEach((a, j) => {
+          if (mask & (1 << j) && Math.abs(points[i][a.axis] - a.raw) < 0.05) q[a.axis] = a.alt;
+        });
+        return q;
+      });
+      if (fits(trial)) return { points: trial, offGrid: false, guided: true };
+    }
+  }
+  return { points: snapped, offGrid: true, guided: false };
 }
 
 /**

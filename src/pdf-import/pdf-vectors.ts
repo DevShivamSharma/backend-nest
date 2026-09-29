@@ -15,8 +15,21 @@
  */
 let pdfjsModule: PdfJs | null = null;
 function loadPdfJs(): PdfJs {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  pdfjsModule ??= require('pdfjs-dist/legacy/build/pdf.js') as PdfJs;
+  if (pdfjsModule) return pdfjsModule;
+  // On load in Node, pdf.js tries to polyfill DOMMatrix and Path2D from the optional `canvas`
+  // package and warns when it is missing. Both are only needed to RENDER a page, which this
+  // reader never does, so those two warnings are dropped; anything else still prints.
+  const log = console.log;
+  console.log = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && /^Warning: Cannot polyfill `(DOMMatrix|Path2D)`/.test(args[0])) return;
+    log(...args);
+  };
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    pdfjsModule = require('pdfjs-dist/legacy/build/pdf.js') as PdfJs;
+  } finally {
+    console.log = log;
+  }
   return pdfjsModule;
 }
 
