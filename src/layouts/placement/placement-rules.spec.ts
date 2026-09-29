@@ -131,8 +131,8 @@ describe('placement-rules', () => {
       ).toEqual(['STALL-001', 'STALL-002', 'STALL-003']);
     });
 
-    it('rejects side-by-side touching with parallel open directions', () => {
-      expect(codes(at(14, 5, 3, 2), ctx({ stalls: three }))).toContain('INVALID_BACK_TO_BACK');
+    it('accepts side-by-side stalls sharing a wall', () => {
+      expect(codes(at(14, 5, 3, 2), ctx({ stalls: three }))).toEqual([]);
     });
 
     it('ignores the stall being moved', () => {
@@ -148,15 +148,20 @@ describe('placement-rules', () => {
   describe('passage width (ITPO D1)', () => {
     const existing = [stall('STALL-004', 5, 5, 3, 2)];
 
-    it('rejects a 2 m gap for B2B (3 m required) and draws the gap', () => {
-      const result = validatePlacement(at(10, 5, 3, 2), ctx({ stalls: existing }));
-      expect(result.violations.map((v) => v.code)).toEqual(['PATHWAY_WIDTH']);
+    it('needs no gap between closed sides', () => {
+      expect(codes(at(10, 5, 3, 2), ctx({ stalls: existing }))).toEqual([]);
+    });
+
+    it('rejects a stall in the passage in front of an open side and draws the passage', () => {
+      // STALL-004 opens to the FRONT: its passage is x 5..8, z 7..10.
+      const result = validatePlacement(at(5, 9, 3, 2), ctx({ stalls: existing }));
+      expect(result.violations.map((v) => v.code)).toEqual(['OPEN_SIDE_BLOCKED']);
       expect(result.violations[0].message).toBe(
-        'Required 3 m clear passage; 2 m available next to STALL-004.',
+        'Blocks the FRONT open side of STALL-004; keep 3 m clear.',
       );
       expect(result.violations[0]).toMatchObject({
         requiredWidth: 3,
-        actualWidth: 2,
+        side: 'FRONT',
         geometry: [expect.objectContaining({ type: 'polygon' })],
       });
     });
@@ -169,9 +174,9 @@ describe('placement-rules', () => {
       expect(codes(at(11, 5, 3, 2), ctx({ stalls: existing, eventType: 'B2C' }))).toEqual([]);
     });
 
-    it('measures diagonal gaps as a straight-line distance', () => {
-      // 2 m right and 2 m down from STALL-004's corner: 2.83 m < 3 m.
-      expect(codes(at(10, 9, 3, 2), ctx({ stalls: existing }))).toEqual(['PATHWAY_WIDTH']);
+    it('accepts a diagonal neighbour outside the passage', () => {
+      // 2 m right and 2 m down from STALL-004's corner: beside its passage, not in it.
+      expect(codes(at(10, 9, 3, 2), ctx({ stalls: existing }))).toEqual([]);
     });
   });
 
@@ -254,11 +259,11 @@ describe('placement-rules', () => {
 
   describe('auditLayout', () => {
     it('reports a pair problem once, on the first stall of the pair', () => {
-      const stalls = [stall('STALL-001', 5, 5, 3, 2), stall('STALL-002', 10, 5, 3, 2)];
+      const stalls = [stall('STALL-001', 5, 5, 3, 2), stall('STALL-002', 7, 5, 3, 2)];
       const entries = auditLayout(ctx({ stalls }));
       expect(entries.length).toBe(1);
       expect(entries[0].stallNumber).toBe('STALL-001');
-      expect(entries[0].violations.map((v) => v.code)).toEqual(['PATHWAY_WIDTH']);
+      expect(entries[0].violations.map((v) => v.code)).toEqual(['STALL_OVERLAP']);
     });
 
     it('is empty for a valid layout', () => {

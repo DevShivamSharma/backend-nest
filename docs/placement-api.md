@@ -27,8 +27,7 @@ There are no separate backend move, rotate or resize endpoints. The assistant pr
 - Every full open-side edge has a rectangular clearance strip extending outward by the selected passage width. The entire strip must fit inside usable floor and contain no active stall. PASSAGE/door-access zones can be walked through; PARTITION, SMOKE_CURTAIN, NO_CONSTRUCTION and FACILITY_ACCESS zones cannot supply this clearance. Existing zone/door/peripheral restrictions still apply to stall footprints.
 - All footprint containment, intersections and distances use **rotated polygon edges**, including concave outlines and holes, rather than centres or axis-aligned bounds. Distance comparisons use 1e-6 m tolerance; polygon area tolerance is 1e-12 m². Contact at the far edge of the required strip is allowed.
 - Finite numeric inputs must also produce finite, non-degenerate stall edges accurate within 1e-6 m. Inputs that collapse or overflow derived geometry receive HTTP 400 with `INVALID_DIMENSIONS`, `stallIndex` and an empty geometry list; unusable coordinates are not passed to polygon clipping.
-- A corner stall has its footprint within the selected passage width of **both incident segments of an actual non-collinear usable-floor vertex**. Convex and concave corners and physical cut-outs count; collinear vertices and a circle's bounding box do not. Corner stalls require at least the selected edge-to-edge distance from other active stalls. For nearest neighbours, the complete gap region (convex hull joining their footprints minus the footprints themselves) must fit inside walkable floor, excluding physical restricted zones; a narrow floor sliver or exterior notch cannot be counted as passage.
-- Non-corner contact is permitted only along a positive-length shared edge when **each stall has exactly one open side**, the two world-space open normals are opposite, and both point directly away from that shared edge. Side-by-side, point-only or open-face touching is rejected. Nonzero gaps retain the existing minimum-passage rule.
+- **The passage is required in front of open sides only.** Stalls may share walls, touch at a point or stand any distance apart on their closed sides, also at hall corners: a pair of stalls only must not overlap (`STALL_OVERLAP`). No stall may stand in the clearance strip of its own or another stall's open side (`OPEN_SIDE_BLOCKED`, reported on both stalls). `CORNER_PASSAGE`, `INVALID_BACK_TO_BACK` and `PATHWAY_WIDTH` are no longer issued.
 - CANCELLED stalls occupy no space, but their identifiers remain reserved while retained. Split parents are permanently cancelled containers and cannot be resurrected, removed or geometrically changed through PUT.
 
 ## Passage width and persistence
@@ -147,25 +146,25 @@ Geometry rejection is HTTP **400**, retaining the existing envelope and adding s
 {
   "success": false,
   "status": 400,
-  "message": "Stall 0 (A) placement rejected: Required 3 m clear passage; 2 m available next to 1.",
+  "message": "Stall 0 (A) placement rejected: FRONT passage is blocked by 1.",
   "violations": [
     {
       "stallIndex": 0,
       "stallNumber": null,
-      "code": "PATHWAY_WIDTH",
+      "code": "OPEN_SIDE_BLOCKED",
       "ruleRef": "Placement",
-      "message": "Required 3 m clear passage; 2 m available next to 1.",
+      "message": "FRONT passage is blocked by 1.",
+      "side": "FRONT",
       "requiredWidth": 3,
-      "actualWidth": 2,
       "relatedStallIds": ["1"],
       "geometry": [
         {
           "type": "polygon",
           "points": [
-            { "x": -1, "z": -1 },
-            { "x": 1, "z": -1 },
             { "x": 1, "z": 1 },
-            { "x": -1, "z": 1 }
+            { "x": -1, "z": 1 },
+            { "x": -1, "z": 4 },
+            { "x": 1, "z": 4 }
           ]
         }
       ]

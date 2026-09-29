@@ -23,7 +23,7 @@ const transform = (p: Point, degrees: number): Point => {
 
 describe('adversarial planner geometry', () => {
   it.each(Array.from({ length: 36 }, (_, i) => i * 10 + 0.37))(
-    'ADV-G01 rigid transform %s degrees preserves exact/short corner gaps and touching backs',
+    'ADV-G01 rigid transform %s degrees preserves exact/short open-side passage and touching backs',
     (rotation) => {
       for (const width of [3, 3.5, 5]) {
         for (const reversed of [false, true]) {
@@ -45,10 +45,19 @@ describe('adversarial planner geometry', () => {
           };
           const a = at(-19, -19);
           for (const short of [0, 0.001]) {
-            const b = at(-17 + width - short, -19, { id: 'b' });
-            const result = validatePlacement(a, buildPlacementContext(h, 'B2B', [b]), 'a');
-            expect(result.valid).toBe(short === 0);
-            if (short) expect(result.violations.map((v) => v.code)).toContain('CORNER_PASSAGE');
+            // Beside a closed side any gap is fine, also at a corner.
+            const beside = at(-17 + width - short, -19, { id: 'b' });
+            expect(
+              validatePlacement(a, buildPlacementContext(h, 'B2B', [beside]), 'a').valid,
+            ).toBe(true);
+          }
+          // In front of the open side the whole passage stays clear: 1 mm either way.
+          for (const short of [-0.001, 0.001]) {
+            const facing = at(-19, -17 + width - short, { id: 'b' });
+            const result = validatePlacement(a, buildPlacementContext(h, 'B2B', [facing]), 'a');
+            expect(result.valid).toBe(short < 0);
+            if (short > 0)
+              expect(result.violations.map((v) => v.code)).toContain('OPEN_SIDE_BLOCKED');
           }
           const backs = [at(0, -1, { openSides: ['BACK'] }), at(0, 1, { id: 'b' })];
           expect(auditLayout(buildPlacementContext(h, 'B2C', backs))).toEqual([]);
@@ -70,10 +79,10 @@ describe('adversarial planner geometry', () => {
     },
   );
 
-  it('ADV-G03 point contact is not a shared back; partial edge contact is allowed', () => {
+  it('ADV-G03 point contact and partial edge contact on closed sides are allowed', () => {
     const a = stall({ openSides: ['BACK'] });
     for (const [posX, valid] of [
-      [2, false],
+      [2, true],
       [1, true],
     ] as const) {
       const b = stall({ id: 'b', posX, posZ: 2 });

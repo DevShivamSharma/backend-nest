@@ -147,14 +147,13 @@ describe('LayoutService — custom (L-shaped) stalls', () => {
     const save = (other: Record<string, unknown>) =>
       service.save({ layoutName: 'x', hall, stalls: [lStall, other] } as never);
     await expect(save(onArm)).rejects.toThrow(/Overlaps/);
-    // In the notch the box does not overlap the L; it is only too close to it (a passage rule,
-    // judged against the L's real edges, 1 m away).
+    // In the notch the box does not overlap the L; it only stands next to its closed edges,
+    // which needs no passage.
     const codes = await save(inNotch).then(
       () => [] as string[],
       (e: { violations?: Array<{ code: string }> }) => (e.violations ?? []).map((v) => v.code),
     );
-    expect(codes).not.toContain('STALL_OVERLAP');
-    expect(codes).toContain('PATHWAY_WIDTH');
+    expect(codes).toEqual([]);
   });
 
   it('refuses to split a custom stall', async () => {

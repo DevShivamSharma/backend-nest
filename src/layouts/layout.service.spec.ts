@@ -594,28 +594,35 @@ describe('LayoutService — rule-driven halls', () => {
   });
 
   describe('BR-24 placement rules', () => {
-    it('rejects a new stall with a 2 m gap and reports what and where', async () => {
+    it('rejects a new stall in front of an open side and reports what and where', async () => {
       const { repo, service } = setup();
       const error = await service
-        .save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }))
+        .save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(0, { posZ: 4 })] }))
         .catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(PlacementRejectedError);
       const rejected = error as PlacementRejectedError;
       expect(rejected.message).toBe(
-        'Stall 0 (S) placement rejected: Required 3 m clear passage; 2 m available next to 1.',
+        'Stall 0 (S) placement rejected: FRONT passage is blocked by 1.',
       );
       expect(rejected.violations[0]).toEqual(
         expect.objectContaining({
           stallIndex: 0,
-          code: 'PATHWAY_WIDTH',
+          code: 'OPEN_SIDE_BLOCKED',
           ruleRef: 'Placement',
           requiredWidth: 3,
-          actualWidth: 2,
+          side: 'FRONT',
           geometry: [expect.objectContaining({ type: 'polygon' })],
         }),
       );
       expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts stalls sharing a wall or standing close on closed sides', async () => {
+      const { service } = setup();
+      await expect(
+        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(3), stallAt(8)] })),
+      ).resolves.toBeDefined();
     });
 
     it('blocks an unchanged existing stall if it breaks a rule', async () => {
@@ -649,15 +656,15 @@ describe('LayoutService — rule-driven halls', () => {
 
     it('applies to halls without rules', async () => {
       const { service } = setup();
-      await expect(service.save(request({ stalls: [stallAt(0), stallAt(5)] }))).rejects.toThrow(
-        PlacementRejectedError,
-      );
+      await expect(
+        service.save(request({ stalls: [stallAt(0), stallAt(0, { posZ: 4 })] })),
+      ).rejects.toThrow(PlacementRejectedError);
     });
 
     it('can be skipped by trusted imports of existing production placements', async () => {
       const { service } = setup();
       await expect(
-        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(5)] }), {
+        service.save(request({ hall: ruledHall, stalls: [stallAt(0), stallAt(0, { posZ: 4 })] }), {
           skipPlacementRules: true,
         }),
       ).resolves.toBeDefined();
@@ -678,7 +685,7 @@ describe('LayoutService — rule-driven halls', () => {
         existing(
           [
             { stallNumber: 'STALL-001', ...stallAt(0) },
-            { stallNumber: 'STALL-002', ...stallAt(5) },
+            { stallNumber: 'STALL-002', ...stallAt(0, { posZ: 4 }) },
           ],
           ruledHall,
         ),
@@ -688,7 +695,11 @@ describe('LayoutService — rule-driven halls', () => {
 
       expect(audit.ruleDriven).toBe(true);
       expect(audit.valid).toBe(false);
-      expect(audit.entries).toEqual([expect.objectContaining({ stallNumber: 'STALL-001' })]);
+      // The blocked open side is reported on the stall that owns it and on the one blocking it.
+      expect(audit.entries).toEqual([
+        expect.objectContaining({ stallNumber: 'STALL-001' }),
+        expect.objectContaining({ stallNumber: 'STALL-002' }),
+      ]);
     });
 
     it('audits even a hall without explicit rules', async () => {
