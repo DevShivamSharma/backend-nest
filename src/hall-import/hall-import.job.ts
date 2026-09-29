@@ -27,7 +27,7 @@ export async function runHallImport(job: HallImportJob): Promise<HallImportOutco
         kind: 'unreadable',
         message:
           job.format === 'pdf'
-            ? 'No drawing was found in the PDF. Upload a vector PDF exported from CAD, not a scan.'
+            ? 'No drawing was found in the PDF: it looks like a scan. Upload it as an image (PNG or JPG) to trace the hall, or use a PDF exported from CAD.'
             : 'The DXF has no drawing in model space.',
       };
     }

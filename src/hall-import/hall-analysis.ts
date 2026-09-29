@@ -67,6 +67,19 @@ export interface HallDraft {
   compass: HallCompass | null;
   /** Plan linework for the review underlay: flat [x1, z1, x2, z2, ...] metres. */
   linework: number[];
+  /**
+   * Where this draft's frame centre lies in the overview's frame (metres), so a point converts
+   * as overview = draft + origin. The overview's own origin is {0, 0}.
+   */
+  origin: Point;
+}
+
+/** A closed area of the plan the user can make a hall from (overview frame, metres). */
+export interface RoomOutline {
+  id: string;
+  label: string;
+  areaM2: number;
+  polygon: Point[];
 }
 
 export interface HallImportResult {
@@ -79,6 +92,13 @@ export interface HallImportResult {
    */
   multiHall: boolean;
   candidates: HallDraft[];
+  /**
+   * The whole plan in one frame: every facility, zone, pillar and label found, for making a
+   * hall from any area the user picks or draws when no suggestion fits.
+   */
+  overview: HallDraft;
+  /** Closed areas of the plan, largest first, to pick a hall from. */
+  rooms: RoomOutline[];
   warnings: string[];
   stats: { layers: number; shapes: number; texts: number; symbols: number };
 }
@@ -86,6 +106,8 @@ export interface HallImportResult {
 const MAX_CANDIDATES = 3;
 const MAX_OUTLINE_VERTICES = 400;
 const MAX_LINEWORK_SEGMENTS = 20_000;
+const MAX_OVERVIEW_SEGMENTS = 30_000;
+const MAX_ROOMS = 40;
 const MAX_AMENITIES = 300;
 const MAX_MARKERS = 80;
 const MAX_ZONES = 120;
@@ -191,7 +213,8 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
     s ??= 1;
   }
 
-  const outlines = findOutlines(drawing, s, extent);
+  const considered: Outline[] = [];
+  const outlines = findOutlines(drawing, s, extent, considered);
   if (!outlines.length) {
     warnings.push('No closed hall outline was found; the extent of the wall lines is used instead. Check the outline before saving.');
     outlines.push(fallbackOutline(drawing, extent));
@@ -236,10 +259,15 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
       // peripheral passage); toilets, lifts and stairs stay outside it, in the service cores.
       return buildDraft(drawing, split.floors[i], s!, i, fileName, legends, { owns, names, nearX: cx });
     });
+    drafts.forEach((d, i) => ((d as HallDraft & { box?: Box }).box = split.floors[i].box));
     drafts.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     drafts.forEach((d, i) => (d.id = `hall-${i + 1}`));
     warnings.unshift(`This plan holds ${drafts.length} halls (${drafts.map((d) => d.name).join(', ')}). Check and save each one.`);
-    return result(drawing, fileName, s, known, source, true, drafts, warnings);
+    const site = siteOf([...split.owners, ...outlines], s);
+    placeDrafts(drafts, s, site);
+    const overview = buildOverview(drawing, site, s, fileName, legends);
+    const rooms = roomOutlines([...split.floors, ...split.owners, ...outlines, ...considered], site, s);
+    return result(drawing, fileName, s, known, source, true, drafts, warnings, overview, rooms);
   }
 
   // One hall: its exhibition floor (inside its peripheral passage) comes first; the whole
@@ -257,6 +285,7 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
   const candidates: HallDraft[] = [];
   for (const outline of outlines) {
     const draft = buildDraft(drawing, outline, s!, candidates.length, fileName, legends, buildingScope);
+    (draft as HallDraft & { box?: Box }).box = outline.box;
     const copy = candidates.some(
       (c) =>
         Math.abs(c.width - draft.width) <= 0.01 * c.width &&
@@ -271,7 +300,69 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
     warnings.push('No toilets, lifts, gates or exits were recognised. Add them on the plan before saving.');
   }
 
-  return result(drawing, fileName, s, known, source, false, candidates, warnings);
+  const site = siteOf(outlines, s);
+  placeDrafts(candidates, s, site);
+  const overview = buildOverview(drawing, site, s, fileName, legends);
+  const rooms = roomOutlines([...outlines, ...considered], site, s);
+  return result(drawing, fileName, s, known, source, false, candidates, warnings, overview, rooms);
+}
+
+/** The part of the drawing the overview shows: every outline found, with room around it. */
+function siteOf(outlines: Outline[], s: number): Box {
+  const margin = 20 / s;
+  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const o of outlines) {
+    box.minX = Math.min(box.minX, o.box.minX);
+    box.minY = Math.min(box.minY, o.box.minY);
+    box.maxX = Math.max(box.maxX, o.box.maxX);
+    box.maxY = Math.max(box.maxY, o.box.maxY);
+  }
+  return { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin };
+}
+
+/** Sets each draft's origin in the overview frame (the site's centre is its 0, 0). */
+function placeDrafts(drafts: HallDraft[], s: number, site: Box): void {
+  const sx = (site.minX + site.maxX) / 2;
+  const sy = (site.minY + site.maxY) / 2;
+  for (const draft of drafts) {
+    const d = draft as HallDraft & { box?: Box };
+    const b = d.box!;
+    draft.origin = { x: round(((b.minX + b.maxX) / 2 - sx) * s), z: round(-((b.minY + b.maxY) / 2 - sy) * s) };
+    delete d.box;
+  }
+}
+
+/** The whole site as one draft: its boundary is the site rectangle. */
+function buildOverview(d: CadDrawing, site: Box, s: number, fileName: string, legends: HallLegend[]): HallDraft {
+  const ring = [site.minX, site.minY, site.maxX, site.minY, site.maxX, site.maxY, site.minX, site.maxY];
+  const outline: Outline = { ring, box: site, area: polygonArea(ring), label: 'Whole plan' };
+  const draft = buildDraft(d, outline, s, 0, fileName, legends, { owns: (x, y) => boxContains(site, x, y) }, MAX_OVERVIEW_SEGMENTS);
+  draft.id = 'overview';
+  draft.origin = { x: 0, z: 0 };
+  return draft;
+}
+
+/** Distinct closed areas, in the overview frame, that the planner accepts as a hall outline. */
+function roomOutlines(outlines: Outline[], site: Box, s: number): RoomOutline[] {
+  const sx = (site.minX + site.maxX) / 2;
+  const sy = (site.minY + site.maxY) / 2;
+  const kept: Outline[] = [];
+  for (const o of [...outlines].sort((a, b) => b.area - a.area)) {
+    if (kept.length >= MAX_ROOMS) break;
+    if (!boxContains(site, (o.box.minX + o.box.maxX) / 2, (o.box.minY + o.box.maxY) / 2)) continue;
+    if (kept.some((k) => sameBox(k.box, o.box))) continue;
+    kept.push(o);
+  }
+  const rooms: RoomOutline[] = [];
+  for (const o of kept) {
+    const ring = outlineRing(o.ring, s, 0.3);
+    if (!ring) continue;
+    const polygon: Point[] = [];
+    for (let i = 0; i < ring.length; i += 2) polygon.push({ x: round((ring[i] - sx) * s), z: round(-(ring[i + 1] - sy) * s) });
+    const areaM2 = Math.round(polygonArea(ring) * s * s);
+    rooms.push({ id: `room-${rooms.length + 1}`, label: o.label || `Area · ${areaM2.toLocaleString('en-IN')} m²`, areaM2, polygon });
+  }
+  return rooms;
 }
 
 function result(
@@ -283,6 +374,8 @@ function result(
   multiHall: boolean,
   candidates: HallDraft[],
   warnings: string[],
+  overview: HallDraft,
+  rooms: RoomOutline[],
 ): HallImportResult {
   return {
     fileName,
@@ -290,6 +383,8 @@ function result(
     scale: { metresPerUnit: s, known, source },
     multiHall,
     candidates,
+    overview,
+    rooms,
     warnings,
     stats: {
       layers: drawing.layers.length,
@@ -442,7 +537,7 @@ function guessScale(d: CadDrawing, extent: Box): number | null {
   return null;
 }
 
-function findOutlines(d: CadDrawing, s: number, extent: Box): Outline[] {
+function findOutlines(d: CadDrawing, s: number, extent: Box, considered: Outline[] = []): Outline[] {
   const extentW = extent.maxX - extent.minX;
   const extentH = extent.maxY - extent.minY;
   const hallTexts = d.texts.filter((t) => HALL_NAME.test(t.text));
@@ -495,6 +590,7 @@ function findOutlines(d: CadDrawing, s: number, extent: Box): Outline[] {
     });
   }
   scored.sort((a, b) => b.score - a.score);
+  considered.push(...scored);
 
   const picked: Outline[] = [];
   for (const candidate of scored) {
@@ -568,6 +664,7 @@ function buildDraft(
   legends: HallLegend[],
   /** For one hall of a multi-hall plan: what belongs to it, and where its title may be. */
   scope?: { owns: (x: number, y: number) => boolean; names?: (x: number, y: number) => boolean; nearX?: number },
+  maxSegments = MAX_LINEWORK_SEGMENTS,
 ): HallDraft {
   const { box, ring } = outline;
   const cx = (box.minX + box.maxX) / 2;
@@ -607,7 +704,8 @@ function buildDraft(
     blockedAreas,
     legends,
     compass,
-    linework: linework(d, s, box, margin, plan),
+    linework: linework(d, s, box, margin, plan, maxSegments),
+    origin: { x: 0, z: 0 },
   };
 }
 
@@ -1206,6 +1304,7 @@ function linework(
   box: Box,
   margin: number,
   plan: (x: number, y: number) => Point,
+  maxSegments = MAX_LINEWORK_SEGMENTS,
 ): number[] {
   const tiers: number[][] = LINEWORK_PRIORITY.map(() => []);
   const rest: number[] = [];
@@ -1229,7 +1328,7 @@ function linework(
   }
   const all: number[] = [];
   for (const segs of [...tiers, rest]) {
-    const room = MAX_LINEWORK_SEGMENTS * 4 - all.length;
+    const room = maxSegments * 4 - all.length;
     if (room <= 0) break;
     all.push(...segs.slice(0, room));
   }

@@ -170,6 +170,19 @@ describe('hall import: analysis', () => {
     ]);
   });
 
+  it('returns the whole plan and its closed areas, in one frame with the hall', () => {
+    const overview = result.overview;
+    expect(overview.origin).toEqual({ x: 0, z: 0 });
+    // Every facility of the hall is in the overview at hall position + origin.
+    for (const a of hall.amenities) {
+      const x = a.position.x + hall.origin.x;
+      const z = a.position.z + hall.origin.z;
+      expect(overview.amenities.some((o) => o.kind === a.kind && Math.hypot(o.position.x - x, o.position.z - z) < 0.01)).toBe(true);
+    }
+    expect(result.rooms.length).toBeGreaterThan(0);
+    expect(result.rooms[0].areaM2).toBeGreaterThan(2000);
+  });
+
   it('produces a hall the planner accepts as it is', () => {
     expect(() =>
       validateHallGeometry({
