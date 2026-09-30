@@ -1,3 +1,4 @@
+import { BASIC_RULE_IDS, BasicRuleId } from './basic-rules';
 import { edges, EPS, segmentDistance } from './polygon-geometry';
 import { BadRequestDomainError, PlacementRejectedError } from '../../common/errors/domain.errors';
 import type {
@@ -408,6 +409,19 @@ function legend(raw: unknown, index: number): HallLegend {
 
 function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
   const out: Partial<LayoutRules> = {};
+  if ('enabledRules' in raw) {
+    const switches = raw['enabledRules'];
+    if (!switches || typeof switches !== 'object' || Array.isArray(switches)) {
+      throw new BadRequestDomainError('Hall rules: enabledRules must be an object of boolean switches.');
+    }
+    out.enabledRules = {};
+    for (const [key, value] of Object.entries(switches)) {
+      if (!(BASIC_RULE_IDS as readonly string[]).includes(key) || typeof value !== 'boolean') {
+        throw new BadRequestDomainError('Hall rules: enabledRules needs known rule names with true or false values.');
+      }
+      out.enabledRules[key as BasicRuleId] = value;
+    }
+  }
   const metres = (key: string, value: unknown, allowZero: boolean): number => {
     if (!finite(value) || (value as number) < 0 || (!allowZero && (value as number) === 0)) {
       throw new BadRequestDomainError(

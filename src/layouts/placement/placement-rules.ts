@@ -1,3 +1,4 @@
+import { BasicRuleSettings, ruleEnabled } from './basic-rules';
 import { validateOrientedPlacement } from './oriented-placement';
 /**
  * Placement rules for the rule-driven hall editor. Pure: no framework, no ORM, no I/O.
@@ -99,6 +100,8 @@ export interface HallOpening {
 
 /** Every physical rule the validator applies, in metres. Stored per hall. */
 export interface LayoutRules {
+  /** Unspecified checks remain enabled for existing layouts. */
+  enabledRules?: BasicRuleSettings | null;
   /** Configurable 3–5 m per event type; both default to 3 m. */
   minPassageWidth: Record<EventType, number>;
   /** ITPO D5: free passage along all external walls. */
@@ -281,6 +284,7 @@ export function openingAccessRect(
   rules: LayoutRules,
   eventType: EventType,
 ): Rect | null {
+  if (!ruleEnabled(rules, opening.kind === 'EMERGENCY' ? 'EMERGENCY_EXIT_ACCESS' : 'ENTRY_EXIT_ACCESS')) return null;
   const width = Number(opening.width);
   if (!Number.isFinite(width) || width <= 0) return null;
 

@@ -1,3 +1,4 @@
+import { ruleEnabled } from './basic-rules';
 import { difference, type MultiPolygon } from 'polygon-clipping';
 import { openingAccessRect, zoneClearanceFor } from './placement-rules';
 import type {
@@ -66,7 +67,7 @@ export function validateOrientedPlacement(
   const onStep = (v: number) =>
     Math.abs(v / ctx.rules.snapStep - Math.round(v / ctx.rules.snapStep)) <= EPS;
   if (
-    ctx.enforceGrid &&
+    ctx.enforceGrid && ruleEnabled(ctx.rules, 'sizeStep') &&
     (candidate.footprint && candidate.footprint.length >= 3
       ? // A custom outline: every edge, not just the bounding box, sits on the snap step.
         !edges(candidate.footprint).every(([a, b]) => onStep(Math.hypot(b.x - a.x, b.z - a.z)))
@@ -81,7 +82,7 @@ export function validateOrientedPlacement(
     (ctx.circleRadius != null
       ? poly.every((v) => Math.hypot(v.x, v.z) <= ctx.circleRadius! + EPS)
       : contained(poly, floor)) && obstacles.every((o) => !overlaps(poly, o));
-  if (!inside(p)) add('OUTSIDE_HALL', 'Stall is outside the usable hall boundary.', p);
+  if (ruleEnabled(ctx.rules, 'hallBoundary') && !inside(p)) add('OUTSIDE_HALL', 'Stall is outside the usable hall boundary.', p);
 
   const rings: Point[][] =
     ctx.circleRadius != null
@@ -90,13 +91,13 @@ export function validateOrientedPlacement(
   const others = ctx.stalls.filter((s) => String(s.id) !== ignoreId && s.status !== 'CANCELLED');
   // Stalls may share walls or stand any distance apart on their closed sides: a pair only must
   // not overlap. The passage is required in front of open sides alone (checked below).
-  for (const other of others) {
+  for (const other of ruleEnabled(ctx.rules, 'stallOverlap') ? others : []) {
     if (overlaps(p, stallPolygon(other)))
       add('STALL_OVERLAP', `Overlaps stall ${other.stallNumber ?? other.id}.`, p, [
         String(other.id),
       ]);
   }
-  for (const { index, label: side } of openEdgeList(candidate)) {
+  for (const { index, label: side } of ruleEnabled(ctx.rules, 'openSideAccess') ? openEdgeList(candidate) : []) {
     const access = corridor(p, index, passage);
     if (!inside(access))
       add(
@@ -118,7 +119,7 @@ export function validateOrientedPlacement(
       }
     // Passage zones are walkable; physical restricted zones are not usable passage.
     for (const zone of ctx.zones.filter((z) =>
-      ['PARTITION', 'SMOKE_CURTAIN', 'NO_CONSTRUCTION', 'FACILITY_ACCESS'].includes(z.kind),
+      ruleEnabled(ctx.rules, z.kind) && ['PARTITION', 'SMOKE_CURTAIN', 'NO_CONSTRUCTION', 'FACILITY_ACCESS'].includes(z.kind),
     )) {
       if (overlaps(access, zone.polygon))
         add('OPEN_SIDE_PASSAGE', `${side} passage intersects ${zone.label}.`, access, [], {
@@ -128,7 +129,7 @@ export function validateOrientedPlacement(
     }
   }
   // The candidate must not stand in the passage in front of another stall's open side either.
-  for (const other of others)
+  for (const other of ruleEnabled(ctx.rules, 'openSideAccess') ? others : [])
     for (const { index, label: side } of openEdgeList(other)) {
       const access = corridor(stallPolygon(other), index, passage);
       if (overlaps(p, access))
@@ -146,13 +147,14 @@ export function validateOrientedPlacement(
       : rings.length
         ? Math.min(...rings.map((r) => distance(p, r)))
         : Infinity;
-  if (wallGap < ctx.rules.peripheralClearance - EPS)
+  if (ruleEnabled(ctx.rules, 'peripheralClearance') && wallGap < ctx.rules.peripheralClearance - EPS)
     add(
       'PERIPHERAL_CLEARANCE',
       `Required ${ctx.rules.peripheralClearance} m peripheral clearance; ${wallGap} m available.`,
       p,
     );
   for (const zone of ctx.zones) {
+    if (!ruleEnabled(ctx.rules, zone.kind)) continue;
     if (
       overlaps(p, zone.polygon) ||
       distance(p, zone.polygon) < zoneClearanceFor(zone, ctx.rules) - EPS
