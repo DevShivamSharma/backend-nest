@@ -160,7 +160,7 @@ describe('L-shaped stall placement', () => {
     // The box stands in front of the notch edges: it blocks the L's open frontage.
     const blockers = check(lStall, [box('y', -1.5, 2, 1, 1)]);
     expect([...inNotch.violations, ...blockers.violations].map((v) => v.code)).toEqual(
-      expect.arrayContaining(['PATHWAY_WIDTH']),
+      expect.arrayContaining(['OPEN_SIDE_BLOCKED']),
     );
     const clear = check(lStall, []);
     expect(clear.valid).toBe(true);

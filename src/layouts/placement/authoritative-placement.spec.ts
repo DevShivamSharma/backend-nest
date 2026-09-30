@@ -23,7 +23,7 @@ function check(
 const codes = (r: ReturnType<typeof check>) => r.violations.map((v) => v.code);
 
 describe('authoritative rotated passage validation', () => {
-  it.each([3, 5])('corner: rejects short gap and accepts exactly %s metres', (width) => {
+  it.each([3, 5])('closed sides need no %s metre gap, also at a hall corner', (width) => {
     const h = {
       ...hall,
       rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
@@ -31,7 +31,9 @@ describe('authoritative rotated passage validation', () => {
     const a = stall({ posX: -19, posZ: -19 });
     const b = stall({ id: 'b', posX: -17 + width, posZ: -19 });
     expect(check(a, [b], h).valid).toBe(true);
-    expect(codes(check(a, [{ ...b, posX: b.posX - 0.01 }], h))).toContain('CORNER_PASSAGE');
+    expect(check(a, [{ ...b, posX: b.posX - 0.01 }], h).valid).toBe(true);
+    // A shared wall.
+    expect(check(a, [{ ...b, posX: -17 }], h).valid).toBe(true);
   });
   it.each([2.99, 5.01, -1, 0, NaN, Infinity, '3', null])('rejects invalid width %p', (width) => {
     expect(() => validateHallGeometry({ rules: { minPassageWidth: { B2B: width } } })).toThrow(
@@ -54,17 +56,21 @@ describe('authoritative rotated passage validation', () => {
     expect(check(a, [b]).valid).toBe(true);
     expect(check(b, [a]).valid).toBe(true);
   });
-  it.each([[['FRONT']], [['LEFT']], [['BACK', 'RIGHT']]])(
-    'rejects touching with open sides %p',
+  it('rejects touching on an open side', () => {
+    const a = stall({ posZ: -1, openSides: ['FRONT'] });
+    expect(codes(check(a, [stall({ id: 'b', posZ: 1 })]))).toContain('OPEN_SIDE_BLOCKED');
+  });
+  it.each([[['LEFT']], [['BACK', 'RIGHT']]])(
+    'accepts a shared wall on a closed side with open sides %p',
     (sides) => {
-      const a = stall({ posZ: -1, openSides: Array.isArray(sides) ? sides : [sides] });
-      expect(codes(check(a, [stall({ id: 'b', posZ: 1 })]))).toContain('INVALID_BACK_TO_BACK');
+      const a = stall({ posZ: -1, openSides: sides });
+      expect(check(a, [stall({ id: 'b', posZ: 1 })]).valid).toBe(true);
     },
   );
-  it('does not exempt corner stalls from passage for back-to-back touching', () => {
+  it('lets corner stalls share a wall like any other stall', () => {
     const a = stall({ posX: -19, posZ: -19, openSides: ['RIGHT'] });
     const b = stall({ id: 'b', posX: -19, posZ: -17, openSides: ['FRONT'] });
-    expect(codes(check(a, [b]))).toContain('CORNER_PASSAGE');
+    expect(check(a, [b]).valid).toBe(true);
   });
   it.each([3, 5])('open side must have exactly %s metres inside the hall', (width) => {
     const h = {
@@ -80,16 +86,22 @@ describe('authoritative rotated passage validation', () => {
     ).toContain('OPEN_SIDE_BLOCKED');
   });
   it.each([30, 45, 90, 135, 270])(
-    'rotates edges AND sides by %s degrees, preserving valid backs and edge gaps',
+    'rotates edges AND sides by %s degrees, preserving valid backs and open-side passage',
     (rotation) => {
       const centre = rotate({ x: 0, z: 2 }, rotation);
       const a = stall({ rotation, openSides: ['BACK'] });
       const b = stall({ id: 'b', rotation, posX: centre.x, posZ: centre.z });
       expect(check(a, [b]).valid).toBe(true);
-      const far = rotate({ x: 5, z: 0 }, rotation);
-      expect(check(a, [{ ...b, posX: far.x, posZ: far.z }]).valid).toBe(true);
-      const near = rotate({ x: 4.99, z: 0 }, rotation);
-      expect(codes(check(a, [{ ...b, posX: near.x, posZ: near.z }]))).toContain('PATHWAY_WIDTH');
+      // Beside a closed side any gap is fine.
+      const beside = rotate({ x: 4.99, z: 0 }, rotation);
+      expect(check(a, [{ ...b, posX: beside.x, posZ: beside.z }]).valid).toBe(true);
+      // In front of the open side the whole passage stays clear.
+      const far = rotate({ x: 0, z: -5 }, rotation);
+      expect(check(a, [{ ...b, openSides: ['BACK'], posX: far.x, posZ: far.z }]).valid).toBe(true);
+      const near = rotate({ x: 0, z: -4.99 }, rotation);
+      expect(
+        codes(check(a, [{ ...b, openSides: ['BACK'], posX: near.x, posZ: near.z }])),
+      ).toContain('OPEN_SIDE_BLOCKED');
     },
   );
   it('detects a rotated footprint outside the hall even if unrotated extents fit', () => {
@@ -110,12 +122,12 @@ describe('authoritative rotated passage validation', () => {
       codes(check(stall({ posX: 5, posZ: -2 }), [], { ...hall, boundary: irregular })),
     ).toContain('OPEN_SIDE_PASSAGE');
   });
-  it('uses a notch corner, not the hall bounding box, for corner spacing', () => {
+  it('accepts touching backs next to a notch corner', () => {
     const a = stall({ posX: -2, posZ: -2, openSides: ['BACK'] });
     const b = stall({ id: 'b', posX: -2, posZ: 0 });
-    expect(codes(check(a, [b], { ...hall, boundary: irregular }))).toContain('CORNER_PASSAGE');
+    expect(check(a, [b], { ...hall, boundary: irregular }).valid).toBe(true);
   });
-  it('does not count the gap across an exterior notch as corner passage', () => {
+  it('needs no passage between closed sides either side of an exterior notch', () => {
     const boundary = [
       { x: -20, z: -20 },
       { x: -2, z: -20 },
@@ -128,22 +140,7 @@ describe('authoritative rotated passage validation', () => {
     ];
     const a = stall({ posX: -3, posZ: -19 });
     const b = stall({ id: 'b', posX: 3, posZ: -19 });
-    expect(codes(check(a, [b], { ...hall, boundary }))).toContain('CORNER_PASSAGE');
-  });
-  it('rejects an exterior sliver inside the full corner gap even when its shortest connector is clear', () => {
-    const boundary = [
-      { x: -20, z: -20 },
-      { x: -15, z: -20 },
-      { x: -15, z: -19 },
-      { x: -14.9, z: -19 },
-      { x: -14.9, z: -20 },
-      { x: 20, z: -20 },
-      { x: 20, z: 20 },
-      { x: -20, z: 20 },
-    ];
-    const a = stall({ posX: -19, posZ: -19 });
-    const b = stall({ id: 'b', posX: -12, posZ: -19 });
-    expect(codes(check(a, [b], { ...hall, boundary }))).toContain('CORNER_PASSAGE');
+    expect(check(a, [b], { ...hall, boundary }).valid).toBe(true);
   });
   it('detects an edge crossing a narrow concavity even when all vertices are inside', () => {
     const boundary = [

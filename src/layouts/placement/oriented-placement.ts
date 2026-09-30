@@ -9,8 +9,6 @@ import type {
   ViolationCode,
 } from './placement-rules';
 import {
-  backToBack,
-  gapInsideFloor,
   contained,
   corridor,
   distance,
@@ -20,9 +18,7 @@ import {
   openEdgeList,
   overlaps,
   ring,
-  segmentDistance,
   stallPolygon,
-  sub,
 } from './polygon-geometry';
 
 export function validateOrientedPlacement(
@@ -87,64 +83,18 @@ export function validateOrientedPlacement(
       : contained(poly, floor)) && obstacles.every((o) => !overlaps(poly, o));
   if (!inside(p)) add('OUTSIDE_HALL', 'Stall is outside the usable hall boundary.', p);
 
-  // Corners come from actual usable floor rings, including cut-outs, never an AABB.
   const rings: Point[][] =
     ctx.circleRadius != null
       ? obstacles
       : floor.flatMap((poly) => poly.map((r) => r.slice(0, -1).map(([x, z]) => ({ x, z }))));
-  const isCorner = (poly: Point[]) =>
-    rings.some((r) =>
-      r.some((v, i) => {
-        const prev = r[(i + r.length - 1) % r.length],
-          next = r[(i + 1) % r.length];
-        const a = sub(v, prev),
-          b = sub(next, v);
-        if (Math.abs(a.x * b.z - a.z * b.x) <= EPS * Math.hypot(a.x, a.z) * Math.hypot(b.x, b.z))
-          return false;
-        const near = (x: Point, y: Point) =>
-          Math.min(...edges(poly).map(([s, t]) => segmentDistance(x, y, s, t))) <= passage + EPS;
-        return near(prev, v) && near(v, next);
-      }),
-    );
-  const corner = isCorner(p);
-  const physicalZones = ctx.zones.filter((z) =>
-    ['PARTITION', 'SMOKE_CURTAIN', 'NO_CONSTRUCTION', 'FACILITY_ACCESS'].includes(z.kind),
-  );
-  let walkableFloor = floor;
-  for (const zone of physicalZones)
-    if (walkableFloor.length) walkableFloor = difference(walkableFloor, ring(zone.polygon));
   const others = ctx.stalls.filter((s) => String(s.id) !== ignoreId && s.status !== 'CANCELLED');
-  const nearest = Math.min(...others.map((other) => distance(p, stallPolygon(other))));
+  // Stalls may share walls or stand any distance apart on their closed sides: a pair only must
+  // not overlap. The passage is required in front of open sides alone (checked below).
   for (const other of others) {
-    const q = stallPolygon(other),
-      ids = [String(other.id)];
-    if (overlaps(p, q)) {
-      add('STALL_OVERLAP', `Overlaps stall ${other.stallNumber ?? other.id}.`, p, ids);
-      continue;
-    }
-    const gap = distance(p, q);
-    if (corner && gap > EPS && gap <= nearest + EPS && ctx.circleRadius == null) {
-      if (!gapInsideFloor(p, q, walkableFloor))
-        add(
-          'CORNER_PASSAGE',
-          'The gap to the nearest stall is not wholly usable passage; exterior space and physical barriers cannot supply clearance.',
-          p,
-          ids,
-          { requiredWidth: passage, actualWidth: 0 },
-        );
-    }
-    if (gap < passage - EPS) {
-      const cornerPair = corner || isCorner(q);
-      if (cornerPair || gap > EPS || !backToBack(candidate, other)) {
-        add(
-          cornerPair ? 'CORNER_PASSAGE' : gap <= EPS ? 'INVALID_BACK_TO_BACK' : 'PATHWAY_WIDTH',
-          `Required ${passage} m clear passage; ${Math.round(gap * 1e6) / 1e6} m available next to ${other.stallNumber ?? other.id}.`,
-          p,
-          ids,
-          { requiredWidth: passage, actualWidth: gap },
-        );
-      }
-    }
+    if (overlaps(p, stallPolygon(other)))
+      add('STALL_OVERLAP', `Overlaps stall ${other.stallNumber ?? other.id}.`, p, [
+        String(other.id),
+      ]);
   }
   for (const { index, label: side } of openEdgeList(candidate)) {
     const access = corridor(p, index, passage);
@@ -177,6 +127,19 @@ export function validateOrientedPlacement(
         });
     }
   }
+  // The candidate must not stand in the passage in front of another stall's open side either.
+  for (const other of others)
+    for (const { index, label: side } of openEdgeList(other)) {
+      const access = corridor(stallPolygon(other), index, passage);
+      if (overlaps(p, access))
+        add(
+          'OPEN_SIDE_BLOCKED',
+          `Blocks the ${side} open side of ${other.stallNumber ?? other.id}; keep ${passage} m clear.`,
+          access,
+          [String(other.id)],
+          { side, requiredWidth: passage },
+        );
+    }
   const wallGap =
     ctx.circleRadius != null
       ? ctx.circleRadius - Math.max(...p.map((v) => Math.hypot(v.x, v.z)))

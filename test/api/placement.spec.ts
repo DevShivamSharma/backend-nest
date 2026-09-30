@@ -53,7 +53,7 @@ const split = (key = 'split-one') => ({
   children: [stall({ posX: -4, width: 3, length: 4 }), stall({ posX: 4, width: 3, length: 4 })],
 });
 
-test('default, 3 m / 5 m corner passage and exact width; invalid inputs write no records', async ({
+test('default, 3 m / 5 m open-side passage and exact width; invalid inputs write no records', async ({
   request,
 }) => {
   for (const width of [3, 5]) {
@@ -61,15 +61,24 @@ test('default, 3 m / 5 m corner passage and exact width; invalid inputs write no
       ...hall,
       rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
     };
-    const stalls = [stall({ posX: -29, posZ: -29 }), stall({ posX: -27 + width, posZ: -29 })];
+    // The second stall stands in front of the first one's open FRONT side; a shared wall on a
+    // closed side (third stall) needs no passage.
+    const stalls = [
+      stall({ posX: -29, posZ: -29 }),
+      stall({ posX: -29, posZ: -27 + width }),
+      stall({ posX: -27, posZ: -29 }),
+    ];
     await save(request, { hall: h, stalls });
     const response = await request.post('/api/layout/save', {
-      data: { hall: h, stalls: [stalls[0], { ...stalls[1], posX: stalls[1].posX - 0.01 }] },
+      data: {
+        hall: h,
+        stalls: [stalls[0], { ...stalls[1], posZ: stalls[1].posZ - 0.01 }, stalls[2]],
+      },
     });
     expect(response.status()).toBe(400);
     expect((await response.json()).violations).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: 'CORNER_PASSAGE', requiredWidth: width }),
+        expect.objectContaining({ code: 'OPEN_SIDE_BLOCKED', requiredWidth: width }),
       ]),
     );
   }
@@ -100,7 +109,7 @@ test('rotated back-to-back survives reload; invalid open-side update rolls back'
   });
   expect(bad.status()).toBe(400);
   expect((await bad.json()).violations).toEqual(
-    expect.arrayContaining([expect.objectContaining({ code: 'INVALID_BACK_TO_BACK' })]),
+    expect.arrayContaining([expect.objectContaining({ code: 'OPEN_SIDE_BLOCKED' })]),
   );
   expect((await (await request.get(`/api/layout/${saved.layout.id}`)).json()).stalls).toEqual(
     saved.stalls,
@@ -154,7 +163,8 @@ test('move, rotation, resize and width changes all revalidate the complete PUT s
       expect.objectContaining({ code: 'OUTSIDE_HALL' }),
     );
   }
-  const three = await save(request, { stalls: [stall(), stall({ posX: 5 })] });
+  // 3 m in front of the first stall's open FRONT side: enough for 3 m, not for 5 m.
+  const three = await save(request, { stalls: [stall(), stall({ posZ: 5 })] });
   const five = await request.put(`/api/layout/${three.layout.id}`, {
     data: {
       hall: { ...hall, rules: { minPassageWidth: { B2B: 5 }, peripheralClearance: 0 } },
@@ -163,7 +173,7 @@ test('move, rotation, resize and width changes all revalidate the complete PUT s
   });
   expect(five.status()).toBe(400);
   expect((await five.json()).violations).toContainEqual(
-    expect.objectContaining({ code: 'PATHWAY_WIDTH', requiredWidth: 5, actualWidth: 3 }),
+    expect.objectContaining({ code: 'OPEN_SIDE_BLOCKED', requiredWidth: 5 }),
   );
 });
 
