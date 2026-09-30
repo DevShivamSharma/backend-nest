@@ -140,10 +140,20 @@ export class ExtractionError extends Error {}
 
 const LETTER = /^[A-Z]\d?$/;
 /**
- * A block (island) number printed next to its stalls: `11-05` (hall 11, block 5) or, with a
- * floor letter and suffixes, `5G-26` / `5G-24AB` (hall 5, ground floor). The first number is the hall.
+ * A block (island) number printed next to its stalls: `11-05` (hall 11, block 5), with a floor
+ * letter `5G-26` / `5G-24AB` (hall 5, ground floor), or of a lettered hall `12A-07` (hall 12A).
  */
-const BLOCK = /^(\d{1,2})[A-Z]{0,2}-(\d{1,3})[A-Z]{0,3}$/;
+const BLOCK = /^(\d{1,2})([A-Z]{0,2})-(\d{1,3})[A-Z]{0,3}$/;
+
+/**
+ * The hall a block number belongs to: its number, plus a hall letter (12A, 1B). A trailing G or
+ * F is the floor (5G = hall 5 ground floor, 14GF), not part of the hall.
+ */
+export function hallOfBlock(block: string): string | null {
+  const m = BLOCK.exec(block);
+  if (!m) return null;
+  return String(Number(m[1])) + m[2].replace(/(?:GF|FF|G|F)$/, '');
+}
 const AREA = /^=?\s*(\d+(?:\.\d+)?)\s*(?:m²|m2|sqm|sq\.?\s*m)$/i;
 const DIMS = /(\d+(?:\.\d+)?)\s*m?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*m\b/i;
 const STARTUP = /start[\s-]?up/i;
@@ -430,10 +440,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
   });
 
   // --- 8. groups and per-group calibration ------------------------------------------------------------
-  const groupOf = (f: Face): string => {
-    const m = f.block ? BLOCK.exec(f.block) : null;
-    return m ? String(Number(m[1])) : '?';
-  };
+  const groupOf = (f: Face): string => (f.block ? hallOfBlock(f.block) : null) ?? '?';
   // Unblocked faces join the nearest blocked face's group.
   const grouped = onGrid.map((f) => ({ f, g: groupOf(f) }));
   for (const item of grouped.filter((x) => x.g === '?')) {
@@ -450,7 +457,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
   const groups: GroupCalibration[] = [];
   const stalls: ExtractedStall[] = [];
   const groupIds = [...new Set(grouped.map((x) => x.g))].sort((a, b) =>
-    a === '?' ? 1 : b === '?' ? -1 : Number(b) - Number(a),
+    a === '?' ? 1 : b === '?' ? -1 : parseInt(b, 10) - parseInt(a, 10) || b.localeCompare(a),
   );
   for (const g of groupIds) {
     const members = grouped.filter((x) => x.g === g).map((x) => x.f);

@@ -3,6 +3,7 @@ import {
   extractStalls,
   fitOrigin,
   globalPitch,
+  hallOfBlock,
   refineLattice,
   snapToHalfMetres,
   stallLayerModes,
@@ -278,6 +279,11 @@ describe('extractStalls', () => {
     const d = lettered.stalls.find((s) => s.letter === 'D')!;
     expect([d.group, d.blockId, d.name]).toEqual(['5', '5G-24AB', '5G-24AB D']);
     expect(d.issues.map((i) => i.code)).not.toContain('NO_BLOCK');
+  });
+
+  it('tells a floor letter from a hall letter in block numbers', () => {
+    expect(['11-05', '5G-26', '5G-24AB', '14GF-02', '12A-07', '1B-03', '12-01', 'IIFF-26'].map(hallOfBlock))
+      .toEqual(['11', '5', '5', '14', '12A', '1B', '12', null]);
   });
 
   it('measures each axis on its own when a plot is scaled unevenly ("fit to paper")', () => {
