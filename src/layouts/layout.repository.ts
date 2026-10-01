@@ -160,6 +160,31 @@ export class LayoutRepository {
   }
 
   /**
+   * One stall changed in place, under the same layout row lock as `replace()`: two changes to the
+   * same layout (two exhibitors booking one stall, or a booking and a save) never interleave.
+   * `change` decides what to do with the stall it is given (null when the layout has no stall with
+   * that number) and may throw; the stall is saved after it returns.
+   *
+   * Returns null when the layout does not exist (or when `change` lets a missing stall through).
+   */
+  updateStall(
+    layoutId: number,
+    stallNumber: string,
+    change: (stall: StallEntity | null) => void,
+  ): Promise<StallEntity | null> {
+    return this.dataSource.transaction(async (manager) => {
+      const locked = await manager.findOne(LayoutEntity, {
+        where: { id: layoutId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) return null;
+      const stall = await manager.findOneBy(StallEntity, { layoutId, stallNumber });
+      change(stall);
+      return stall && manager.save(stall);
+    });
+  }
+
+  /**
    * BR-20: deleting a layout removes its stalls and its hall. Order follows the foreign keys:
    * stalls reference the layout, the layout references the hall.
    *

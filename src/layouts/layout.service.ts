@@ -19,6 +19,7 @@ import type {
   LayoutAuditResponse,
   LayoutDetailResponse,
   LayoutSummaryResponse,
+  StallBookedResponse,
   StallResponse,
 } from './dto/layout-response.dto';
 import type {
@@ -274,6 +275,22 @@ export class LayoutService {
     });
     if (!saved) throw notFound(id);
     return toDetail(saved, 'Stall split successfully.');
+  }
+
+  /**
+   * An exhibitor books a stall: AVAILABLE -> BOOKED, nothing else changes. Only an AVAILABLE stall
+   * can be booked, so a stall is never booked twice: the second request sees BOOKED and gets 409.
+   */
+  async book(id: number, stallNumber: string): Promise<StallBookedResponse> {
+    const booked = await this.layouts.updateStall(id, stallNumber, (stall) => {
+      if (!stall) throw new BadRequestDomainError(`Stall not found: ${stallNumber}`);
+      if (stall.status !== 'AVAILABLE')
+        throw new DataIntegrityDomainError(`Stall ${stall.name} is not available for booking.`);
+      stall.status = 'BOOKED';
+    });
+    if (booked === null) throw notFound(id);
+
+    return { message: 'Stall booked successfully.', layoutId: id, stall: toStallResponse(booked) };
   }
 
   async delete(id: number): Promise<void> {

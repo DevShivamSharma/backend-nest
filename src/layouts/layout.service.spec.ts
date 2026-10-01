@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { LayoutSaveRequestDto } from './dto/layout-save-request.dto';
 import { LayoutAggregate, LayoutRepository, LayoutWrite } from './layout.repository';
-import { PlacementRejectedError } from '../common/errors/domain.errors';
+import { DataIntegrityDomainError, PlacementRejectedError } from '../common/errors/domain.errors';
 import { LayoutService } from './layout.service';
 
 /** Write-side rules BR-14 … BR-19, observed through what the service hands the repository. */
@@ -61,9 +61,20 @@ function setup(maxStalls = 2000) {
     lastWrite: undefined as LayoutWrite | undefined,
     // update() reads the current layout first (BR-25); by default it exists and is empty.
     findById: jest.fn(async (): Promise<LayoutAggregate | null> => existing([])),
+    updateStall: jest.fn<
+      ReturnType<LayoutRepository['updateStall']>,
+      Parameters<LayoutRepository['updateStall']>
+    >(),
     delete: jest.fn(),
     listSummaries: jest.fn(),
   };
+  repo.updateStall.mockImplementation(async (_id, stallNumber, change) => {
+    const current = await repo.findById();
+    if (!current) return null;
+    const stall = current.stalls.find((s) => s.stallNumber === stallNumber) ?? null;
+    change(stall);
+    return stall;
+  });
   repo.replace.mockImplementation(async (id, build) => {
     const current = await repo.findById();
     if (!current) return null;
@@ -764,6 +775,41 @@ describe('LayoutService — rule-driven halls', () => {
       await expect(service.save(request({ ruleIds: [id] }))).rejects.toThrow(
         'ruleIds must be rule ids (positive whole numbers).',
       );
+    });
+  });
+
+  describe('booking a stall', () => {
+    const stalls = [
+      { stallNumber: 'STALL-001', name: '12A-01 A', status: 'AVAILABLE' },
+      { stallNumber: 'STALL-002', name: '12A-01 B', status: 'BOOKED' },
+      { stallNumber: 'STALL-003', name: '12A-01 C', status: 'CANCELLED' },
+    ];
+
+    it('books an available stall and returns it as BOOKED', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(existing(stalls));
+      const result = await service.book(1000, 'STALL-001');
+      expect(result.stall).toEqual(
+        expect.objectContaining({ stallNumber: 'STALL-001', status: 'BOOKED' }),
+      );
+      expect(result.layoutId).toBe(1000);
+    });
+
+    it.each([['STALL-002'], ['STALL-003']])(
+      'refuses %s, which is not available (409)',
+      async (number) => {
+        const { repo, service } = setup();
+        repo.findById.mockResolvedValue(existing(stalls));
+        await expect(service.book(1000, number)).rejects.toBeInstanceOf(DataIntegrityDomainError);
+      },
+    );
+
+    it('reports an unknown stall and an unknown layout', async () => {
+      const { repo, service } = setup();
+      repo.findById.mockResolvedValue(existing(stalls));
+      await expect(service.book(1000, 'STALL-999')).rejects.toThrow('Stall not found: STALL-999');
+      repo.findById.mockResolvedValue(null);
+      await expect(service.book(7, 'STALL-001')).rejects.toThrow('Layout not found: 7');
     });
   });
 });

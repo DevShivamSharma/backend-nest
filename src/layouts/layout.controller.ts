@@ -15,6 +15,7 @@ import type {
   LayoutDeletedResponse,
   LayoutDetailResponse,
   LayoutSummaryResponse,
+  StallBookedResponse,
 } from './dto/layout-response.dto';
 import { LayoutSaveRequestDto, SplitStallDto } from './dto/layout-save-request.dto';
 import { LayoutService } from './layout.service';
@@ -65,6 +66,16 @@ export class LayoutController {
     @Body() request: SplitStallDto,
   ): Promise<LayoutDetailResponse> {
     return this.layoutService.split(id, number, request);
+  }
+
+  /** An exhibitor books an AVAILABLE stall. 409 when it is already booked or cancelled. */
+  @Post(':id/stalls/:stallNumber/book')
+  @HttpCode(200)
+  book(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('stallNumber') number: string,
+  ): Promise<StallBookedResponse> {
+    return this.layoutService.book(id, number);
   }
 
   /** Rule audit of the saved layout (reporting only, never blocks). 200: nothing is created. */

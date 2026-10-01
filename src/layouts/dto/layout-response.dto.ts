@@ -67,6 +67,13 @@ export interface LayoutDetailResponse {
   stalls: StallResponse[];
 }
 
+/** POST /api/layout/{id}/stalls/{stallNumber}/book: the stall as booked. */
+export interface StallBookedResponse {
+  message: string;
+  layoutId: number;
+  stall: StallResponse;
+}
+
 /** LayoutSummary.java (record). */
 export interface LayoutSummaryResponse {
   id: number;
