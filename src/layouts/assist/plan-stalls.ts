@@ -1,7 +1,7 @@
 import { buildPlacementContext, effectiveRules } from '../placement/hall-geometry';
 import { extraFloorRegions, footprintRect, pointInPolygon, polygonBounds, rectInsidePolygon, traceFloor, validatePlacement, type Point, type Rect, type PlacementStall } from '../placement/placement-rules';
 import type { AssistRequest } from './assist-request';
-import type { LayoutIntent } from './intent';
+import type { LayoutIntent, RuleChanges } from './intent';
 import { difference, type MultiPolygon } from 'polygon-clipping';
 import { ring } from '../placement/polygon-geometry';
 
@@ -14,6 +14,8 @@ export interface AssistPlan {
   placedCount: number;
   clarification?: string | null;
   removals?: { id: string; name: string }[];
+  /** action "rules": the proposed rule changes, applied by the planner after review. */
+  rules?: RuleChanges | null;
   source?: string;
 }
 
@@ -21,6 +23,7 @@ export interface AssistPlan {
 export function planStalls(intent: LayoutIntent, request: AssistRequest): AssistPlan {
   const result: AssistPlan = { summary: '', notes: [], stalls: [], action: intent.action, requestedCount: intent.count, placedCount: 0, clarification: intent.clarification };
   if (intent.clarification || intent.action === 'none') { result.summary = intent.clarification ?? 'No changes proposed.'; return result; }
+  if (intent.action === 'rules') { result.rules = intent.rules; result.summary = 'Here are the rule changes. Nothing changes until you apply them.'; return result; }
   const hall = request.hall;
   const existing = request.existingStalls.map((s, i) => ({ ...s, id: String(s.id ?? `existing-${i}`) }));
   const ctx = buildPlacementContext(hall, hall.eventType ?? 'B2B', existing);

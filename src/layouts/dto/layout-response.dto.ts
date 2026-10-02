@@ -1,3 +1,5 @@
+import type { SelfcareBookingPayload } from '../selfcare-booking';
+
 /**
  * Response shapes. Field names and nesting reproduce what Jackson produced from the Java
  * entities and DTOs (docs/02-api-inventory.md section 0).
@@ -67,11 +69,15 @@ export interface LayoutDetailResponse {
   stalls: StallResponse[];
 }
 
-/** POST /api/layout/{id}/stalls/{stallNumber}/book: the stall as booked. */
+/**
+ * POST /api/layout/{id}/stalls/{stallNumber}/book: the stall as booked, and the same booking as
+ * rows for the SelfCare portal's tables (see selfcare-booking.ts).
+ */
 export interface StallBookedResponse {
   message: string;
   layoutId: number;
   stall: StallResponse;
+  selfcare: SelfcareBookingPayload;
 }
 
 /** LayoutSummary.java (record). */

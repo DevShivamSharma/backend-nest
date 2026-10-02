@@ -5,7 +5,7 @@ import { parseSimple, validateIntent } from './intent';
 import { planStalls } from './plan-stalls';
 import { validateRequest, AssistRequest } from './assist-request';
 import { AssistService } from './assist.service';
-import { HttpIntentProvider, InvalidIntentError } from './intent-provider';
+import { HttpIntentProvider, InvalidIntentError, RateLimitedError } from './intent-provider';
 
 const request = (requirement='12 stalls of 3x3 along the left wall'): AssistRequest => ({requirement,hall:{name:'Test',shape:'SQUARE',width:80,length:60,rules:{},markers:[{text:'FOYER-1G',position:{x:15,z:10}}]},existingStalls:[]});
 describe('assistant intent and fallback',()=>{
@@ -14,6 +14,26 @@ describe('assistant intent and fallback',()=>{
   it('asks for clarification when ambiguous',()=>{expect(parseSimple('make it nice').clarification).toBeTruthy();});
   it('clear is an intent, never a mutation',()=>{expect(parseSimple('clear all stalls').action).toBe('clear');});
   it.each([null,[],{},'{bad json}',{...parseSimple('3 stalls of 3x3'),coordinates:[]},{...parseSimple('3 stalls of 3x3'),count:1.5},{...parseSimple('3 stalls of 3x3'),stallSize:{width:-1,length:3}},{...parseSimple('3 stalls of 3x3'),area:{type:'near_marker'}},{...parseSimple('3 stalls of 3x3'),area:{type:'whole_hall',wall:'west'}}])('rejects invalid intent %#',v=>{expect(()=>validateIntent(v)).toThrow();});
+  it('reads rule requests as rule changes, never as stalls',()=>{
+    expect(parseSimple('set the passage width to 4 m')).toMatchObject({action:'rules',rules:{passageWidth:4,wallClearance:null,notes:[]}});
+    expect(parseSimple('wall clearance 2 m')).toMatchObject({action:'rules',rules:{wallClearance:2}});
+    expect(parseSimple('add rule: corner stalls are premium')).toMatchObject({action:'rules',rules:{notes:['corner stalls are premium']}});
+    expect(parseSimple('passage width 6 m').action).toBe('none');
+    expect(parseSimple('20 stalls of 3x3 along the left wall, 4 m aisles').action).toBe('place');
+  });
+  it.each(['i want to add ruless','i want to add rules','add rules','change the passage width'])('asks which rule, never for a stall size: %s',text=>{
+    const intent=parseSimple(text);
+    expect(intent.action).toBe('none');expect(intent.rules).toBeUndefined();expect(intent.clarification).toMatch(/rule/i);expect(intent.clarification).not.toMatch(/stall size/i);
+  });
+  it('validates rule changes strictly',()=>{
+    const rules=(r:object)=>({...parseSimple('set the passage width to 4 m'),rules:{enable:[],disable:[],passageWidth:null,wallClearance:null,notes:[],...r}});
+    expect(validateIntent(rules({disable:['peripheralClearance']})).rules?.disable).toEqual(['peripheralClearance']);
+    for(const bad of [{disable:['noSuchRule']},{enable:['FOYER'],disable:['FOYER']},{passageWidth:2},{notes:['']},{}]) expect(()=>validateIntent(rules(bad))).toThrow();
+    // A stall request with an echoed rules object stays a stall request, without rule changes.
+    expect(validateIntent({...parseSimple('3 stalls of 3x3'),rules:{enable:['FOYER'],disable:[],passageWidth:null,wallClearance:null,notes:[]}}).rules).toBeUndefined();
+    const plan=planStalls(parseSimple('set the passage width to 4 m'),request());
+    expect(plan).toMatchObject({action:'rules',stalls:[],rules:{passageWidth:4}});
+  });
   it('bounds input length',()=>{expect(()=>validateRequest({...request(),requirement:'x'.repeat(501)})).toThrow();});
   it('rejects malformed hall and stall geometry',()=>{expect(()=>validateRequest({...request(),existingStalls:[{width:3}]})).toThrow();expect(()=>validateRequest({...request(),hall:{...request().hall,boundary:[{x:0,z:0}]}})).toThrow();});
 });
@@ -66,6 +86,9 @@ describe('provider isolation',()=>{
   it('does not call a provider without configuration',async()=>{provider.configured.mockReturnValue(false);const result=await new AssistService(provider as any).assist(request('1 stall of 3x3'));expect(provider.interpret).not.toHaveBeenCalled();expect(result.source).toBe('simple parser');});
   it('retries invalid JSON once',async()=>{provider.interpret.mockRejectedValueOnce(new InvalidIntentError()).mockResolvedValue(parseSimple('1 stall of 3x3'));expect((await new AssistService(provider as any).assist(request())).source).toBe('AI');expect(provider.interpret).toHaveBeenCalledTimes(2);});
   it('falls back after two invalid replies',async()=>{provider.interpret.mockRejectedValue(new InvalidIntentError());expect((await new AssistService(provider as any).assist(request('1 stall of 3x3'))).source).toBe('simple parser');expect(provider.interpret).toHaveBeenCalledTimes(2);});
+  it('waits out a short provider rate limit once',async()=>{provider.interpret.mockRejectedValueOnce(new RateLimitedError(10)).mockResolvedValue(parseSimple('1 stall of 3x3'));expect((await new AssistService(provider as any).assist(request())).source).toBe('AI');expect(provider.interpret).toHaveBeenCalledTimes(2);});
+  it('falls back at once on a long or unknown rate limit',async()=>{for(const wait of [60000,null]){provider.interpret.mockReset().mockRejectedValue(new RateLimitedError(wait));expect((await new AssistService(provider as any).assist(request('1 stall of 3x3'))).source).toBe('simple parser');expect(provider.interpret).toHaveBeenCalledTimes(1);}});
+  it('reads the provider retry-after hint on 429',async()=>{jest.spyOn(globalThis,'fetch').mockResolvedValue({ok:false,status:429,headers:new Headers({'retry-after':'2'})} as Response);await expect(new HttpIntentProvider(new ConfigService({AI_API_KEY:'secret'})).interpret(request(),new AbortController().signal)).rejects.toMatchObject({message:'Provider request failed (429).',retryAfterMs:2000});});
   it('times out the whole provider operation at 15 seconds',async()=>{jest.useFakeTimers();provider.interpret.mockImplementation(()=>new Promise(()=>{}));const pending=new AssistService(provider as any).assist(request('1 stall of 3x3'));await jest.advanceTimersByTimeAsync(15000);expect((await pending).source).toBe('simple parser');});
   it.each(['gemini','groq','grok'])('sends only intent requests to %s',async name=>{
     const intent=parseSimple('1 stall of 3x3');const fetchMock=jest.spyOn(globalThis,'fetch').mockResolvedValue({ok:true,json:async()=>name==='gemini'?{candidates:[{content:{parts:[{text:JSON.stringify(intent)}]}}]}:{choices:[{message:{content:JSON.stringify(intent)}}]}} as Response);

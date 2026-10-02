@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { HttpIntentProvider, InvalidIntentError } from './intent-provider';
+import { HttpIntentProvider, InvalidIntentError, RateLimitedError } from './intent-provider';
 import { parseSimple, type LayoutIntent } from './intent';
 import { planStalls } from './plan-stalls';
 import type { AssistRequest } from './assist-request';
@@ -20,7 +20,14 @@ export class AssistService {
       try {
         intent = await Promise.race([(async()=>{
           try { return await this.provider.interpret(request,abort.signal); }
-          catch (error) { if (!(error instanceof InvalidIntentError)) throw error; return this.provider.interpret(request,abort.signal); }
+          catch (error) {
+            // Free tiers allow only a few requests a minute: wait out a short 429 once, inside the same deadline.
+            if (error instanceof RateLimitedError && error.retryAfterMs !== null && error.retryAfterMs <= 5000) {
+              await new Promise(resolve=>setTimeout(resolve,error.retryAfterMs!));
+              return this.provider.interpret(request,abort.signal);
+            }
+            if (!(error instanceof InvalidIntentError)) throw error; return this.provider.interpret(request,abort.signal);
+          }
         })(),timeout]);
         source = 'AI'; notice = '';
       } catch (error) {

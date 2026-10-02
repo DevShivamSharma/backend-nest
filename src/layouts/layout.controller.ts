@@ -17,6 +17,7 @@ import type {
   LayoutSummaryResponse,
   StallBookedResponse,
 } from './dto/layout-response.dto';
+import { BookStallDto } from './dto/book-stall.dto';
 import { LayoutSaveRequestDto, SplitStallDto } from './dto/layout-save-request.dto';
 import { LayoutService } from './layout.service';
 
@@ -68,14 +69,18 @@ export class LayoutController {
     return this.layoutService.split(id, number, request);
   }
 
-  /** An exhibitor books an AVAILABLE stall. 409 when it is already booked or cancelled. */
+  /**
+   * An exhibitor books an AVAILABLE stall. 409 when it is already booked or cancelled. The
+   * optional body carries SelfCare's ids and prices for the `selfcare` payload in the reply.
+   */
   @Post(':id/stalls/:stallNumber/book')
   @HttpCode(200)
   book(
     @Param('id', ParseIntPipe) id: number,
     @Param('stallNumber') number: string,
+    @Body() request: BookStallDto,
   ): Promise<StallBookedResponse> {
-    return this.layoutService.book(id, number);
+    return this.layoutService.book(id, number, request);
   }
 
   /** Rule audit of the saved layout (reporting only, never blocks). 200: nothing is created. */

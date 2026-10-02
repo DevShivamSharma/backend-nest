@@ -780,7 +780,7 @@ describe('LayoutService — rule-driven halls', () => {
 
   describe('booking a stall', () => {
     const stalls = [
-      { stallNumber: 'STALL-001', name: '12A-01 A', status: 'AVAILABLE' },
+      { stallNumber: 'STALL-001', name: '12A-01 A', status: 'AVAILABLE', width: 3, length: 4, openSides: ['FRONT'] },
       { stallNumber: 'STALL-002', name: '12A-01 B', status: 'BOOKED' },
       { stallNumber: 'STALL-003', name: '12A-01 C', status: 'CANCELLED' },
     ];
@@ -793,6 +793,9 @@ describe('LayoutService — rule-driven halls', () => {
         expect.objectContaining({ stallNumber: 'STALL-001', status: 'BOOKED' }),
       );
       expect(result.layoutId).toBe(1000);
+      // The same booking as SelfCare rows: "12A-01 A" is island 12A-01, stall A.
+      expect(result.selfcare.T_STALLS).toMatchObject({ island_number: '12A-01', stall_number: 'A' });
+      expect(result.selfcare.T_STALL_BOOKING_DETAIL[0]).toMatchObject({ area: 12, open_sides: 1 });
     });
 
     it.each([['STALL-002'], ['STALL-003']])(

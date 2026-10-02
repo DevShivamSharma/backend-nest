@@ -4,9 +4,11 @@ import { contained, ring, rotate, stallPolygon } from './placement/polygon-geome
 import {
   normalizeFootprint,
   normalizeOpenEdges,
+  polygonArea,
   sidesOfEdges,
   type NormalizedFootprint,
 } from './placement/stall-footprint';
+import { selfcareBooking, type SelfcareBookingInput } from './selfcare-booking';
 import { splitSuffix } from './split-numbering';
 import { DataIntegrityDomainError } from '../common/errors/domain.errors';
 import { Injectable } from '@nestjs/common';
@@ -281,7 +283,11 @@ export class LayoutService {
    * An exhibitor books a stall: AVAILABLE -> BOOKED, nothing else changes. Only an AVAILABLE stall
    * can be booked, so a stall is never booked twice: the second request sees BOOKED and gets 409.
    */
-  async book(id: number, stallNumber: string): Promise<StallBookedResponse> {
+  async book(
+    id: number,
+    stallNumber: string,
+    request: SelfcareBookingInput = {},
+  ): Promise<StallBookedResponse> {
     const booked = await this.layouts.updateStall(id, stallNumber, (stall) => {
       if (!stall) throw new BadRequestDomainError(`Stall not found: ${stallNumber}`);
       if (stall.status !== 'AVAILABLE')
@@ -290,7 +296,16 @@ export class LayoutService {
     });
     if (booked === null) throw notFound(id);
 
-    return { message: 'Stall booked successfully.', layoutId: id, stall: toStallResponse(booked) };
+    const stall = toStallResponse(booked);
+    return {
+      message: 'Stall booked successfully.',
+      layoutId: id,
+      stall,
+      selfcare: selfcareBooking(
+        { name: stall.name ?? '', area: stallArea(booked), openSides: openSideCount(stall) },
+        request ?? {},
+      ),
+    };
   }
 
   async delete(id: number): Promise<void> {
@@ -545,6 +560,17 @@ function toStallResponse(stall: StallEntity): StallResponse {
       ? { footprint: stall.footprint, openEdges: stall.openEdges ?? [] }
       : {}),
   };
+}
+
+/** Floor area in m²: a custom stall's real outline (its notch left out), else width × length. */
+function stallArea(stall: StallEntity): number {
+  const area = stall.footprint?.length ? polygonArea(stall.footprint) : stall.width * stall.length;
+  return Math.round(area * 100) / 100;
+}
+
+/** Sides open to an aisle: a rectangle's open sides, a custom stall's open edges. */
+function openSideCount(stall: StallResponse): number {
+  return stall.footprint?.length ? (stall.openEdges ?? []).length : (stall.openSides ?? []).length;
 }
 
 /** LayoutService.detail(): the deliberately redundant envelope (ADR-009). */
