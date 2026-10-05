@@ -5,6 +5,7 @@ import type { SelfcareBookingPayload } from '../selfcare-booking';
  * entities and DTOs (docs/02-api-inventory.md section 0).
  */
 export interface HallResponse {
+  planningZones: unknown[] | null;
   id: number;
   name: string | null;
   shape: string | null;
@@ -45,6 +46,10 @@ export interface StallResponse {
 }
 
 export interface LayoutResponse {
+  pricingPolicy?: import('../../pricing/pricing-policy').PricingSnapshot;
+  status: 'DRAFT' | 'PUBLISHED';
+  publishedAt: string | null;
+  publishOverrides: import('../entities/layout.entity').LayoutEntity['publishOverrides'];
   id: number;
   name: string;
   hallWidth: number;
@@ -74,6 +79,7 @@ export interface LayoutDetailResponse {
  * rows for the SelfCare portal's tables (see selfcare-booking.ts).
  */
 export interface StallBookedResponse {
+  quote?: import('../../pricing/pricing-policy').StallQuote;
   message: string;
   layoutId: number;
   stall: StallResponse;
@@ -82,6 +88,8 @@ export interface StallBookedResponse {
 
 /** LayoutSummary.java (record). */
 export interface LayoutSummaryResponse {
+  status?: 'DRAFT' | 'PUBLISHED';
+  publishedAt?: string | null;
   id: number;
   name: string;
   hallId: number | null;

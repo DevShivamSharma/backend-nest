@@ -1,6 +1,6 @@
 # Backend placement and split contract
 
-This contract supersedes the permissive touching/legacy-save behavior described in the older shared `13-rule-driven-layout-editor.md`. No frontend files were changed. No newer frontend split/rotation contract was found in the shared docs. Frontend preview must implement these semantics; the backend makes the final decision.
+This contract supersedes the permissive touching/legacy-save behavior described in the older shared `13-rule-driven-layout-editor.md`. Frontend preview follows these semantics; the backend makes the final decision. The October 2026 meeting-rule changes are also documented in `frontend-angular/docs/stall-placement-contract.md`.
 
 ## Endpoints
 
@@ -27,12 +27,16 @@ There are no separate backend move, rotate or resize endpoints. The assistant pr
 - Every full open-side edge has a rectangular clearance strip extending outward by the selected passage width. The entire strip must fit inside usable floor and contain no active stall. PASSAGE/door-access zones can be walked through; PARTITION, SMOKE_CURTAIN, NO_CONSTRUCTION and FACILITY_ACCESS zones cannot supply this clearance. Existing zone/door/peripheral restrictions still apply to stall footprints.
 - All footprint containment, intersections and distances use **rotated polygon edges**, including concave outlines and holes, rather than centres or axis-aligned bounds. Distance comparisons use 1e-6 m tolerance; polygon area tolerance is 1e-12 m². Contact at the far edge of the required strip is allowed.
 - Finite numeric inputs must also produce finite, non-degenerate stall edges accurate within 1e-6 m. Inputs that collapse or overflow derived geometry receive HTTP 400 with `INVALID_DIMENSIONS`, `stallIndex` and an empty geometry list; unusable coordinates are not passed to polygon clipping.
-- **The passage is required in front of open sides only.** Stalls may share walls, touch at a point or stand any distance apart on their closed sides, also at hall corners: a pair of stalls only must not overlap (`STALL_OVERLAP`). No stall may stand in the clearance strip of its own or another stall's open side (`OPEN_SIDE_BLOCKED`, reported on both stalls). `CORNER_PASSAGE`, `INVALID_BACK_TO_BACK` and `PATHWAY_WIDTH` are no longer issued.
+- **Between stalls, the passage is required in front of open sides only.** Stalls may share walls, touch at a point or stand any distance apart on their closed sides: a pair of stalls only must not overlap (`STALL_OVERLAP`). No stall may stand in the clearance strip of its own or another stall's open side (`OPEN_SIDE_BLOCKED`, reported on both stalls). `INVALID_BACK_TO_BACK` and `PATHWAY_WIDTH` are no longer issued.
+- **Hall corners:** `hall.rules.enabledRules.cornerKeepOut` defaults on. `CORNER_PASSAGE` is issued when the real stall footprint is less than one passage width from both walls adjoining a hall corner. Clearance from either wall at the exact limit is sufficient. Rotated/custom footprints and polygon notches are checked; circles and interior obstacles do not create hall corners. Legacy corner placements need repair or an explicit switch-off before saving.
+- **Emergency doors:** when emergency access is enabled, access depth is at least 3 m even with a narrower aisle or `openingAccessDepth`. Larger `emergencyExitClearance` values are honored; new values below 3 m are rejected. Other doors still use `openingAccessDepth` or the selected aisle width.
 - CANCELLED stalls occupy no space, but their identifiers remain reserved while retained. Split parents are permanently cancelled containers and cannot be resurrected, removed or geometrically changed through PUT.
 
 ## Passage width and persistence
 
-Keep the existing field `hall.rules.minPassageWidth: { B2B, B2C }`. `eventType` selects the active value. Each supplied value must be a finite number from **3 to 5 inclusive** (fractions allowed); strings, null values and out-of-range numbers are rejected, never clamped. Omitted values default to **3 for both event types**. Existing explicitly stored B2C=4 remains 4.
+Keep the existing field `hall.rules.minPassageWidth: { B2B, B2C }`. `eventType` selects the active value. Each supplied value must be a finite number from **1.5 to 5 inclusive** (fractions allowed); strings, null values and out-of-range numbers are rejected, never clamped. Omitted values default to **3 for both event types**. Existing explicitly stored B2C=4 remains 4.
+
+WP-1 also persists `maxUtilization` (default 0.7) and `eventSeparation` (default 3 m) in the existing rules JSONB. This work package stores the values; utilization enforcement and zone separation follow in later work packages.
 
 Explicit selections persist in the hall's existing `rules` JSONB. Absent/null rules retain the 3 m default and do not turn on optional grid/peripheral restrictions. With a rules object, the existing defaults remain 1 m peripheral clearance and 1 m size snap; these are independent of passage width and may be configured as before. Hall boundary, zones, blocked areas and open sides retain their existing fields and persistence. Rotation and split lineage are additional stall columns.
 
@@ -177,7 +181,7 @@ On save/PUT/split, `stallIndex` and `relatedStallIds` refer to zero-based final-
 
 Audit returns `{layoutId, ruleDriven, valid, entries}`. Each entry carries `stallId`, `stallNumber` and `violations`. Symmetric pair errors are deduplicated, but each affected open side keeps its own `OPEN_SIDE_BLOCKED` error. Numeric identifiers generated with the configured prefix must stay below 2147483646; exhaustion is rejected with HTTP 400 before database writes.
 
-Codes: `INVALID_DIMENSIONS`, `OUTSIDE_HALL`, `STALL_OVERLAP`, `CORNER_PASSAGE`, `INVALID_BACK_TO_BACK`, `PATHWAY_WIDTH`, `OPEN_SIDE_PASSAGE`, `OPEN_SIDE_BLOCKED`, `PERIPHERAL_CLEARANCE`, `RESTRICTED_ZONE`, `ENTRY_EXIT_BLOCKED`, `EMERGENCY_ACCESS`, `SPLIT_OUTSIDE_PARENT`, `INVALID_STALL_IDENTIFIER`. Invalid passage settings use `INVALID_PASSAGE_WIDTH` with `field`, `value`, `min: 3`, `max: 5` instead of stall geometry. Existing malformed-input/type errors retain HTTP 400 and `message`; split conflicts and database constraints use 409.
+Codes: `INVALID_DIMENSIONS`, `OUTSIDE_HALL`, `STALL_OVERLAP`, `CORNER_PASSAGE`, `INVALID_BACK_TO_BACK`, `PATHWAY_WIDTH`, `OPEN_SIDE_PASSAGE`, `OPEN_SIDE_BLOCKED`, `PERIPHERAL_CLEARANCE`, `RESTRICTED_ZONE`, `ENTRY_EXIT_BLOCKED`, `EMERGENCY_ACCESS`, `SPLIT_OUTSIDE_PARENT`, `INVALID_STALL_IDENTIFIER`. Invalid passage settings use `INVALID_PASSAGE_WIDTH` with `field`, `value`, `min: 1.5`, `max: 5` instead of stall geometry. Existing malformed-input/type errors retain HTTP 400 and `message`; split conflicts and database constraints use 409.
 
 ## Migration and existing data
 
@@ -190,6 +194,28 @@ Legacy invalid layouts remain readable/auditable. Normal planner save/update/spl
 **Historical-import exception:** trusted seed scripts and the existing `POST /api/layout/seed-import` route deliberately call `skipPlacementRules: true`. The route returns 404 without a configured matching seed token. Authorized imports still validate DTOs, numeric geometry, hall input and identifiers, but may persist overlapping stalls or insufficient passages. The planner must not use this route; imported violations remain visible through audit. This exception was already present when the September 27 adversarial audit began and was preserved. It is not a guarantee that every HTTP write enforces placement rules.
 
 The September 27 audit required no additional schema migration. Detailed coverage, reproduced failures and executed commands are in `planner-validation-test-report.md`.
+
+## Meeting workflow additions (3 October 2026)
+
+`hall.planningZones` is an optional array of up to 100 zones. A zone contains a unique nonblank `id`, `label`, `kind` (`MEDIA`, `ADMIN`, `FOOD`, `EXHIBITION`), `eventType` (`B2B`, `B2C`) and a simple `polygon` of `{x,z}` points. Polygons must have positive area, stay inside the usable floor and may touch but cannot overlap. Send `[]` to remove all planning zones. Invalid zone structure/geometry is always rejected, including during publish with an override.
+
+Media/Admin are internal. When planning zones exist, a stall must fit wholly inside one Food/Exhibition zone. Distinct B2B/B2C zone stalls require at least `rules.eventSeparation` (minimum 3 m) between actual footprints. Rotated/custom footprints participate in validation and area calculation; cancelled stalls do not consume usable stall area. Added violation codes are `INTERNAL_ZONE`, `ZONE_BOUNDARY` and `EVENT_SEPARATION`.
+
+The assist body accepts an optional `zoneId` alongside the complete hall, existing stalls and requirement. It must identify a sellable zone. Without it the planner visits sellable zones by descending area. AI proposals stop at the remaining hall utilization budget: `rules.maxUtilization` is greater than zero and at most 0.7 (default 0.7). The denominator is actual floor area minus non-traversable obstacles, not the hall bounding rectangle. Manual layouts can exceed that budget, but publication then requires an explicit override.
+
+### Publishing
+
+- `POST /api/layout/publish` creates and publishes a new layout.
+- `POST /api/layout/:id/publish` publishes a full replacement of an existing layout.
+- Both require the ordinary complete save payload (`hall`, `stalls`, optional `layoutName`, `eventType`, `ruleIds`), plus optional `overrideReason`. They are not empty-body status toggles.
+- Empty active layouts are rejected. The server recomputes placement issues, `MAX_UTILIZATION` and `DISABLED_RULE` issues. With any issues, a trimmed, nonblank reason of at most 1,000 characters is required; otherwise HTTP 400 includes the issues. Numeric, structural, identity and zone-shape validation cannot be overridden.
+- Success returns the normal detail envelope. `layout.status` is `PUBLISHED`, `publishedAt` is the server timestamp, and `publishOverrides` is either null or `{reason, issues}`. Missing stall identifiers are allocated before the reviewed issue record is built; existing identifiers and split lineage are retained. Geometry and publication metadata commit together.
+- Ordinary save/update, split and owned-hall edits reset publication to `DRAFT` and clear its timestamp/override record. The UI also shows Draft immediately when a published snapshot changes locally.
+- The client displays at most three independently checked 6 × 6 m empty-space suggestions, with bounded search. They are alternatives, not a jointly validated placement proposal; there may be no suggestion even when some differently sized space remains.
+
+Migration `1791000000000-PlanningZonesAndPublish.ts` adds nullable `hall.planning_zones`, `layouts.status` (existing rows default Draft), `published_at` and `publish_overrides`. It is registered in the explicit migration list and has been applied to the local development and isolated test databases. No remote deployment is included.
+
+The executable Hall 12A fixture and 10-minute script are documented in [meeting-demo.md](meeting-demo.md).
 
 ## Tests
 

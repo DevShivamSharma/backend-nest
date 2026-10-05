@@ -18,7 +18,7 @@ import type {
   StallBookedResponse,
 } from './dto/layout-response.dto';
 import { BookStallDto } from './dto/book-stall.dto';
-import { LayoutSaveRequestDto, SplitStallDto } from './dto/layout-save-request.dto';
+import { LayoutSaveRequestDto, PublishLayoutDto, SplitStallDto } from './dto/layout-save-request.dto';
 import { LayoutService } from './layout.service';
 
 /**
@@ -30,6 +30,17 @@ import { LayoutService } from './layout.service';
 @Controller('layout')
 export class LayoutController {
   constructor(private readonly layoutService: LayoutService) {}
+
+  @Post('publish')
+  publishNew(@Body() request: PublishLayoutDto): Promise<LayoutDetailResponse> {
+    return this.layoutService.save(request, { publish: { reason: request.overrideReason } });
+  }
+
+  @Post(':id/publish')
+  @HttpCode(200)
+  publish(@Param('id', ParseIntPipe) id: number, @Body() request: PublishLayoutDto): Promise<LayoutDetailResponse> {
+    return this.layoutService.update(id, request, { publish: { reason: request.overrideReason } });
+  }
 
   /** 201 CREATED — Nest's default for POST, same as the Java. */
   @Post('save')

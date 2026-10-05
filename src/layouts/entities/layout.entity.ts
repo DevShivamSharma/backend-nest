@@ -10,6 +10,17 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
  */
 @Entity({ name: 'layouts' })
 export class LayoutEntity {
+  @Column({ name: 'pricing_policy', type: 'jsonb', nullable: true })
+  pricingPolicy!: import('../../pricing/pricing-policy').PricingSnapshot | null;
+
+  @Column({ type: 'varchar', length: 16, default: 'DRAFT' })
+  status!: 'DRAFT' | 'PUBLISHED';
+
+  @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
+  @Column({ name: 'publish_overrides', type: 'jsonb', nullable: true })
+  publishOverrides!: { reason: string; issues: import('../placement/publish-check').PublishIssue[] } | null;
   @PrimaryGeneratedColumn('identity', { type: 'bigint', generatedIdentity: 'BY DEFAULT' })
   id!: number;
 

@@ -72,7 +72,7 @@ function setup(maxStalls = 2000) {
     const current = await repo.findById();
     if (!current) return null;
     const stall = current.stalls.find((s) => s.stallNumber === stallNumber) ?? null;
-    change(stall);
+    change(stall, current.layout);
     return stall;
   });
   repo.replace.mockImplementation(async (id, build) => {

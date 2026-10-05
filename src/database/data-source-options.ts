@@ -1,9 +1,13 @@
 import { AddPlacementAndSplits1758240600000 } from './migrations/1758240600000-AddPlacementAndSplits';
+import { PlanningZonesAndPublish1791000000000 } from './migrations/1791000000000-PlanningZonesAndPublish';
 import { AddStallFootprint1758240700000 } from './migrations/1758240700000-AddStallFootprint';
 import { AddPlannerRules1758240800000 } from './migrations/1758240800000-AddPlannerRules';
 import { PlannerRuleEntity } from '../planner-rules/planner-rule.entity';
 import { IndependentPlannerRules1758240900000 } from './migrations/1758240900000-IndependentPlannerRules';
 import { types } from 'pg';
+import { PriceMasterEntity } from '../pricing/price-master.entity';
+import { PricingMasters1791030000000 } from './migrations/1791030000000-PricingMasters';
+import { PricingLibrary1791040000000 } from './migrations/1791040000000-PricingLibrary';
 import type { DataSourceOptions } from 'typeorm';
 
 import type { DatabaseConfig } from '../config/configuration';
@@ -32,7 +36,7 @@ types.setTypeParser(types.builtins.INT8, (value: string) => parseInt(value, 10))
 export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const base = {
     type: 'postgres' as const,
-    entities: [HallEntity, LayoutEntity, StallEntity, PlannerRuleEntity],
+    entities: [HallEntity, LayoutEntity, StallEntity, PlannerRuleEntity, PriceMasterEntity],
     migrations: [
       Baseline1758240000000,
       AddBlockedAreas1758240100000,
@@ -44,6 +48,9 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       AddStallFootprint1758240700000,
       AddPlannerRules1758240800000,
       IndependentPlannerRules1758240900000,
+      PlanningZonesAndPublish1791000000000,
+      PricingMasters1791030000000,
+      PricingLibrary1791040000000,
     ],
     synchronize: false,
     // Run pending migrations at startup: the published deployment owns its database, so a

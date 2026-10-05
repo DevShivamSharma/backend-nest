@@ -6,6 +6,9 @@ import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
  */
 @Entity({ name: 'stalls' })
 export class StallEntity {
+  @Column({ name: 'booking_quote', type: 'jsonb', nullable: true })
+  bookingQuote!: import('../../pricing/pricing-policy').StallQuote | null;
+
   @Column({ type: 'double precision', default: 0 })
   rotation!: number;
 

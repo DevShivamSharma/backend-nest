@@ -98,6 +98,9 @@ export class HallRepository {
         await manager.update(LayoutEntity, owner.id, {
           hallWidth: write.width ?? 0,
           hallLength: write.length ?? 0,
+          status: 'DRAFT',
+          publishedAt: null,
+          publishOverrides: null,
         });
       }
       return manager.save(manager.merge(HallEntity, existing, write));

@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { json } from 'express';
 
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import type { AppConfig } from './config/configuration';
@@ -14,6 +15,11 @@ export function configureApp(app: INestApplication): AppConfig {
   // Routes become /api/layout/**, /api/layouts — matching the Java @RequestMapping values.
   // /health stays outside the migrated contract.
   app.setGlobalPrefix('api', { exclude: ['health', 'health/ready'] });
+
+  // 500 normalized price rows exceed Express's default 100 kB body limit. Scope the larger
+  // parser to this import, and wrap it so Nest still registers its default JSON parser elsewhere.
+  const priceImportJson = json({ limit: '1mb' });
+  app.use('/api/price-masters/import', (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => priceImportJson(req, res, next));
 
   // Type checking only. Business rules live in layout.validator.ts, because they must report
   // the FIRST failure in a specific order that decorators cannot express (ADR-010).

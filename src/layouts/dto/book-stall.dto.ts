@@ -34,6 +34,7 @@ export class SelfcareTaxDto {
 }
 
 export class BookStallDto {
+  @IsOptional() @IsString() @MaxLength(64) expectedQuote?: string;
   @IsOptional() @IsUUID() user_id?: string | null;
   @IsOptional() @IsUUID() event_id?: string | null;
   @IsOptional() @IsString() @MaxLength(300) event_name?: string | null;

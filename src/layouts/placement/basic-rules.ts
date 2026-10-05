@@ -2,7 +2,10 @@
 export const BASIC_RULE_IDS = [
   'hallBoundary', 'stallOverlap', 'sizeStep', 'peripheralClearance', 'openSideAccess',
   'PASSAGE', 'NO_CONSTRUCTION', 'ENTRY_EXIT_ACCESS', 'EMERGENCY_EXIT_ACCESS',
-  'FACILITY_ACCESS', 'FOYER', 'PARTITION', 'SMOKE_CURTAIN'
+  'FACILITY_ACCESS', 'FOYER', 'PARTITION', 'SMOKE_CURTAIN',
+  // Meeting rules (October 2026): no stalls in the hall's corners, none in internal (Media/Admin)
+  // zones, and B2B / B2C zones kept apart.
+  'cornerKeepOut', 'internalZones', 'eventSeparation'
 ] as const;
 
 export type BasicRuleId = typeof BASIC_RULE_IDS[number];

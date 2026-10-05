@@ -63,9 +63,9 @@ const ruleIds = (v: unknown) => Array.isArray(v) && v.length <= BASIC_RULE_IDS.l
   v.every(id => (BASIC_RULE_IDS as readonly unknown[]).includes(id));
 function validateRules(raw: unknown): RuleChanges {
   const r = object(raw, ['enable', 'disable', 'passageWidth', 'wallClearance', 'notes']);
-  // Passage widths follow the hall rules' own 3-5 m limit; notes become planner rules.
+  // Passage widths follow the hall rules' own 1.5-5 m limit; notes become planner rules.
   if (!ruleIds(r.enable) || !ruleIds(r.disable) || r.enable.some((id: string) => r.disable.includes(id)) ||
-      !(r.passageWidth === null || number(r.passageWidth, 3, 5)) || !(r.wallClearance === null || number(r.wallClearance, 0, 10)) ||
+      !(r.passageWidth === null || number(r.passageWidth, 1.5, 5)) || !(r.wallClearance === null || number(r.wallClearance, 0, 10)) ||
       !Array.isArray(r.notes) || r.notes.length > 5 || r.notes.some((n: unknown) => !text(n, 300))) throw new Error('Invalid rule changes.');
   if (!r.enable.length && !r.disable.length && r.passageWidth === null && r.wallClearance === null && !r.notes.length) throw new Error('No rule changes.');
   return r as RuleChanges;
@@ -78,7 +78,7 @@ export function validateIntent(raw: unknown): LayoutIntent {
       !(v.count === null || (number(v.count, 1, 500) && Number.isInteger(v.count))) ||
       !['whole_hall', 'region', 'near_marker', 'along_wall', 'rect'].includes(a.type) ||
       !['rows', 'back_to_back', 'island', 'perimeter'].includes(v.arrangement) ||
-      !(v.aisleWidth === null || number(v.aisleWidth, .5, 20)) ||
+      !(v.aisleWidth === null || number(v.aisleWidth, 1.5, 5)) ||
       ![null, 'FRONT', 'BACK', 'LEFT', 'RIGHT'].includes(v.openSide) ||
       !(v.namePrefix === null || text(v.namePrefix, 40)) || !(v.clarification === null || text(v.clarification, 500))) throw new Error('Invalid intent value.');
   if (['region', 'near_marker'].includes(a.type) !== ('marker' in a) || ('marker' in a && !text(a.marker, 100))) throw new Error('A named region or marker is required.');
@@ -109,7 +109,7 @@ export function parseSimple(requirement: string): LayoutIntent {
   if ((passage || clearance || note) && !count) {
     const rules: RuleChanges = { enable: [], disable: [], passageWidth: passage ? +passage[1] : null, wallClearance: clearance ? +clearance[1] : null, notes: note && !passage && !clearance ? [note[1].trim().slice(0, 300)] : [] };
     try { return validateIntent({ ...intent, action: 'rules', rules }); }
-    catch { return { ...intent, action: 'none', clarification: 'Passage widths must be 3–5 m and wall clearance 0–10 m.' }; }
+    catch { return { ...intent, action: 'none', clarification: 'Passage widths must be 1.5–5 m and wall clearance 0–10 m.' }; }
   }
   // About rules but with no change this parser can read ("i want to add rules"): ask about rules, not stall sizes.
   if (/\b(?:rule|passage|clearance)/i.test(s) && !count && !size)
@@ -136,5 +136,5 @@ export function parseSimple(requirement: string): LayoutIntent {
   if (/\b(?:move|rotate|resize|except|between)\b/i.test(s) || (/\b(?:near|along|south of|north of)\b/i.test(s) && !wall && !marker)) {
     intent.action = 'none'; intent.clarification = 'The simple parser supports new stalls near a named marker or along a named wall. Could you use that format?';
   }
-  try { return validateIntent(intent); } catch { return { ...intent, action: 'none', stallSize: { width: 3, length: 3 }, count: null, aisleWidth: null, clarification: 'Use dimensions from 0.5 to 100 m, a count up to 500, and an aisle up to 20 m.' }; }
+  try { return validateIntent(intent); } catch { return { ...intent, action: 'none', stallSize: { width: 3, length: 3 }, count: null, aisleWidth: null, clarification: 'Use dimensions from 0.5 to 100 m, a count up to 500, and an aisle from 1.5 to 5 m.' }; }
 }

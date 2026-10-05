@@ -1,5 +1,11 @@
 # Stall booking → SelfCare database payload
 
+Phase 2 update (3 October 2026): when a layout has an assigned price master, the server now
+requires a reviewed quote fingerprint and uses that saved policy for the SelfCare base amounts.
+EMC charges are itemised separately in the booking's `quote`; they are not silently added to
+SelfCare columns. Unpriced layouts keep the original contract below. See
+[pricing-phase-2.md](pricing-phase-2.md) for the endpoints and rules.
+
 `POST /api/layout/{id}/stalls/{stallNumber}/book` books an AVAILABLE stall in the planner and
 returns the same booking as rows for the SelfCare (ITPO) portal's tables, under `selfcare`.
 Every key is the column name in SelfCare's `idp` schema, so another service can write the rows

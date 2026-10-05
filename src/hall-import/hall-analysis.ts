@@ -407,11 +407,16 @@ function splitHalls(
   building: Outline,
   s: number,
 ): { floors: Outline[]; owners: Outline[] } | null {
-  const floors = exhibitionFloors(d, legends, building, s);
-  if (!floors.length) return null;
+  let floors = exhibitionFloors(d, legends, building, s);
   // One enclosed floor can still hold two halls, divided only by a movable partition (Halls 3
   // and 4): split it when more than one hall title stands under it.
-  const seeds = floors.flatMap((f) => splitSharedFloor(d, legends, f.ring, building.ring, s));
+  let seeds = floors.flatMap((f) => splitSharedFloor(d, legends, f.ring, building.ring, s));
+  // An open foyer can join the wall/peripheral outlines while the two named hall grids
+  // remain separate. Require a distinct local hall title for every grid floor.
+  if (seeds.length < 2) {
+    floors = labelledGridFloors(d, building, s);
+    seeds = floors.map((f) => f.ring);
+  }
   if (seeds.length < 2) return null;
 
   const result: { floors: Outline[]; owners: Outline[] } = { floors: [], owners: [] };
@@ -429,6 +434,46 @@ function splitHalls(
     });
   });
   return result.floors.length >= 2 ? result : null;
+}
+
+/** A conservative fallback for separately named exhibition grids joined by an open foyer. */
+function labelledGridFloors(d: CadDrawing, building: Outline, s: number): Outline[] {
+  const titlePattern = /^(?:exhibition\s*)?hall\s*[-–#]?\s*(\d{1,2}\s*[a-z]?)(?:\s+(?:ground|first)\s+floor)?$/i;
+  const titles = d.texts.filter((t) => titlePattern.test(t.text.trim()));
+  const number = (t: CadDrawing['texts'][number]) => titlePattern.exec(t.text.trim())![1].replace(/\s/g, '').toUpperCase();
+  if (new Set(titles.map(number)).size < 2) return [];
+  const grids = d.polylines.filter((p) => /^(?:stall[ _-]*)?grid(?:[ _-]*lines)?$/i.test(leaf(p.layer)));
+  const floors = traceOutlines(grids, s, () => true).filter((f) =>
+    f.area >= 400 && pointInPolygon((f.box.minX + f.box.maxX) / 2, (f.box.minY + f.box.maxY) / 2, building.ring),
+  );
+  if (floors.length < 2) return [];
+  const named = new Set<string>();
+  const result: Outline[] = [];
+  for (const floor of floors) {
+    const b = floor.box;
+    const local = titles.filter((t) => t.x >= b.minX && t.x <= b.maxX &&
+      t.y >= b.minY - 45 / s && t.y <= b.maxY + 45 / s);
+    const names = [...new Set(local.map(number))];
+    // Multiple grid islands of ONE hall must never become separate halls.
+    if (names.length !== 1 || named.has(names[0])) return [];
+    // A few structural axes are insufficient evidence of an exhibition floor grid.
+    const horizontal = new Set<number>();
+    const vertical = new Set<number>();
+    for (const p of grids) {
+      for (let i = 0; i + 3 < p.points.length; i += 2) {
+        const [x1, y1, x2, y2] = p.points.slice(i, i + 4);
+        if (!boxContains(b, (x1 + x2) / 2, (y1 + y2) / 2, 0.3 / s)) continue;
+        if (Math.abs(y2 - y1) * s < 0.05 && Math.abs(x2 - x1) > (b.maxX - b.minX) * 0.25) horizontal.add(Math.round(y1 * s * 10));
+        if (Math.abs(x2 - x1) * s < 0.05 && Math.abs(y2 - y1) > (b.maxY - b.minY) * 0.25) vertical.add(Math.round(x1 * s * 10));
+      }
+    }
+    if (horizontal.size < 8 || vertical.size < 8) return [];
+    const ring = outlineRing(floor.ring, s, 0.3);
+    if (!ring) return [];
+    named.add(names[0]);
+    result.push({ ring, box: boxOf(ring), area: polygonArea(ring), label: 'Exhibition floor traced from its labelled grid' });
+  }
+  return result;
 }
 
 /**
@@ -1028,7 +1073,7 @@ function findLegend(src: LegendSource, hallBox: Box | null): HallLegend[] {
   const cx = hallBox ? (hallBox.minX + hallBox.maxX) / 2 : 0;
   const cy = hallBox ? (hallBox.minY + hallBox.maxY) / 2 : 0;
   const heading = src.texts
-    .filter((t) => /^legends?\s*:?$/i.test(t.text.trim()))
+    .filter((t) => /^legends?[\s:.…-]*$/i.test(t.text.trim()))
     .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))[0];
   if (!heading) return [];
   const h = heading.height || 1;
@@ -1135,7 +1180,7 @@ const LEGEND_ZONES: Array<[RegExp, ZoneKind]> = [
  * Layers that can carry zone paint: hatch, fills and zone layers. Walls, doors, partitions and
  * frames often share a zone's colour (green walls, red stall partitions) and are never zones.
  */
-const ZONE_PAINT_LAYER = /hatch|fill|zone|passage|curtain|smoke|constr|restrict|access|^layer\d*$|^0$|^$/i;
+const ZONE_PAINT_LAYER = /hatch|fill|zone|passage|curtain|smoke|constr|restrict|access|^nc$|^layer\d*$|^0$|^$/i;
 const NOT_ZONE_LAYER = /partition|facia|fascia|title|text|anno|dim|grid|stall|door|number|symb|hose|fhc|wall|glaz|col|stair|elev|flor|facade|panel/i;
 
 /**

@@ -1,4 +1,5 @@
 import { assertPlacements } from './placement/assert-placements';
+import { prepublishReport } from './placement/publish-check';
 import { createHash } from 'node:crypto';
 import { contained, ring, rotate, stallPolygon } from './placement/polygon-geometry';
 import {
@@ -9,6 +10,7 @@ import {
   type NormalizedFootprint,
 } from './placement/stall-footprint';
 import { selfcareBooking, type SelfcareBookingInput } from './selfcare-booking';
+import { quoteStall, selfcarePriceInput } from '../pricing/pricing-policy';
 import { splitSuffix } from './split-numbering';
 import { DataIntegrityDomainError } from '../common/errors/domain.errors';
 import { Injectable } from '@nestjs/common';
@@ -66,6 +68,8 @@ import {
 
 /** Options for trusted imports only (scripts and the token-protected seed-import route). */
 export interface WriteOptions {
+  /** Only the publish endpoints set this; request bodies cannot skip validation. */
+  publish?: { reason?: string };
   /**
    * Import of EXISTING production placements. Skips BR-24: those stalls are existing layout
    * state, which the rules report (audit) but never block.
@@ -96,12 +100,13 @@ export class LayoutService {
 
     // Keep explicit section identifiers; assign generated numbers only where absent.
     validateNumbers(write);
-    if (!options.skipPlacementRules) assertPlacementRules(write);
+    if (!options.publish && !options.skipPlacementRules) assertPlacementRules(write);
     write.nextStallSeq = assignNewNumbers(write, 1);
+    if (options.publish) preparePublication(write, options.publish.reason);
 
     const saved = await this.layouts.create(write);
 
-    return toDetail(saved, 'Layout saved successfully.');
+    return toDetail(saved, options.publish ? 'Layout published successfully.' : 'Layout saved successfully.');
   }
 
   list(): Promise<LayoutSummaryResponse[]> {
@@ -142,13 +147,14 @@ export class LayoutService {
             'Split parents must be retained, cancelled and geometrically unchanged.',
           );
       }
-      if (!options.skipPlacementRules) assertPlacementRules(write);
+      if (!options.publish && !options.skipPlacementRules) assertPlacementRules(write);
       write.nextStallSeq = assignNewNumbers(write, current.layout.nextStallSeq);
+      if (options.publish) preparePublication(write, options.publish.reason);
       return write;
     });
     if (saved === null) throw notFound(id);
 
-    return toDetail(saved, 'Layout updated successfully.');
+    return toDetail(saved, options.publish ? 'Layout published successfully.' : 'Layout updated successfully.');
   }
 
   /**
@@ -288,10 +294,19 @@ export class LayoutService {
     stallNumber: string,
     request: SelfcareBookingInput = {},
   ): Promise<StallBookedResponse> {
-    const booked = await this.layouts.updateStall(id, stallNumber, (stall) => {
+    let verifiedInput = request;
+    const booked = await this.layouts.updateStall(id, stallNumber, (stall, layout) => {
       if (!stall) throw new BadRequestDomainError(`Stall not found: ${stallNumber}`);
       if (stall.status !== 'AVAILABLE')
         throw new DataIntegrityDomainError(`Stall ${stall.name} is not available for booking.`);
+      if (layout?.pricingPolicy) {
+        if (layout.status !== 'PUBLISHED') throw new DataIntegrityDomainError('This layout is a draft. Booking opens after publication.');
+        if (request?.pricing || request?.tax) throw new BadRequestDomainError('Prices are controlled by the assigned price master.');
+        const quote = quoteStall(layout.pricingPolicy, id, stallNumber, stallArea(stall), openSideCount(stall), request?.stall_type);
+        if (request?.expectedQuote !== quote.fingerprint) throw new DataIntegrityDomainError('The quote changed or is missing. Review the latest price before booking.');
+        stall.bookingQuote = quote;
+        verifiedInput = { ...request, ...selfcarePriceInput(layout.pricingPolicy.policy, quote.stallType) };
+      }
       stall.status = 'BOOKED';
     });
     if (booked === null) throw notFound(id);
@@ -301,9 +316,10 @@ export class LayoutService {
       message: 'Stall booked successfully.',
       layoutId: id,
       stall,
+      ...(booked.bookingQuote ? { quote: booked.bookingQuote } : {}),
       selfcare: selfcareBooking(
         { name: stall.name ?? '', area: stallArea(booked), openSides: openSideCount(stall) },
-        request ?? {},
+        verifiedInput ?? {},
       ),
     };
   }
@@ -563,14 +579,14 @@ function toStallResponse(stall: StallEntity): StallResponse {
 }
 
 /** Floor area in m²: a custom stall's real outline (its notch left out), else width × length. */
-function stallArea(stall: StallEntity): number {
+export function stallArea(stall: StallEntity): number {
   const area = stall.footprint?.length ? polygonArea(stall.footprint) : stall.width * stall.length;
   return Math.round(area * 100) / 100;
 }
 
 /** Sides open to an aisle: a rectangle's open sides, a custom stall's open edges. */
-function openSideCount(stall: StallResponse): number {
-  return stall.footprint?.length ? (stall.openEdges ?? []).length : (stall.openSides ?? []).length;
+export function openSideCount(stall: { footprint?: unknown[] | null; openEdges?: number[] | null; openSides?: string[] | null; gateSide?: string | null }): number {
+  return stall.footprint?.length ? (stall.openEdges ?? []).length : (stall.openSides ?? (stall.gateSide ? [stall.gateSide] : [])).length;
 }
 
 /** LayoutService.detail(): the deliberately redundant envelope (ADR-009). */
@@ -581,6 +597,10 @@ function toDetail(aggregate: LayoutAggregate, message: string | null): LayoutDet
   return {
     message,
     layout: {
+      ...(aggregate.layout.pricingPolicy ? { pricingPolicy: aggregate.layout.pricingPolicy } : {}),
+      status: aggregate.layout.status ?? 'DRAFT',
+      publishedAt: aggregate.layout.publishedAt?.toISOString() ?? null,
+      publishOverrides: aggregate.layout.publishOverrides ?? null,
       id: aggregate.layout.id,
       name: aggregate.layout.name,
       hallWidth: aggregate.layout.hallWidth,
@@ -594,6 +614,21 @@ function toDetail(aggregate: LayoutAggregate, message: string | null): LayoutDet
     hall,
     stalls,
   };
+}
+
+function preparePublication(write: LayoutWrite, rawReason?: string): void {
+  const reason = rawReason?.trim() ?? '';
+  if (reason.length > 1000) throw new BadRequestDomainError('Override reason must be at most 1000 characters.');
+  if (!write.stalls.some(s => s.status !== 'CANCELLED')) throw new BadRequestDomainError('Add at least one active stall before publishing.');
+  const ctx = buildPlacementContext(write.hall, normalizeEventType(write.eventType),
+    write.stalls.map((stall, index) => ({ ...stall, id: String(index) })));
+  const report = prepublishReport(ctx);
+  if (report.issues.length && !reason) throw new PlacementRejectedError(
+    'Resolve the pre-publish issues or provide an override reason.', report.issues,
+  );
+  write.status = 'PUBLISHED';
+  write.publishedAt = new Date();
+  write.publishOverrides = report.issues.length ? { reason, issues: report.issues } : null;
 }
 
 /**

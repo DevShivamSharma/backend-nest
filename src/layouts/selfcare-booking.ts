@@ -1,3 +1,5 @@
+import { moneyProduct } from '../pricing/money';
+
 /**
  * A booking in the shape of the SelfCare (ITPO) portal's database, so it can be written there as
  * it is: every key below is a column of `idp."T_STALLS"`, `idp."T_STALL_BOOKING"` or
@@ -37,6 +39,7 @@ export interface SelfcareTax {
 
 /** What the booking request may add: SelfCare's own ids, the stall type and its prices. */
 export interface SelfcareBookingInput {
+  expectedQuote?: string;
   user_id?: string | null;
   event_id?: string | null;
   event_name?: string | null;
@@ -209,19 +212,19 @@ function price(stall: BookedStall, input: SelfcareBookingInput): Amounts {
     };
   }
 
-  const rental = money(stall.area * rate);
+  const rental = moneyProduct(stall.area, rate);
   const sidePercent =
     stall.openSides >= 4 ? p.four_side_open_rate_percent
       : stall.openSides === 3 ? p.three_side_open_rate_percent
         : stall.openSides === 2 ? p.two_side_open_rate_percent
           : 0;
-  const cornerCharge = p.corner_charges_applicable ? money((rental * (sidePercent ?? 0)) / 100) : 0;
+  const cornerCharge = p.corner_charges_applicable ? moneyProduct(rental, sidePercent ?? 0, 100) : 0;
   const catalogCharge = money(p.catlog_entry_charge ?? 0);
   const total = money(rental + cornerCharge + catalogCharge);
   // Inter-state bookings carry IGST; otherwise CGST + SGST, as SelfCare stores them.
-  const igst = igstPercent ? money((total * igstPercent) / 100) : 0;
-  const cgst = igstPercent ? 0 : money((total * (cgstPercent ?? 0)) / 100);
-  const sgst = igstPercent ? 0 : money((total * (sgstPercent ?? 0)) / 100);
+  const igst = igstPercent ? moneyProduct(total, igstPercent, 100) : 0;
+  const cgst = igstPercent ? 0 : moneyProduct(total, cgstPercent ?? 0, 100);
+  const sgst = igstPercent ? 0 : moneyProduct(total, sgstPercent ?? 0, 100);
   const gst = money(igst + cgst + sgst);
 
   return {

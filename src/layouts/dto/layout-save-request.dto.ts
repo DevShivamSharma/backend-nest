@@ -15,6 +15,9 @@ import { IsArray, IsNumber, IsObject, IsOptional, IsString, ValidateNested } fro
 const FINITE = { allowNaN: false, allowInfinity: false };
 
 export class HallDto {
+  @IsOptional()
+  @IsArray()
+  planningZones?: unknown[] | null;
   /** Sent by the frontends when numeric; ignored on every write path (BR-18). */
   @IsOptional()
   id?: unknown;
@@ -182,6 +185,12 @@ export class LayoutSaveRequestDto {
   @ValidateNested({ each: true })
   @Type(() => StallDto)
   stalls?: Array<StallDto | null> | null;
+}
+
+export class PublishLayoutDto extends LayoutSaveRequestDto {
+  @IsOptional()
+  @IsString()
+  overrideReason?: string;
 }
 
 export class SplitStallDto {

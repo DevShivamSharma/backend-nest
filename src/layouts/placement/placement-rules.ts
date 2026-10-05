@@ -1,4 +1,5 @@
 import { BasicRuleSettings, ruleEnabled } from './basic-rules';
+import type { PlanningZone } from './planning-zones';
 import { validateOrientedPlacement } from './oriented-placement';
 /**
  * Placement rules for the rule-driven hall editor. Pure: no framework, no ORM, no I/O.
@@ -102,7 +103,7 @@ export interface HallOpening {
 export interface LayoutRules {
   /** Unspecified checks remain enabled for existing layouts. */
   enabledRules?: BasicRuleSettings | null;
-  /** Configurable 3–5 m per event type; both default to 3 m. */
+  /** Configurable 1.5–5 m per event type (never below 1.5 m); both default to 3 m. */
   minPassageWidth: Record<EventType, number>;
   /** ITPO D5: free passage along all external walls. */
   peripheralClearance: number;
@@ -116,7 +117,17 @@ export interface LayoutRules {
   snapStep: number;
   /** Prefix of persisted stall numbers, e.g. "STALL-" -> "STALL-001". */
   stallNumberPrefix: string;
+  /** Share of the hall floor stalls may cover; the rest is kept for shafts, water and service. */
+  maxUtilization?: number;
+  /** Metres between stalls of a B2B zone and stalls of a B2C zone. */
+  eventSeparation?: number;
+  /** Minimum free depth in front of an emergency exit, whatever the passage width. */
+  emergencyExitClearance?: number;
 }
+
+/** The passage width range: never narrower than 1.5 m (meeting decision), at most 5 m. */
+export const MIN_PASSAGE_WIDTH = 1.5;
+export const MAX_PASSAGE_WIDTH = 5;
 
 export const DEFAULT_LAYOUT_RULES: LayoutRules = {
   minPassageWidth: { B2B: 3, B2C: 3 },
@@ -126,6 +137,9 @@ export const DEFAULT_LAYOUT_RULES: LayoutRules = {
   gridUnit: 1,
   snapStep: 1,
   stallNumberPrefix: 'STALL-',
+  maxUtilization: 0.7,
+  eventSeparation: 3,
+  emergencyExitClearance: 3,
 };
 
 /** Stored (partial) rules merged over the defaults. */
@@ -169,6 +183,7 @@ export interface PlacementStall extends Footprint {
 }
 
 export interface PlacementContext {
+  planningZones?: PlanningZone[] | null;
   circleRadius?: number;
   obstacles?: Point[][];
   enforceGrid?: boolean;
@@ -185,6 +200,10 @@ export interface PlacementContext {
 }
 
 export type ViolationCode =
+  | 'INTERNAL_ZONE'
+  | 'EVENT_SEPARATION'
+  | 'ZONE_BOUNDARY'
+  | 'INVALID_PASSAGE_WIDTH'
   | 'CORNER_PASSAGE'
   | 'INVALID_BACK_TO_BACK'
   | 'OPEN_SIDE_PASSAGE'
@@ -288,7 +307,9 @@ export function openingAccessRect(
   const width = Number(opening.width);
   if (!Number.isFinite(width) || width <= 0) return null;
 
-  const depth = rules.openingAccessDepth ?? rules.minPassageWidth[eventType];
+  const passage = rules.openingAccessDepth ?? rules.minPassageWidth[eventType];
+  // An emergency exit keeps its own minimum (3 m) even when aisles are narrower.
+  const depth = opening.kind === 'EMERGENCY' ? Math.max(3, passage, rules.emergencyExitClearance ?? 3) : passage;
   const { x, z } = opening.position;
   const half = width / 2;
 

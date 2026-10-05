@@ -1,0 +1,19 @@
+{
+  "createdAt": "2026-10-03T11:37:31.431Z",
+  "source": "Local imported Hall 12--A, hall id 1143; boundary and four openings preserved. Snapshot 2026-10-03. Planning zones are illustrative demo assignments.",
+  "startLayoutId": 1093,
+  "publishedLayoutId": 1094,
+  "stallCount": 75,
+  "utilization": {
+    "floorArea": 8480,
+    "usedArea": 2700,
+    "ratio": 0.31839622641509435,
+    "limit": 0.7,
+    "exceeded": false
+  },
+  "notes": [
+    "Exhibition: 54 stalls.",
+    "Fit is limited by available space.",
+    "Food: 21 stalls."
+  ]
+}

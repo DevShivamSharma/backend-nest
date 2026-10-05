@@ -15,6 +15,8 @@ describe('assistant intent and fallback',()=>{
   it('clear is an intent, never a mutation',()=>{expect(parseSimple('clear all stalls').action).toBe('clear');});
   it.each([null,[],{},'{bad json}',{...parseSimple('3 stalls of 3x3'),coordinates:[]},{...parseSimple('3 stalls of 3x3'),count:1.5},{...parseSimple('3 stalls of 3x3'),stallSize:{width:-1,length:3}},{...parseSimple('3 stalls of 3x3'),area:{type:'near_marker'}},{...parseSimple('3 stalls of 3x3'),area:{type:'whole_hall',wall:'west'}}])('rejects invalid intent %#',v=>{expect(()=>validateIntent(v)).toThrow();});
   it('reads rule requests as rule changes, never as stalls',()=>{
+    expect(parseSimple('set the passage width to 1.5 m')).toMatchObject({action:'rules',rules:{passageWidth:1.5}});
+    expect(parseSimple('set the passage width to 1 m').action).toBe('none');
     expect(parseSimple('set the passage width to 4 m')).toMatchObject({action:'rules',rules:{passageWidth:4,wallClearance:null,notes:[]}});
     expect(parseSimple('wall clearance 2 m')).toMatchObject({action:'rules',rules:{wallClearance:2}});
     expect(parseSimple('add rule: corner stalls are premium')).toMatchObject({action:'rules',rules:{notes:['corner stalls are premium']}});
@@ -28,7 +30,7 @@ describe('assistant intent and fallback',()=>{
   it('validates rule changes strictly',()=>{
     const rules=(r:object)=>({...parseSimple('set the passage width to 4 m'),rules:{enable:[],disable:[],passageWidth:null,wallClearance:null,notes:[],...r}});
     expect(validateIntent(rules({disable:['peripheralClearance']})).rules?.disable).toEqual(['peripheralClearance']);
-    for(const bad of [{disable:['noSuchRule']},{enable:['FOYER'],disable:['FOYER']},{passageWidth:2},{notes:['']},{}]) expect(()=>validateIntent(rules(bad))).toThrow();
+    for(const bad of [{disable:['noSuchRule']},{enable:['FOYER'],disable:['FOYER']},{passageWidth:1},{notes:['']},{}]) expect(()=>validateIntent(rules(bad))).toThrow();
     // A stall request with an echoed rules object stays a stall request, without rule changes.
     expect(validateIntent({...parseSimple('3 stalls of 3x3'),rules:{enable:['FOYER'],disable:[],passageWidth:null,wallClearance:null,notes:[]}}).rules).toBeUndefined();
     const plan=planStalls(parseSimple('set the passage width to 4 m'),request());
@@ -46,6 +48,23 @@ describe('deterministic proposal planner',()=>{
     expect(JSON.stringify(req)).toBe(before);return result;
   }
   it('honours count in rows along a wall',()=>{const result=check(request());expect(result.stalls).toHaveLength(12);expect(result.stalls.every(s=>s.posX<0)).toBe(true);});
+  it('fills a fine snap grid beyond the old candidate limit without skipping placement rules',()=>{
+    const req=request('fill the hall with 3x2 stalls'); req.hall.rules={snapStep:.25};
+    const result=check(req);
+    expect(result.stalls.length).toBeGreaterThan(250);
+    expect(result.notes.join(' ')).not.toContain('bounded search stopped');
+  });
+  it.each(['back_to_back','island'] as const)('keeps %s proposals valid against rotated and custom existing stalls',arrangement=>{
+    const req=request('30 stalls of 3x3');
+    req.existingStalls=[
+      {id:'rotated',posX:-20,posZ:-20,width:10,length:6,rotation:35,openSides:['LEFT','FRONT']},
+      {id:'custom',posX:0,posZ:-20,width:8,length:6,footprint:[{x:-4,z:-3},{x:4,z:-3},{x:4,z:0},{x:0,z:0},{x:0,z:3},{x:-4,z:3}],openEdges:[0,1]},
+    ];
+    const result=planStalls({...parseSimple(req.requirement),arrangement},req);
+    expect(result.stalls.length).toBe(30);
+    const ctx=buildPlacementContext(req.hall,'B2B',[...req.existingStalls.map(s=>({...s,id:String(s.id)})),...result.stalls]);
+    for(const s of result.stalls) expect(validatePlacement(s,ctx,s.id).violations).toEqual([]);
+  });
   it('places near a marker',()=>{const result=check(request('4 stalls of 3x3 near FOYER-1G'));expect(result.stalls).toHaveLength(4);expect(result.stalls.every(s=>Math.hypot(s.posX-15,s.posZ-10)<20)).toBe(true);});
   it('asks instead of guessing an unknown marker',()=>{expect(check(request('4 stalls of 3x3 near MISSING')).clarification).toBeTruthy();});
   it('never overlaps walls, restricted zones, passages or existing rotated stalls',()=>{
@@ -73,7 +92,16 @@ describe('deterministic proposal planner',()=>{
     const result=check(req);expect(result.stalls.length).toBeGreaterThan(0);expect(result.stalls.every(s=>s.posZ>11)).toBe(true);
   });
   it('supports circle halls without leaving the floor',()=>{const req=request('5 stalls of 3x3');req.hall={...req.hall,shape:'CIRCLE',radius:20,width:0,length:0};expect(check(req).stalls).toHaveLength(5);});
-  it('keeps minimum aisle width',()=>{const req=request('3 stalls of 3x3, 1 m aisles');expect(check(req).notes.join(' ')).toContain('at least 3 m');});
+  it('keeps the hall minimum when a valid requested aisle is narrower',()=>{const req=request('3 stalls of 3x3, 1.5 m aisles');expect(check(req).notes.join(' ')).toContain('at least 3 m');});
+  it('rejects aisle intents outside the meeting range',()=>{
+    for(const width of [1,1.49,5.01,6]) {
+      expect(parseSimple(`3 stalls of 3x3, ${width} m aisles`).action).toBe('none');
+      expect(()=>validateIntent({...parseSimple('3 stalls of 3x3'),aisleWidth:width})).toThrow();
+    }
+    const req=request('3 stalls of 3x3, 1.5 m aisles');
+    req.hall.rules={minPassageWidth:{B2B:1.5,B2C:1.5}};
+    expect(check(req).stalls).toHaveLength(3);
+  });
   it('keeps odd-sized halls on the existing edge snap grid',()=>{const req=request('2 stalls of 3x3');req.hall.width=41;const result=check(req);expect(result.stalls).toHaveLength(2);expect(result.stalls.every(s=>Number.isInteger(s.posX-s.width/2+20.5))).toBe(true);});
   it('reports no space rather than breaking placement rules',()=>{const req=request('20 stalls of 3x3');req.hall.width=5;req.hall.length=5;expect(check(req).placedCount).toBe(0);});
   it('proposes removals without modifying existing stalls',()=>{const req=request('clear all stalls');req.existingStalls=[{id:'a',name:'Keep until applied',width:3,length:3,posX:0,posZ:0}];const result=check(req);expect(result.stalls).toEqual([]);expect(result.removals).toEqual([{id:'a',name:'Keep until applied'}]);expect(req.existingStalls).toHaveLength(1);});

@@ -33,6 +33,8 @@ export interface BlockedArea {
  */
 @Entity({ name: 'hall' })
 export class HallEntity {
+  @Column({ type: 'jsonb', name: 'planning_zones', nullable: true })
+  planningZones!: import('../placement/planning-zones').PlanningZone[] | null;
   @PrimaryGeneratedColumn('identity', { type: 'bigint', generatedIdentity: 'BY DEFAULT' })
   id!: number;
 

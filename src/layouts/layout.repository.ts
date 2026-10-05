@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { DataIntegrityDomainError } from '../common/errors/domain.errors';
 import { DataSource, EntityManager } from 'typeorm';
 
 import type { LayoutSummaryResponse } from './dto/layout-response.dto';
@@ -15,6 +16,7 @@ import { StallEntity } from './entities/stall.entity';
 import type { HallOpening, HallZone, LayoutRules, Point } from './placement/placement-rules';
 
 export interface HallWrite {
+  planningZones?: import('./placement/planning-zones').PlanningZone[] | null;
   name: string | null;
   shape: string;
   width: number | null;
@@ -32,6 +34,7 @@ export interface HallWrite {
 }
 
 export interface StallWrite {
+  bookingQuote?: import('../pricing/pricing-policy').StallQuote | null;
   footprint?: Point[] | null;
   openEdges?: number[] | null;
   rotation?: number;
@@ -53,6 +56,9 @@ export interface StallWrite {
 }
 
 export interface LayoutWrite {
+  status?: 'DRAFT' | 'PUBLISHED';
+  publishedAt?: Date | null;
+  publishOverrides?: LayoutEntity['publishOverrides'];
   name: string;
   hallWidth: number;
   hallLength: number;
@@ -99,6 +105,9 @@ export class LayoutRepository {
           eventType: write.eventType,
           ruleIds: write.ruleIds.length ? write.ruleIds : null,
           nextStallSeq: write.nextStallSeq,
+          status: write.status ?? 'DRAFT',
+          publishedAt: write.publishedAt ?? null,
+          publishOverrides: write.publishOverrides ?? null,
         }),
       );
 
@@ -132,6 +141,18 @@ export class LayoutRepository {
       const current = (await this.load(manager, id))!;
       const write = await build(current, manager);
       if (write === null) return current;
+      // A stale editor must not erase or change an accepted priced booking. Preserve its receipt
+      // across the legacy delete/reinsert save, keyed by the stable stall number.
+      for (const booked of current.stalls.filter(s => s.bookingQuote)) {
+        const next = write.stalls.find(s => s.stallNumber === booked.stallNumber);
+        const same = next && next.status === 'BOOKED' &&
+          ['width', 'length', 'height', 'posX', 'posZ', 'rotation'].every(k => (next as any)[k] === (booked as any)[k]) &&
+          JSON.stringify(next.footprint ?? null) === JSON.stringify(booked.footprint ?? null) &&
+          JSON.stringify(next.openEdges ?? null) === JSON.stringify(booked.openEdges ?? null) &&
+          JSON.stringify(next.openSides) === JSON.stringify(booked.openSides);
+        if (!same) throw new DataIntegrityDomainError(`Booked stall ${booked.stallNumber} cannot be removed or changed. Reload the layout.`);
+        next.bookingQuote = booked.bookingQuote;
+      }
       const layout = current.layout;
       const existingHall =
         layout.hallId === null ? null : await manager.findOneBy(HallEntity, { id: layout.hallId });
@@ -150,6 +171,9 @@ export class LayoutRepository {
       layout.eventType = write.eventType;
       layout.ruleIds = write.ruleIds.length ? write.ruleIds : null;
       layout.nextStallSeq = write.nextStallSeq;
+      layout.status = write.status ?? 'DRAFT';
+      layout.publishedAt = write.publishedAt ?? null;
+      layout.publishOverrides = write.publishOverrides ?? null;
       await manager.save(layout);
 
       await manager.delete(StallEntity, { layoutId: id });
@@ -170,7 +194,7 @@ export class LayoutRepository {
   updateStall(
     layoutId: number,
     stallNumber: string,
-    change: (stall: StallEntity | null) => void,
+    change: (stall: StallEntity | null, layout: LayoutEntity) => void,
   ): Promise<StallEntity | null> {
     return this.dataSource.transaction(async (manager) => {
       const locked = await manager.findOne(LayoutEntity, {
@@ -179,7 +203,7 @@ export class LayoutRepository {
       });
       if (!locked) return null;
       const stall = await manager.findOneBy(StallEntity, { layoutId, stallNumber });
-      change(stall);
+      change(stall, locked);
       return stall && manager.save(stall);
     });
   }
@@ -221,6 +245,8 @@ export class LayoutRepository {
     return this.dataSource.query(`
       SELECT l.id                  AS "id",
              l.name                AS "name",
+             l.status              AS "status",
+             l.published_at        AS "publishedAt",
              h.id                  AS "hallId",
              h.name                AS "hallName",
              h.shape               AS "shape",

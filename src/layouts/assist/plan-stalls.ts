@@ -3,7 +3,9 @@ import { extraFloorRegions, footprintRect, pointInPolygon, polygonBounds, rectIn
 import type { AssistRequest } from './assist-request';
 import type { LayoutIntent, RuleChanges } from './intent';
 import { difference, type MultiPolygon } from 'polygon-clipping';
-import { ring } from '../placement/polygon-geometry';
+import { ring, area, contained, stallPolygon } from '../placement/polygon-geometry';
+import { sellableZone, utilization } from '../placement/planning-zones';
+import { PlacementNeighbors } from './placement-neighbors';
 
 export interface AssistPlan {
   summary: string;
@@ -21,6 +23,45 @@ export interface AssistPlan {
 
 /** Pure proposal builder. It never writes a layout or modifies caller-owned data. */
 export function planStalls(intent: LayoutIntent, request: AssistRequest): AssistPlan {
+  const zones = request.hall.planningZones ?? [];
+  if (intent.action !== 'place' || intent.clarification || !zones.length) return planZone(intent, request);
+  let selected = zones.filter(sellableZone);
+  if (request.zoneId) selected = selected.filter(z => z.id === request.zoneId);
+  else if (intent.area.type === 'region') {
+    const name = intent.area.marker!.toLowerCase();
+    const named = selected.filter(z => z.label.toLowerCase() === name || z.id === intent.area.marker);
+    if (named.length) selected = named;
+    else return planZone(intent, request);
+  }
+  selected.sort((a, b) => area([ring(b.polygon)]) - area([ring(a.polygon)]));
+  const result: AssistPlan = { summary: '', notes: [], stalls: [], action: 'place', requestedCount: intent.count, placedCount: 0 };
+  if (!selected.length) { result.summary = 'Draw a Food or Exhibition zone before placing stalls.'; return result; }
+  const deadline = Date.now() + 8000;
+  for (const zone of selected) {
+    const bounds = polygonBounds(zone.polygon);
+    if (intent.area.type === 'rect') {
+      const rect = intent.area.rect!;
+      bounds.minX = Math.max(bounds.minX, rect.minX); bounds.minZ = Math.max(bounds.minZ, rect.minZ);
+      bounds.maxX = Math.min(bounds.maxX, rect.maxX); bounds.maxZ = Math.min(bounds.maxZ, rect.maxZ);
+    }
+    if (bounds.minX >= bounds.maxX || bounds.minZ >= bounds.maxZ) continue;
+    const count = intent.count == null ? null : intent.count - result.stalls.length;
+    if (count === 0 || result.stalls.length >= 500) break;
+    const proposal = planZone({ ...intent, count: count == null ? 500 - result.stalls.length : count,
+      area: { type: 'rect', rect: bounds, wall: intent.area.wall } }, {
+      ...request, zoneId: zone.id, existingStalls: [...request.existingStalls, ...result.stalls],
+    }, deadline);
+    for (const stall of proposal.stalls) result.stalls.push({ ...stall, id: `proposal-${result.stalls.length + 1}` });
+    result.notes.push(`${zone.label}: ${proposal.stalls.length} stalls.`, ...proposal.notes.filter(n => /limit|70%|bounded/.test(n)));
+    if (Date.now() > deadline) { result.notes.push('The bounded search stopped. Continue filling the remaining zones.'); break; }
+  }
+  result.placedCount = result.stalls.length;
+  result.summary = `Proposed ${result.placedCount}${intent.count ? ` of ${intent.count}` : ''} stalls in sellable zones, largest zone first.`;
+  result.notes = [...new Set(result.notes)];
+  return result;
+}
+
+function planZone(intent: LayoutIntent, request: AssistRequest, sharedDeadline = Infinity): AssistPlan {
   const result: AssistPlan = { summary: '', notes: [], stalls: [], action: intent.action, requestedCount: intent.count, placedCount: 0, clarification: intent.clarification };
   if (intent.clarification || intent.action === 'none') { result.summary = intent.clarification ?? 'No changes proposed.'; return result; }
   if (intent.action === 'rules') { result.rules = intent.rules; result.summary = 'Here are the rule changes. Nothing changes until you apply them.'; return result; }
@@ -71,6 +112,13 @@ export function planStalls(intent: LayoutIntent, request: AssistRequest): Assist
   const aisle = Math.max(minimum, intent.aisleWidth ?? minimum);
   if (intent.aisleWidth != null && intent.aisleWidth < minimum) result.notes.push(`The hall requires at least ${minimum} m aisles; that minimum was kept.`);
   const { width: w, length: l } = intent.stallSize;
+  const usage = utilization(ctx);
+  const capacity = Math.max(0, Math.floor((usage.floorArea * usage.limit - usage.usedArea + 1e-6) / (w * l)));
+  if (intent.action === 'place' && capacity === 0) {
+    result.summary = 'No more stalls fit within the hall utilization limit.';
+    result.notes.push(`The ${Math.round(usage.limit * 100)}% utilization limit was kept.`);
+    return result;
+  }
   const strip = Math.max(w, l) * 3 + aisle * 3 + ctx.rules.peripheralClearance;
   const bounds = { ...target };
   const wall = intent.area.wall;
@@ -100,35 +148,57 @@ export function planStalls(intent: LayoutIntent, request: AssistRequest): Assist
   const rowLimit = Number(request.requirement.match(/\b(\d+)\s+rows?\b/i)?.[1] ?? 0);
   const rows = new Set<number>();
   const reasons = new Map<string, number>();
+  const selectedZone = hall.planningZones?.find(zone => zone.id === request.zoneId);
+  const selectedPolygon = selectedZone ? [ring(selectedZone.polygon)] : null;
+  // Every stall-to-stall rule has bounded reach: open-edge aisles or cross-event separation.
+  // Utilization is computed against the full layout above, never this neighbour subset.
+  const reach = Math.max(aisle, 3, ctx.rules.eventSeparation ?? 3);
+  const neighbors = new PlacementNeighbors(Math.max(8,Math.min(64,Math.max(w,l)+reach)),existing);
+  const validationRules = {...ctx.rules,minPassageWidth:{...ctx.rules.minPassageWidth,[ctx.eventType]:aisle}};
+  const columns = vertical ? zs : xs;
+  const direction = columns[0] <= columns[columns.length-1] ? 1 : -1;
   let attempts = 0;
-  const deadline = Date.now() + 3500;
+  let stopped = false;
+  const deadline = Math.min(Date.now() + 3500, sharedDeadline);
   outer: for (const row of vertical ? xs : zs) {
     if (rowLimit && rows.size >= rowLimit && !rows.has(row)) break;
-    for (const col of vertical ? zs : xs) {
+    for (let column=0; column<columns.length; column++) {
+      const col = columns[column];
       const x = vertical ? row : col, z = vertical ? col : row;
-      if (++attempts > 12000 || Date.now() > deadline) { result.notes.push('The bounded search stopped. Ask for a smaller area to continue.'); break outer; }
+      if (++attempts > 12000 || Date.now() > deadline) { stopped=true; result.notes.push('The bounded search stopped. Continue filling the remaining area.'); break outer; }
       if (intent.arrangement === 'perimeter' && Math.min(x-bounds.minX,bounds.maxX-x,z-bounds.minZ,bounds.maxZ-z) > strip/2) continue;
       let open = intent.openSide ?? (wall === 'west' ? 'RIGHT' : wall === 'east' ? 'LEFT' : wall === 'south' || (center && z>(bounds.minZ+bounds.maxZ)/2) ? 'BACK' : 'FRONT');
       if (intent.arrangement === 'back_to_back' && !intent.openSide) open = (rows.has(row)?[...rows].indexOf(row):rows.size) % 2 ? 'FRONT' : 'BACK';
       const candidate = { id: `proposal-${result.stalls.length+1}`, name: `${intent.namePrefix ?? 'AI'}-${existing.length+result.stalls.length+1}`, posX: +x.toFixed(6), posZ: +z.toFixed(6), width:w, length:l, rotation:0, openSides:intent.arrangement==='island'&&!intent.openSide?['FRONT','BACK','LEFT','RIGHT']:[open], height:4, color:'#3498db' };
+      // Exact cheap rejection for unrotated rectangles. This skips occupied grid cells before
+      // the full polygon/aisle audit, leaving the time budget for unexplored floor positions.
+      const nearby = neighbors.query(footprintRect(candidate),reach);
+      let blocked = false;
+      for (const stall of nearby) {
+        if ((stall.rotation??0) || stall.footprint?.length) continue;
+        const exit = rectangularConflictExit(candidate,stall,aisle,ctx.rules.enabledRules?.openSideAccess!==false,vertical?'z':'x',direction);
+        if (exit === null) continue;
+        // On an ordered scan, every skipped centre still intersects this same rectangle or
+        // reserved aisle. Keep nearest-marker ordering intact by not jumping that scan.
+        if (!center) while(column+1<columns.length && (columns[column+1]-exit)*direction < -1e-6) column++;
+        blocked=true; break;
+      }
+      if(blocked) continue;
       if (targetRegion && !rectInsidePolygon(footprintRect(candidate), targetRegion)) continue;
-      // Respect requested aisles in addition to the hall's mandatory placement rules.
-      if (result.stalls.some(s => {
-        const dx=Math.max(0,Math.abs(s.posX-x)-w), dz=Math.max(0,Math.abs(s.posZ-z)-l);
-        const backs = intent.arrangement === 'back_to_back' && Math.abs(s.posX-x)<1e-6 && Math.abs(Math.abs(s.posZ-z)-l)<1e-6 && s.openSides?.[0] !== open;
-        return !backs && Math.hypot(dx,dz)<aisle-1e-6;
-      })) continue;
+      if (selectedPolygon && !contained(stallPolygon(candidate), selectedPolygon)) continue;
+      // Closed walls can be shared. The validator reserves the requested aisle at open edges.
       const local = contexts.find(c=>!c.boundary || rectInsidePolygon(footprintRect(candidate),c.boundary));
       if (!local) { reasons.set('OUTSIDE_HALL',1); continue; }
-      const validation = validatePlacement(candidate, { ...local, rules: { ...ctx.rules, minPassageWidth: {...ctx.rules.minPassageWidth, [ctx.eventType]:aisle} }, stalls:[...existing,...result.stalls] });
+      const validation = validatePlacement(candidate, { ...local, rules:validationRules, stalls:nearby });
       if (!validation.valid) { for (const v of validation.violations) reasons.set(v.code,(reasons.get(v.code)??0)+1); continue; }
-      result.stalls.push(candidate); rows.add(row);
-      if (result.stalls.length >= (intent.count ?? 500)) break outer;
+      result.stalls.push(candidate); neighbors.add(candidate); rows.add(row);
+      if (result.stalls.length >= Math.min(intent.count ?? 500, capacity)) break outer;
     }
   }
   result.placedCount = result.stalls.length;
+  if (result.placedCount >= capacity) result.notes.push(`The ${Math.round(usage.limit * 100)}% utilization limit was kept.`);
   result.summary = `Proposed ${result.placedCount}${intent.count ? ` of ${intent.count}` : ''} stalls, ${w} × ${l} m, with ${aisle} m aisles.`;
-  if (result.placedCount < (intent.count ?? 501)) {
+  if (!stopped && result.placedCount < Math.min(intent.count ?? 500,capacity)) {
     const labels: Record<string,string> = { OUTSIDE_HALL:'hall boundary / walls', RESTRICTED_ZONE:'restricted zones', PATHWAY_WIDTH:'passage width', OPEN_SIDE_PASSAGE:'open-side access', PERIPHERAL_CLEARANCE:'wall clearance', CORNER_PASSAGE:'corner passage', STALL_OVERLAP:'existing stalls', OPEN_SIDE_BLOCKED:'blocked entrances' };
     result.notes.push(`Fit is limited by available space${reasons.size ? ` and ${[...reasons.keys()].slice(0,4).map(k=>labels[k]??k.toLowerCase().replace(/_/g,' ')).join(', ')}` : ''}.`);
   }
@@ -138,3 +208,21 @@ export function planStalls(intent: LayoutIntent, request: AssistRequest): Assist
 }
 function inRect(x:number,z:number,r:Rect) { return x>=r.minX && x<=r.maxX && z>=r.minZ && z<=r.maxZ; }
 function distanceToBounds(p:Point,r:Rect) { return Math.hypot(Math.max(r.minX-p.x,0,p.x-r.maxX),Math.max(r.minZ-p.z,0,p.z-r.maxZ)); }
+
+/** A broad phase for the common rectangle case; the authoritative validator still accepts. */
+function rectangularConflictExit(a: {posX:number;posZ:number;width:number;length:number;openSides?: string[] | null;gateSide?:string|null}, b: typeof a, aisle:number, access:boolean, axis:'x'|'z', direction:number):number|null {
+  const ra=footprintRect(a), rb=footprintRect(b);
+  const overlaps=(p:Rect,q:Rect)=>Math.min(p.maxX,q.maxX)-Math.max(p.minX,q.minX)>1e-6 && Math.min(p.maxZ,q.maxZ)-Math.max(p.minZ,q.minZ)>1e-6;
+  const corridors=(r:Rect,s:typeof a)=>(s.openSides?.length?s.openSides:[s.gateSide??'FRONT']).map(side=>
+    side==='FRONT'?{...r,minZ:r.maxZ,maxZ:r.maxZ+aisle}:side==='BACK'?{...r,minZ:r.minZ-aisle,maxZ:r.minZ}:
+    side==='LEFT'?{...r,minX:r.minX-aisle,maxX:r.minX}:{...r,minX:r.maxX,maxX:r.maxX+aisle});
+  const pairs:[Rect,Rect][]=[[ra,rb]];
+  if(access) { for(const c of corridors(ra,a)) pairs.push([c,rb]); for(const c of corridors(rb,b)) pairs.push([ra,c]); }
+  let exit:number|null=null;
+  for(const [moving,fixed] of pairs) if(overlaps(moving,fixed)) {
+    const min=axis==='x'?'minX':'minZ',max=axis==='x'?'maxX':'maxZ',position=axis==='x'?a.posX:a.posZ;
+    const value=direction>0?fixed[max]-(moving[min]-position):fixed[min]-(moving[max]-position);
+    exit=exit===null?value:direction>0?Math.max(exit,value):Math.min(exit,value);
+  }
+  return exit;
+}

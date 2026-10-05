@@ -1,6 +1,8 @@
 import { ruleEnabled } from './basic-rules';
+import { atHallCorner } from './hall-corners';
+import { planningZoneViolations } from './planning-zones';
 import { difference, type MultiPolygon } from 'polygon-clipping';
-import { openingAccessRect, zoneClearanceFor } from './placement-rules';
+import { MAX_PASSAGE_WIDTH, MIN_PASSAGE_WIDTH, openingAccessRect, zoneClearanceFor } from './placement-rules';
 import type {
   Footprint,
   PlacementContext,
@@ -29,6 +31,11 @@ export function validateOrientedPlacement(
 ): ValidationResult {
   const violations: Violation[] = [];
   const passage = ctx.rules.minPassageWidth[ctx.eventType];
+  if (!Number.isFinite(passage) || passage < MIN_PASSAGE_WIDTH || passage > MAX_PASSAGE_WIDTH) {
+    return { valid: false, violations: [{ code: 'INVALID_PASSAGE_WIDTH', ruleRef: 'Passage',
+      message: `Choose a passage width between ${MIN_PASSAGE_WIDTH} and ${MAX_PASSAGE_WIDTH} m.`,
+      geometry: [], relatedStallIds: [] }] };
+  }
   const add = (
     code: ViolationCode,
     message: string,
@@ -177,5 +184,9 @@ export function validateOrientedPlacement(
         access,
       );
   }
+  if (ruleEnabled(ctx.rules, 'cornerKeepOut') && atHallCorner(candidate, ctx)) {
+    add('CORNER_PASSAGE', 'No stall in a corner of the hall: keep one passage width clear from at least one adjoining wall.', p);
+  }
+  violations.push(...planningZoneViolations(candidate, ctx, ignoreId));
   return { valid: violations.length === 0, violations };
 }

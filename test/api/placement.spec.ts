@@ -53,13 +53,13 @@ const split = (key = 'split-one') => ({
   children: [stall({ posX: -4, width: 3, length: 4 }), stall({ posX: 4, width: 3, length: 4 })],
 });
 
-test('default, 3 m / 5 m open-side passage and exact width; invalid inputs write no records', async ({
+test('default, 1.5 m / 3 m / 5 m open-side passage and exact width; invalid inputs write no records', async ({
   request,
 }) => {
-  for (const width of [3, 5]) {
+  for (const width of [1.5, 3, 5]) {
     const h = {
       ...hall,
-      rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
+      rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0, enabledRules: { cornerKeepOut: false } },
     };
     // The second stall stands in front of the first one's open FRONT side; a shared wall on a
     // closed side (third stall) needs no passage.
@@ -82,7 +82,7 @@ test('default, 3 m / 5 m open-side passage and exact width; invalid inputs write
       ]),
     );
   }
-  for (const width of [2.99, 5.01, '3', null]) {
+  for (const width of [1.49, 5.01, '3', null]) {
     const before = (await db.query('SELECT count(*)::int AS count FROM layouts')).rows[0].count;
     const response = await request.post('/api/layout/save', {
       data: { hall: { ...hall, rules: { minPassageWidth: { B2B: width } } }, stalls: [] },
@@ -94,6 +94,29 @@ test('default, 3 m / 5 m open-side passage and exact width; invalid inputs write
     );
   }
   await save(request, { stalls: [stall(), stall({ posX: 5 })] });
+});
+
+test('meeting settings survive save, reload and update; corner and emergency checks remain authoritative', async ({ request }) => {
+  const rules = { minPassageWidth: { B2B: 1.5, B2C: 5 }, maxUtilization: 0.7,
+    eventSeparation: 3, emergencyExitClearance: 3, enabledRules: { cornerKeepOut: false } };
+  const saved = await save(request, { hall: { ...hall, rules }, stalls: [stall()] });
+  const loaded = await (await request.get(`/api/layout/${saved.layout.id}`)).json();
+  expect(loaded.hall.rules).toEqual(rules);
+  const updatedRules = { ...rules, enabledRules: { cornerKeepOut: true }, minPassageWidth: { B2B: 3, B2C: 1.5 } };
+  const updated = await request.put(`/api/layout/${saved.layout.id}`, {
+    data: { hall: { ...loaded.hall, rules: updatedRules }, stalls: loaded.stalls },
+  });
+  expect(updated.status()).toBe(200);
+  expect((await (await request.get(`/api/layout/${saved.layout.id}`)).json()).hall.rules).toEqual(updatedRules);
+  for (const [testHall, testStall, code] of [
+    [{ ...hall, rules: {} }, stall({ posX: -28, posZ: -28 }), 'CORNER_PASSAGE'],
+    [{ ...hall, rules, openings: [{ id: 'exit', label: 'Emergency', kind: 'EMERGENCY',
+      position: { x: 0, z: -30 }, width: 4, facing: 'SOUTH' }] }, stall({ posZ: -27 }), 'EMERGENCY_ACCESS'],
+  ] as const) {
+    const rejected = await request.post('/api/layout/save', { data: { hall: testHall, stalls: [testStall] } });
+    expect(rejected.status()).toBe(400);
+    expect((await rejected.json()).violations).toEqual(expect.arrayContaining([expect.objectContaining({ code })]));
+  }
 });
 
 test('rotated back-to-back survives reload; invalid open-side update rolls back', async ({

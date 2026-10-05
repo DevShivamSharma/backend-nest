@@ -23,10 +23,10 @@ function check(
 const codes = (r: ReturnType<typeof check>) => r.violations.map((v) => v.code);
 
 describe('authoritative rotated passage validation', () => {
-  it.each([3, 5])('closed sides need no %s metre gap, also at a hall corner', (width) => {
+  it.each([1.5, 3, 5])('closed sides need no %s metre gap when corner keep-out is off', (width) => {
     const h = {
       ...hall,
-      rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
+      rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0, enabledRules: { cornerKeepOut: false } },
     };
     const a = stall({ posX: -19, posZ: -19 });
     const b = stall({ id: 'b', posX: -17 + width, posZ: -19 });
@@ -35,9 +35,9 @@ describe('authoritative rotated passage validation', () => {
     // A shared wall.
     expect(check(a, [{ ...b, posX: -17 }], h).valid).toBe(true);
   });
-  it.each([2.99, 5.01, -1, 0, NaN, Infinity, '3', null])('rejects invalid width %p', (width) => {
+  it.each([1.49, 5.01, -1, 0, NaN, Infinity, '3', null])('rejects invalid width %p', (width) => {
     expect(() => validateHallGeometry({ rules: { minPassageWidth: { B2B: width } } })).toThrow(
-      'between 3 and 5',
+      'between 1.5 and 5',
     );
   });
   it('defaults both event types to 3 and persists explicit fractional widths', () => {
@@ -49,6 +49,22 @@ describe('authoritative rotated passage validation', () => {
       validateHallGeometry({ rules: { minPassageWidth: { B2B: 3.5, B2C: 5 } } }).rules
         ?.minPassageWidth,
     ).toEqual({ B2B: 3.5, B2C: 5 });
+    expect(validateHallGeometry({ rules: { minPassageWidth: { B2B: 1.5 } } }).rules?.minPassageWidth)
+      .toEqual({ B2B: 1.5, B2C: 3 });
+  });
+  it('preserves meeting settings and rejects invalid numeric settings', () => {
+    const rules = { maxUtilization: 0.7, eventSeparation: 3, emergencyExitClearance: 3,
+      enabledRules: { cornerKeepOut: false } };
+    expect(validateHallGeometry({ rules }).rules).toEqual(rules);
+    for (const value of [0, -1, 1.01, NaN, Infinity, '0.7']) {
+      expect(() => validateHallGeometry({ rules: { maxUtilization: value } })).toThrow();
+    }
+    for (const value of [-1, NaN, Infinity, '3']) {
+      expect(() => validateHallGeometry({ rules: { eventSeparation: value } })).toThrow();
+    }
+    for (const value of [0, 1.5, 2.99, NaN, Infinity, '3']) {
+      expect(() => validateHallGeometry({ rules: { emergencyExitClearance: value } })).toThrow();
+    }
   });
   it('accepts touching backs with opposite outward open sides', () => {
     const a = stall({ posZ: -1, openSides: ['BACK'] });
@@ -67,12 +83,12 @@ describe('authoritative rotated passage validation', () => {
       expect(check(a, [stall({ id: 'b', posZ: 1 })]).valid).toBe(true);
     },
   );
-  it('lets corner stalls share a wall like any other stall', () => {
+  it('lets corner stalls share a closed wall when corner keep-out is off', () => {
     const a = stall({ posX: -19, posZ: -19, openSides: ['RIGHT'] });
     const b = stall({ id: 'b', posX: -19, posZ: -17, openSides: ['FRONT'] });
-    expect(check(a, [b]).valid).toBe(true);
+    expect(check(a, [b], { ...hall, rules: { peripheralClearance: 0, enabledRules: { cornerKeepOut: false } } }).valid).toBe(true);
   });
-  it.each([3, 5])('open side must have exactly %s metres inside the hall', (width) => {
+  it.each([1.5, 3, 5])('open side must have exactly %s metres inside the hall', (width) => {
     const h = {
       ...hall,
       rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
@@ -122,10 +138,10 @@ describe('authoritative rotated passage validation', () => {
       codes(check(stall({ posX: 5, posZ: -2 }), [], { ...hall, boundary: irregular })),
     ).toContain('OPEN_SIDE_PASSAGE');
   });
-  it('accepts touching backs next to a notch corner', () => {
+  it('accepts touching backs next to a notch corner with corner keep-out off', () => {
     const a = stall({ posX: -2, posZ: -2, openSides: ['BACK'] });
     const b = stall({ id: 'b', posX: -2, posZ: 0 });
-    expect(check(a, [b], { ...hall, boundary: irregular }).valid).toBe(true);
+    expect(check(a, [b], { ...hall, boundary: irregular, rules: { peripheralClearance: 0, enabledRules: { cornerKeepOut: false } } }).valid).toBe(true);
   });
   it('needs no passage between closed sides either side of an exterior notch', () => {
     const boundary = [
@@ -140,7 +156,7 @@ describe('authoritative rotated passage validation', () => {
     ];
     const a = stall({ posX: -3, posZ: -19 });
     const b = stall({ id: 'b', posX: 3, posZ: -19 });
-    expect(check(a, [b], { ...hall, boundary }).valid).toBe(true);
+    expect(check(a, [b], { ...hall, boundary, rules: { peripheralClearance: 0, enabledRules: { cornerKeepOut: false } } }).valid).toBe(true);
   });
   it('detects an edge crossing a narrow concavity even when all vertices are inside', () => {
     const boundary = [

@@ -51,9 +51,9 @@ export async function readPdfDrawing(data: Uint8Array, page = 1): Promise<CadDra
     }
   }
 
-  const texts: CadText[] = vectors.texts
+  const texts = joinHallTitleFragments(vectors.texts
     .filter((t) => t.text.trim())
-    .map((t) => ({ layer: '', text: t.text.trim(), x: t.x, y: flipY(t.y), height: t.size }));
+    .map((t) => ({ layer: '', text: t.text.trim(), x: t.x, y: flipY(t.y), height: t.size })));
 
   const scale = statedScale(texts.map((t) => t.text));
   const grid = scale ? null : gridScale(vectors);
@@ -73,6 +73,27 @@ export async function readPdfDrawing(data: Uint8Array, page = 1): Promise<CadDra
     layers: vectors.layers,
     warnings: vectors.pageCount > 1 ? [`Only page ${page} of ${vectors.pageCount} was read.`] : [],
   };
+}
+
+/** CAD PDF exports can draw "HALL" and its number as separate, adjacent text runs. */
+export function joinHallTitleFragments(texts: CadText[]): CadText[] {
+  const used = new Set<CadText>();
+  const replacements = new Map<CadText, CadText>();
+  for (const title of texts) {
+    if (!/^(?:exhibition\s+)?hall\s*[-–#]?\s*$/i.test(title.text) || title.height <= 0) continue;
+    const number = texts.filter((t) =>
+      !used.has(t) && /^\d{1,2}[a-z]?$/i.test(t.text) && t.x > title.x &&
+      Math.abs(t.y - title.y) < title.height * 0.2 &&
+      Math.abs(t.height - title.height) < title.height * 0.2 &&
+      t.x - title.x < title.height * (0.31 * (title.text.length + t.text.length) + 1.5),
+    ).sort((a, b) => a.x - b.x)[0];
+    if (!number) continue;
+    used.add(number);
+    const left = title.x - 0.31 * title.height * title.text.length;
+    const right = number.x + 0.31 * number.height * number.text.length;
+    replacements.set(title, { ...title, text: `${title.text} ${number.text}`, x: (left + right) / 2 });
+  }
+  return texts.filter((t) => !used.has(t)).map((t) => replacements.get(t) ?? t);
 }
 
 /**

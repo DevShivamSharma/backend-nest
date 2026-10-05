@@ -37,7 +37,7 @@ describe('adversarial planner geometry', () => {
           const h = {
             ...hall,
             boundary,
-            rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0 },
+            rules: { minPassageWidth: { B2B: width, B2C: width }, peripheralClearance: 0, enabledRules: { cornerKeepOut: false } },
           };
           const at = (x: number, z: number, extra: Partial<PlacementStall> = {}) => {
             const p = transform({ x, z }, rotation);
@@ -45,7 +45,7 @@ describe('adversarial planner geometry', () => {
           };
           const a = at(-19, -19);
           for (const short of [0, 0.001]) {
-            // Beside a closed side any gap is fine, also at a corner.
+            // Isolate open-side clearance from the independent hall-corner check.
             const beside = at(-17 + width - short, -19, { id: 'b' });
             expect(
               validatePlacement(a, buildPlacementContext(h, 'B2B', [beside]), 'a').valid,

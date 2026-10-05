@@ -1,0 +1,33 @@
+[
+  {
+    "name": "large-hall",
+    "ms": 3274,
+    "stalls": 500,
+    "notes": [
+      "Fit is limited by available space and wall clearance, corner passage.",
+      "POC limit: 500 stalls per proposal.",
+      "Outlines are a preview. Apply rechecks the current hall before adding stalls."
+    ]
+  },
+  {
+    "name": "quarter-metre-grid",
+    "ms": 683,
+    "stalls": 51,
+    "notes": [
+      "The bounded search stopped. Ask for a smaller area to continue.",
+      "Fit is limited by available space and wall clearance, corner passage.",
+      "Outlines are a preview. Apply rechecks the current hall before adding stalls."
+    ]
+  },
+  {
+    "name": "two-event-zones",
+    "ms": 2660,
+    "stalls": 402,
+    "notes": [
+      "Large: 259 stalls.",
+      "Fit is limited by available space and corner passage.",
+      "Small: 143 stalls.",
+      "Fit is limited by available space and event separation."
+    ]
+  }
+]

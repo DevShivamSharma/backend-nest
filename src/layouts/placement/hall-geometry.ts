@@ -1,4 +1,5 @@
 import { BASIC_RULE_IDS, BasicRuleId } from './basic-rules';
+import { PLANNING_ZONE_KINDS, planningZoneGeometryError, type PlanningZone } from './planning-zones';
 import { edges, EPS, segmentDistance } from './polygon-geometry';
 import { BadRequestDomainError, PlacementRejectedError } from '../../common/errors/domain.errors';
 import type {
@@ -15,6 +16,8 @@ import {
   HallOpening,
   HallZone,
   LayoutRules,
+  MAX_PASSAGE_WIDTH,
+  MIN_PASSAGE_WIDTH,
   OPENING_FACINGS,
   OPENING_KINDS,
   PlacementContext,
@@ -34,6 +37,11 @@ import {
  */
 
 export interface HallGeometryInput {
+  shape?: string | null;
+  width?: number | null;
+  length?: number | null;
+  radius?: number | null;
+  planningZones?: unknown[] | null;
   blockedAreas?: unknown[] | null;
   boundary?: unknown[] | null;
   zones?: unknown[] | null;
@@ -46,6 +54,7 @@ export interface HallGeometryInput {
 }
 
 export interface HallGeometry {
+  planningZones: PlanningZone[] | null;
   boundary: Point[] | null;
   zones: HallZone[] | null;
   openings: HallOpening[] | null;
@@ -71,7 +80,8 @@ export function validateHallGeometry(input: HallGeometryInput): HallGeometry {
         `Blocked area ${index} needs finite coordinates, positive dimensions and kind outside, wall or zone.`,
       );
   }
-  return {
+  const geometry: HallGeometry = {
+    planningZones: input.planningZones == null ? null : planningZones(input.planningZones),
     boundary: input.boundary == null ? null : polygon(input.boundary, 'Hall boundary'),
     zones: input.zones == null ? null : input.zones.map((z, i) => zone(z, i)),
     openings: input.openings == null ? null : input.openings.map((o, i) => opening(o, i)),
@@ -81,10 +91,19 @@ export function validateHallGeometry(input: HallGeometryInput): HallGeometry {
     legends: input.legends == null ? null : input.legends.map((l, i) => legend(l, i)),
     rules: input.rules == null ? null : rules(input.rules),
   };
+  if (geometry.planningZones?.length && (geometry.boundary || input.width || input.radius)) {
+    const error = planningZoneGeometryError(geometry.planningZones, buildPlacementContext({
+      shape: input.shape, width: input.width, length: input.length, radius: input.radius,
+      blockedAreas: input.blockedAreas as BlockedArea[] | null, ...geometry,
+    }, 'B2B', []));
+    if (error) throw new BadRequestDomainError(error);
+  }
+  return geometry;
 }
 
 /** The rule-driven hall fields as they go on the wire (null when absent). */
 export function hallGeometryResponse(hall: {
+  planningZones?: unknown[] | null;
   boundary?: unknown[] | null;
   zones?: unknown[] | null;
   openings?: unknown[] | null;
@@ -94,6 +113,7 @@ export function hallGeometryResponse(hall: {
   legends?: unknown[] | null;
   rules?: object | null;
 }): {
+  planningZones: unknown[] | null;
   boundary: unknown[] | null;
   zones: unknown[] | null;
   openings: unknown[] | null;
@@ -104,6 +124,7 @@ export function hallGeometryResponse(hall: {
   rules: Record<string, unknown> | null;
 } {
   return {
+    planningZones: hall.planningZones ?? null,
     boundary: hall.boundary ?? null,
     zones: hall.zones ?? null,
     openings: hall.openings ?? null,
@@ -148,6 +169,7 @@ export function isRuleDriven(hall: { rules?: Partial<LayoutRules> | null }): boo
  */
 export function buildPlacementContext(
   hall: {
+    planningZones?: PlanningZone[] | null;
     shape?: string | null;
     width?: number | null;
     length?: number | null;
@@ -172,6 +194,7 @@ export function buildPlacementContext(
     { x: -width / 2, z: length / 2 },
   ];
   return {
+    planningZones: hall.planningZones ?? [],
     boundary,
     circleRadius: hall.shape === 'CIRCLE' && !hall.boundary ? Number(hall.radius) : undefined,
     obstacles: areas
@@ -195,6 +218,25 @@ export function buildPlacementContext(
 }
 
 // --- entry checks ------------------------------------------------------------------------------
+
+function planningZones(raw: unknown): PlanningZone[] {
+  if (!Array.isArray(raw) || raw.length > 100) throw new BadRequestDomainError('Use at most 100 planning zones.');
+  const ids = new Set<string>();
+  return raw.map((value, index) => {
+    const z = value as Record<string, unknown> | null;
+    if (!z || typeof z.id !== 'string' || !z.id.trim() || z.id.length > 100 || ids.has(z.id) ||
+      typeof z.label !== 'string' || !z.label.trim() || z.label.length > 100 ||
+      !(PLANNING_ZONE_KINDS as readonly unknown[]).includes(z.kind) || !EVENT_TYPES.includes(z.eventType as EventType) ||
+      !Array.isArray(z.polygon) || z.polygon.length > 100)
+      throw new BadRequestDomainError(`Planning zone ${index} needs a unique id, label, valid kind, B2B/B2C event type and polygon.`);
+    ids.add(z.id);
+    if (z.color != null && (typeof z.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(z.color)))
+      throw new BadRequestDomainError(`Planning zone ${index} needs a six-digit hex colour.`);
+    return { id: z.id, label: z.label.trim(), kind: z.kind as PlanningZone['kind'],
+      ...(z.color == null ? {} : { color: (z.color as string).toLowerCase() }),
+      eventType: z.eventType as EventType, polygon: polygon(z.polygon, `Planning zone ${index}`) };
+  });
+}
 
 function polygon(raw: unknown, what: string): Point[] {
   if (!Array.isArray(raw) || raw.length < 3) {
@@ -434,16 +476,17 @@ function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
   if ('minPassageWidth' in raw) {
     const mp = raw['minPassageWidth'];
     const invalid = (field: string, value: unknown): never => {
-      throw new PlacementRejectedError('Passage width must be a number between 3 and 5 metres.', [
-        { code: 'INVALID_PASSAGE_WIDTH', field, value, min: 3, max: 5 },
-      ]);
+      throw new PlacementRejectedError(
+        `Passage width must be a number between ${MIN_PASSAGE_WIDTH} and ${MAX_PASSAGE_WIDTH} metres.`,
+        [{ code: 'INVALID_PASSAGE_WIDTH', field, value, min: MIN_PASSAGE_WIDTH, max: MAX_PASSAGE_WIDTH }],
+      );
     };
     if (!mp || typeof mp !== 'object' || Array.isArray(mp))
       invalid('hall.rules.minPassageWidth', mp);
     const values = mp as Record<string, unknown>;
     const width = (event: string) => {
       const v = event in values ? values[event] : 3;
-      if (!finite(v) || Number(v) < 3 || Number(v) > 5)
+      if (!finite(v) || Number(v) < MIN_PASSAGE_WIDTH || Number(v) > MAX_PASSAGE_WIDTH)
         invalid(`hall.rules.minPassageWidth.${event}`, v);
       return v as number;
     };
@@ -469,6 +512,24 @@ function rules(raw: Record<string, unknown>): Partial<LayoutRules> {
   }
   if (raw['gridUnit'] != null) out.gridUnit = metres('gridUnit', raw['gridUnit'], false);
   if (raw['snapStep'] != null) out.snapStep = metres('snapStep', raw['snapStep'], false);
+  if (raw['maxUtilization'] != null) {
+    const v = raw['maxUtilization'];
+    if (!finite(v) || (v as number) <= 0 || (v as number) > 0.7) {
+      throw new BadRequestDomainError('Hall rules: maxUtilization must be a share above 0 and at most 0.7.');
+    }
+    out.maxUtilization = v as number;
+  }
+  if (raw['eventSeparation'] != null) {
+    out.eventSeparation = metres('eventSeparation', raw['eventSeparation'], true);
+    if (out.eventSeparation < 3) throw new BadRequestDomainError('Hall rules: eventSeparation must be at least 3 m.');
+  }
+  if (raw['emergencyExitClearance'] != null) {
+    const clearance = metres('emergencyExitClearance', raw['emergencyExitClearance'], false);
+    if (clearance < 3) {
+      throw new BadRequestDomainError('Hall rules: emergencyExitClearance must be at least 3 metres.');
+    }
+    out.emergencyExitClearance = clearance;
+  }
   if (raw['stallNumberPrefix'] != null) {
     if (typeof raw['stallNumberPrefix'] !== 'string' || raw['stallNumberPrefix'].length > 20) {
       throw new BadRequestDomainError(
