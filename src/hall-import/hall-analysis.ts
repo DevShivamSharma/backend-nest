@@ -263,6 +263,10 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
       });
       return best;
     };
+    // Each hall's floor is its share of the plan's grid (hall floor and foyer), when it draws one.
+    const grid = gridRegions(drawing, outlines[0], s);
+    const gridAreas = grid ? hallGridAreas(grid, split.floors, split.owners, s) : null;
+    const floorOf = split.floors.map((f, i) => (gridAreas?.[i].length ? gridOutline(gridAreas[i], s) : f));
     const drafts = halls.map((hall, i) => {
       const margin = 12 / s!;
       // Inside the hall, or outside the building but closest to this hall (a gate, a toilet
@@ -276,9 +280,9 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
         x >= hall.box.minX - 5 / s! && x <= hall.box.maxX + 5 / s! && y >= hall.box.minY - 45 / s! && y <= hall.box.maxY + 45 / s!;
       // The hall you plan stalls in is its exhibition floor (inside and including its
       // peripheral passage); toilets, lifts and stairs stay outside it, in the service cores.
-      return buildDraft(drawing, split.floors[i], s!, i, fileName, legends, { owns, names, nearX: cx });
+      return buildDraft(drawing, floorOf[i], s!, i, fileName, legends, { owns, names, nearX: cx });
     });
-    drafts.forEach((d, i) => ((d as HallDraft & { box?: Box }).box = split.floors[i].box));
+    drafts.forEach((d, i) => ((d as HallDraft & { box?: Box }).box = floorOf[i].box));
     drafts.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     drafts.forEach((d, i) => (d.id = `hall-${i + 1}`));
     warnings.unshift(`This plan holds ${drafts.length} halls (${drafts.map((d) => d.name).join(', ')}). Check and save each one.`);
@@ -301,8 +305,8 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
   if (floor) outlines.unshift(floor);
   // Where the plan draws its 1 m stall grid, that grid IS the plotting floor (Hall 6: the hall
   // and Foyer-6). It comes first; the wider outlines stay available as alternatives.
-  const grid = gridFloor(drawing, building, s);
-  if (grid) outlines.unshift(grid);
+  const grid = gridRegions(drawing, building, s);
+  if (grid) outlines.unshift(gridOutline(grid.rings, s));
 
   // A plan can carry the same hall twice (an xref inserted at two places): offer it once.
   const candidates: HallDraft[] = [];
@@ -524,14 +528,21 @@ function exhibitionFloors(d: CadDrawing, legends: HallLegend[], building: Outlin
 /** The stall grid's layer: "GRID", "STALL GRID", "GRID LINES" (not the structural "A-GRID" axes). */
 const STALL_GRID_LAYER = /^(?:stall[ _-]*)?grid(?:[ _-]*lines)?$/i;
 
+/** The plan's stall grid: the areas it covers, and its own line positions to snap cuts onto. */
+export interface GridRegions {
+  /** Axis-aligned rings, drawing units, edges on the plan's grid lines. Largest first. */
+  rings: number[][];
+  snapX: (x: number) => number;
+  snapY: (y: number) => number;
+}
+
 /**
- * The plotting floor of a plan that draws its 1 m stall grid: the areas the grid covers inside
- * the building (Hall 6: the hall floor and Foyer-6), and nothing else. Service cores, ramps and
- * wall zones between the grids are not floor, so their toilets, stairs, lifts and gates stay
- * beside the grid. The outline is the grids' bounding rectangle; `floorRings` hold the grids,
- * squared onto the plan's own grid lines. null when the plan has no such grid.
+ * The areas a plan's 1 m stall grid covers inside the building: the hall floors and the foyer
+ * floors (Hall 6: the hall and Foyer-6; Halls 2-5: four hall floors and four foyers). Service
+ * cores, ramps and the wall zones between grids are not floor. Read from the grid layer alone,
+ * so it works for any hall that draws one; null when the plan has none.
  */
-function gridFloor(d: CadDrawing, building: Outline, s: number): Outline | null {
+function gridRegions(d: CadDrawing, building: Outline, s: number): GridRegions | null {
   const segments: number[] = [];
   const xs: number[] = [];
   const ys: number[] = [];
@@ -545,9 +556,21 @@ function gridFloor(d: CadDrawing, building: Outline, s: number): Outline | null 
     }
   }
   if (segments.length < 4 * 40) return null;
+  // The grid's own pitch (1 m on ITPO plans): the most common spacing of its lines.
+  const spacing = new Map<number, number>();
+  for (const lines of [xs, ys]) {
+    const sorted = [...new Set(lines.map((v) => Math.round(v * s * 10) / 10))].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = Math.round((sorted[i] - sorted[i - 1]) * 10) / 10;
+      if (gap >= 0.3 && gap <= 6) spacing.set(gap, (spacing.get(gap) ?? 0) + 1);
+    }
+  }
+  const pitch = [...spacing].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1;
   const pad = 2 / s;
   const box = { minX: building.box.minX - pad, minY: building.box.minY - pad, maxX: building.box.maxX + pad, maxY: building.box.maxY + pad };
-  const regions = coveredRegions(segments, box, s, { closeMetres: 0.8, minArea: 100, minThickness: 3, openMetres: 1 }).filter((r) =>
+  // Gaps between grid lines close at 0.8 pitch; a stray grid stroke beside the grid (thinner than
+  // 0.9 pitch) is opened away, while whole-cell steps of a chamfered foyer edge stay.
+  const regions = coveredRegions(segments, box, s, { closeMetres: 0.8 * pitch, minArea: 50, minThickness: 3, openMetres: 0.45 * pitch }).filter((r) =>
     pointInPolygon((r.box.minX + r.box.maxX) / 2, (r.box.minY + r.box.maxY) / 2, building.ring),
   );
   if (!regions.length || regions[0].area < 400) return null;
@@ -562,7 +585,7 @@ function gridFloor(d: CadDrawing, building: Outline, s: number): Outline | null 
         if (sorted[mid] < v) lo = mid + 1;
         else hi = mid;
       }
-      const near = [sorted[lo - 1], sorted[lo]].filter((l) => l !== undefined && Math.abs(l - v) * s <= 0.3);
+      const near = [sorted[lo - 1], sorted[lo]].filter((l) => l !== undefined && Math.abs(l - v) * s <= 0.3 * pitch);
       return near.sort((a, b) => Math.abs(a - v) - Math.abs(b - v))[0] ?? v;
     };
   };
@@ -572,13 +595,82 @@ function gridFloor(d: CadDrawing, building: Outline, s: number): Outline | null 
     for (let i = 0; i < r.ring.length; i += 2) out.push(snapX(r.ring[i]), snapY(r.ring[i + 1]));
     return cleanRing(out, 1e-6 / s);
   });
-  const all = rings.flat();
-  const bb = boxOf(all);
+  return { rings, snapX, snapY };
+}
+
+/**
+ * A hall whose floor is exactly some grid areas: the outline is their bounding rectangle and
+ * `floorRings` hold the areas (see `floorMasks`).
+ */
+function gridOutline(rings: number[][], s: number): Outline {
+  const bb = boxOf(rings.flat());
   const ring = [bb.minX, bb.minY, bb.maxX, bb.minY, bb.maxX, bb.maxY, bb.minX, bb.maxY];
   const area = rings.reduce((sum, r) => sum + polygonArea(r), 0);
   const m2 = Math.round(area * s * s).toLocaleString('en-IN');
   const parts = rings.length > 1 ? `${rings.length} grid areas` : 'the grid';
   return { ring, box: bb, area, floorRings: rings, label: `Plotting floor: ${parts} drawn on the plan · ${m2} m²` };
+}
+
+/**
+ * The grid areas of each hall of a multi-hall plan. An area overlapping one hall's floor is that
+ * hall's; one shared by several (Halls 3 and 4 share one grid, divided by a movable partition)
+ * is cut on the grid line midway between their floors; an area no floor overlaps (a foyer) goes
+ * to the hall whose part of the building holds it, else to the nearest hall.
+ */
+export function hallGridAreas(grid: GridRegions, floors: Outline[], owners: Outline[], s: number): number[][][] {
+  const out: number[][][] = floors.map(() => []);
+  const overlap = (a: Box, b: Box) =>
+    Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX)) * Math.max(0, Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY));
+  const pair = (pts: number[]): Array<[number, number]> => {
+    const ring: Array<[number, number]> = [];
+    for (let i = 0; i < pts.length; i += 2) ring.push([pts[i], pts[i + 1]]);
+    return [...ring, ring[0]];
+  };
+  for (const ring of grid.rings) {
+    const rb = boxOf(ring);
+    const area = polygonArea(ring);
+    const halls = floors
+      .map((f, i) => ({ i, o: overlap(rb, f.box) }))
+      .filter((h) => h.o > 0.05 * Math.min(area, polygonArea(floors[h.i].ring)))
+      .map((h) => h.i);
+    if (halls.length === 1) {
+      out[halls[0]].push(ring);
+      continue;
+    }
+    if (!halls.length) {
+      const [cx, cy] = [(rb.minX + rb.maxX) / 2, (rb.minY + rb.maxY) / 2];
+      let owner = owners.findIndex((o) => pointInPolygon(cx, cy, o.ring));
+      if (owner < 0) {
+        const gap = (b: Box) => Math.hypot(Math.max(b.minX - cx, 0, cx - b.maxX), Math.max(b.minY - cy, 0, cy - b.maxY));
+        owner = floors.reduce((best, f, i) => (gap(f.box) < gap(floors[best].box) ? i : best), 0);
+      }
+      out[owner].push(ring);
+      continue;
+    }
+    for (const h of halls) {
+      const lim = { ...rb };
+      const a = floors[h].box;
+      for (const g of halls) {
+        if (g === h) continue;
+        const b = floors[g].box;
+        const ox = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+        const oy = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
+        // Cut across the axis on which the two floors lie side by side.
+        if (ox < oy) {
+          if (a.minX + a.maxX < b.minX + b.maxX) lim.maxX = Math.min(lim.maxX, grid.snapX((a.maxX + b.minX) / 2));
+          else lim.minX = Math.max(lim.minX, grid.snapX((b.maxX + a.minX) / 2));
+        } else if (a.minY + a.maxY < b.minY + b.maxY) lim.maxY = Math.min(lim.maxY, grid.snapY((a.maxY + b.minY) / 2));
+        else lim.minY = Math.max(lim.minY, grid.snapY((b.maxY + a.minY) / 2));
+      }
+      if (lim.maxX <= lim.minX || lim.maxY <= lim.minY) continue;
+      const rect = [lim.minX, lim.minY, lim.maxX, lim.minY, lim.maxX, lim.maxY, lim.minX, lim.maxY];
+      for (const piece of intersection([pair(ring)], [pair(rect)])) {
+        const flat = cleanRing(piece[0].slice(0, -1).flat(), 1e-6 / s);
+        if (flat.length >= 8 && polygonArea(flat) * s * s >= 50) out[h].push(flat);
+      }
+    }
+  }
+  return out;
 }
 
 /** A zone cut to the floor rings: one zone per piece left, none when it lies off the floor. */

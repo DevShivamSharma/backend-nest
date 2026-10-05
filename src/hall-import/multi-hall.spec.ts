@@ -1,6 +1,6 @@
 import { validateHallGeometry } from '../layouts/placement/hall-geometry';
 import { type CadDrawing, type CadText } from './cad-drawing';
-import { analyseDrawing } from './hall-analysis';
+import { analyseDrawing, hallGridAreas } from './hall-analysis';
 import { joinHallTitleFragments } from './pdf-drawing';
 
 const text = (value: string, x: number, y: number, height = 2): CadText =>
@@ -92,5 +92,37 @@ describe('halls connected through an open foyer', () => {
     const drawing = connectedPlan();
     drawing.polylines = drawing.polylines.filter((p) => p.layer !== 'GRID' || p.points[0] < 50 || p.points[0] > 90 || p.points[1] < 5);
     expect(analyseDrawing(drawing, 'plan.pdf').multiHall).toBe(false);
+  });
+});
+
+describe('grid floors of a multi-hall plan', () => {
+  // 1 unit = 1 m. Two halls share one 100 x 50 m grid, divided by a partition at x = 50 (Halls 3
+  // and 4); a third hall has its own grid; each of the first two has a foyer grid below it.
+  const rect = (x0: number, y0: number, x1: number, y1: number) => [x0, y0, x1, y0, x1, y1, x0, y1];
+  const outline = (ring: number[]) => {
+    const xs = ring.filter((_, i) => i % 2 === 0);
+    const ys = ring.filter((_, i) => i % 2 === 1);
+    return { ring, box: { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) }, area: 0, label: '' };
+  };
+  const grid = {
+    rings: [rect(0, 0, 100, 50), rect(110, 0, 150, 50), rect(10, -20, 30, -5), rect(70, -20, 90, -5)],
+    snapX: (x: number) => Math.round(x),
+    snapY: (y: number) => Math.round(y),
+  };
+  const floors = [rect(1, 1, 49, 49), rect(51, 1, 99, 49), rect(111, 1, 149, 49)].map(outline);
+  const owners = [rect(-5, -25, 50, 55), rect(50, -25, 105, 55), rect(105, -25, 155, 55)].map(outline);
+  const areas = hallGridAreas(grid, floors, owners, 1);
+  const boxes = (i: number) => areas[i].map((r) => outline(r).box);
+
+  it('cuts a grid two halls share on the grid line between their floors', () => {
+    expect(boxes(0)).toContainEqual({ minX: 0, minY: 0, maxX: 50, maxY: 50 });
+    expect(boxes(1)).toContainEqual({ minX: 50, minY: 0, maxX: 100, maxY: 50 });
+  });
+
+  it('gives each foyer grid to the hall whose part of the building holds it', () => {
+    expect(boxes(0)).toContainEqual({ minX: 10, minY: -20, maxX: 30, maxY: -5 });
+    expect(boxes(1)).toContainEqual({ minX: 70, minY: -20, maxX: 90, maxY: -5 });
+    expect(areas[2]).toHaveLength(1);
+    expect(areas.flat()).toHaveLength(5);
   });
 });
