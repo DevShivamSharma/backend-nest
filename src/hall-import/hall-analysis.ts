@@ -213,8 +213,8 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
     s ??= 1;
   }
 
-  const considered: Outline[] = [];
-  const outlines = findOutlines(drawing, s, extent, considered);
+  let considered: Outline[] = [];
+  let outlines = findOutlines(drawing, s, extent, considered);
   if (!outlines.length) {
     warnings.push('No closed hall outline was found; the extent of the wall lines is used instead. Check the outline before saving.');
     outlines.push(fallbackOutline(drawing, extent));
@@ -226,6 +226,16 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
     legends = findLegend({ ...sheet, polylines: sheet.polylines ?? [] }, null);
   }
   if (!legends.length) warnings.push('No legend was found on the plan.');
+
+  // The exhibition floors (inside the peripheral passage) are floor by definition: trace the wall
+  // outlines again with them as known interior, so an opening wider than the tracer closes (a
+  // rolling shutter with no wall line across it) cannot cut a bay of the hall out of its outline.
+  const knownFloors = exhibitionFloors(drawing, legends, outlines[0], s);
+  if (knownFloors.length) {
+    const retraced: Outline[] = [];
+    const again = findOutlines(drawing, s, extent, retraced, knownFloors.map((f) => f.ring));
+    if (again.length) [outlines, considered] = [again, retraced];
+  }
 
   // Several halls on one plan (Halls 2-5 in one drawing): one draft per hall.
   const split = splitHalls(drawing, legends, outlines[0], s);
@@ -582,7 +592,14 @@ function guessScale(d: CadDrawing, extent: Box): number | null {
   return null;
 }
 
-function findOutlines(d: CadDrawing, s: number, extent: Box, considered: Outline[] = []): Outline[] {
+function findOutlines(
+  d: CadDrawing,
+  s: number,
+  extent: Box,
+  considered: Outline[] = [],
+  /** Areas known to be inside a hall (its exhibition floors): never outside a traced outline. */
+  interior: number[][] = [],
+): Outline[] {
   const extentW = extent.maxX - extent.minX;
   const extentH = extent.maxY - extent.minY;
   const hallTexts = d.texts.filter((t) => HALL_NAME.test(t.text));
@@ -622,7 +639,8 @@ function findOutlines(d: CadDrawing, s: number, extent: Box, considered: Outline
   const exact = scored.length;
 
   // Walls drawn as separate lines: trace the enclosed area instead.
-  for (const traced of traceOutlines(d.polylines, s, (l) => TRACE_LAYER.test(leaf(l)) && !NOT_TRACE_LAYER.test(leaf(l)))) {
+  const isWall = (l: string) => TRACE_LAYER.test(leaf(l)) && !NOT_TRACE_LAYER.test(leaf(l));
+  for (const traced of traceOutlines(d.polylines, s, isWall, interior)) {
     if (traced.area > 80_000) continue;
     const names = hallNamesInside(hallTexts, traced.ring);
     const weight = 2 * (names === 1 ? 1.5 : names > 1 ? 0.4 : 1);

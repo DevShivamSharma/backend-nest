@@ -8,6 +8,12 @@ import { boxOf, type Box, type CadPolyline } from './cad-drawing';
  * `2 * GAP_METRES` wide are closed (doors, gates, cargo entries), everything reachable from
  * outside is flood-filled away, and the outer contour of what remains is traced. Each separate
  * enclosed area is one outline, so a plan showing several halls yields several.
+ *
+ * `interior` rings are areas already known to be inside a building (an exhibition floor found
+ * from its peripheral passage): the outside never floods into them. Without that, an opening
+ * wider than the gap closing (a rolling shutter drawn with no wall line across it) lets the
+ * outside pour into the hall until it meets internal lines (smoke curtains), and a whole bay
+ * of the floor is cut out of the outline.
  */
 
 export interface TracedOutline {
@@ -28,6 +34,7 @@ export function traceOutlines(
   polylines: CadPolyline[],
   metresPerUnit: number,
   isWall: (layer: string) => boolean,
+  interior: number[][] = [],
 ): TracedOutline[] {
   const segments: number[] = [];
   for (const p of polylines) {
@@ -43,7 +50,7 @@ export function traceOutlines(
 
   const out: TracedOutline[] = [];
   for (const box of clusters(segments, CLUSTER_METRES / metresPerUnit).slice(0, 8)) {
-    out.push(...traceCluster(segments, box, metresPerUnit));
+    out.push(...traceCluster(segments, box, metresPerUnit, interior));
   }
   return out.sort((a, b) => b.area - a.area);
 }
@@ -93,7 +100,7 @@ function clusters(segments: number[], cell: number): Box[] {
   return found.sort((a, b) => b.weight - a.weight).map((f) => f.box);
 }
 
-function traceCluster(segments: number[], box: Box, s: number): TracedOutline[] {
+function traceCluster(segments: number[], box: Box, s: number, interior: number[][]): TracedOutline[] {
   const widthM = (box.maxX - box.minX) * s;
   const heightM = (box.maxY - box.minY) * s;
   if (Math.max(widthM, heightM) < 15 || Math.max(widthM, heightM) > 1500) return [];
@@ -116,9 +123,15 @@ function traceCluster(segments: number[], box: Box, s: number): TracedOutline[] 
   // Close the gaps: outside = what the border reaches without passing within r cells of a wall,
   // then grown back by r so the outline hugs the walls again.
   const near = within(wall, w, h, r);
+  const known = new Uint8Array(w * h);
+  for (const ring of interior) {
+    const filled = fillPolygon(ring, box, unit, pad, w, h);
+    for (let i = 0; i < known.length; i++) known[i] |= filled[i];
+  }
+  for (let i = 0; i < near.length; i++) near[i] |= known[i];
   const outside = flood(near, w, h);
   const inside = within(outside, w, h, r);
-  for (let i = 0; i < inside.length; i++) inside[i] = inside[i] ? 0 : 1;
+  for (let i = 0; i < inside.length; i++) inside[i] = inside[i] && !known[i] ? 0 : 1;
 
   const results: TracedOutline[] = [];
   const label = new Int32Array(w * h);

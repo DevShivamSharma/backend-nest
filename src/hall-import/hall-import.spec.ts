@@ -5,7 +5,7 @@ import { readDxf } from './dxf-reader';
 import { analyseDrawing, classifyBlock, classifyLabel } from './hall-analysis';
 import { detectFormat } from './hall-import.controller';
 import { statedScale } from './pdf-drawing';
-import { crossingStrips, enclosedAreas } from './outline-trace';
+import { crossingStrips, enclosedAreas, traceOutlines } from './outline-trace';
 
 /** Minimal ASCII DXF writer for tests: group-code pairs, one per line. */
 class Dxf {
@@ -282,5 +282,20 @@ describe('hall import: multi-hall helpers', () => {
     const strips = crossingStrips(lines, { minX: 0, minY: 0, maxX: 40, maxY: 30 }, 1, { alongX: true, minCover: 0.6, maxWidthMetres: 3 });
     expect(strips).toHaveLength(1);
     expect(strips[0]).toBeCloseTo(20.4, 0);
+  });
+
+  it('never cuts a known exhibition floor out of a traced outline (Hall 6 rolling shutter)', () => {
+    // A 120 x 80 m hall, 1 unit = 1 m. Its top wall has a 16 m opening with no line across it
+    // (a rolling shutter), wider than the tracer closes. Smoke curtains box in the bay behind it.
+    const walls = [
+      { layer: 'A-WALL', color: null, closed: false, points: [52, 80, 0, 80, 0, 0, 120, 0, 120, 80, 68, 80] },
+      { layer: 'SS-SMOKE CURTAIN', color: null, closed: false, points: [40, 79, 40, 40, 80, 40, 80, 79] },
+    ];
+    const areaOf = (interior: number[][]) => traceOutlines(walls, 1, () => true, interior)[0]?.area ?? 0;
+    // Without the floor, the outside floods through the opening and the bay is lost.
+    expect(areaOf([])).toBeLessThan(0.85 * 9600);
+    // The exhibition floor (inside its peripheral passage) is known interior: the hall is whole.
+    const floor = [2, 2, 118, 2, 118, 78, 2, 78];
+    expect(areaOf([floor])).toBeGreaterThan(0.97 * 9600);
   });
 });
