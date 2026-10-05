@@ -256,6 +256,53 @@ describe('hall import: plotting floor from the plan grid (Hall 6)', () => {
   });
 });
 
+describe('hall import: grid floor on the stated 1 m lattice', () => {
+  // A 30 x 20 m grid with a 3 x 5 m notch on its left side, plotted 0.2 % large (each 1 m cell is
+  // 1.002 units at 1 unit = 1 m): the floor must still come out in whole metres.
+  const f = 1.002;
+  const grid: CadDrawing['polylines'] = [];
+  const lattice = (x0: number, y0: number, w: number, h: number) => {
+    for (let x = x0; x <= x0 + w; x++) grid.push({ layer: 'GRID', color: null, closed: false, points: [x * f, y0 * f, x * f, (y0 + h) * f] });
+    for (let y = y0; y <= y0 + h; y++) grid.push({ layer: 'GRID', color: null, closed: false, points: [x0 * f, y * f, (x0 + w) * f, y * f] });
+  };
+  lattice(5, 5, 30, 5);
+  lattice(8, 10, 27, 5);
+  lattice(5, 15, 30, 10);
+  const result = analyseDrawing(
+    {
+      format: 'dxf', metresPerUnit: 1, scaleSource: 'test', inserts: [], fills: [], layers: ['A-WALL', 'GRID'], warnings: [], texts: [],
+      polylines: [{ layer: 'A-WALL', color: null, closed: true, points: [0, 0, 42, 0, 42, 30, 0, 30] }, ...grid],
+    },
+    'hall.dxf',
+  );
+  const hall = result.candidates[0];
+
+  it('puts the grid area on whole metres although the plot is a little off scale', () => {
+    expect(hall.outlineLabel).toMatch(/^Plotting floor/);
+    expect(hall.width).toBe(30);
+    expect(hall.length).toBe(20);
+    expect(hall.areaM2).toBe(30 * 20 - 3 * 5);
+  });
+
+  it('never puts a wall on the floor, not even at the notch’s inner corners', () => {
+    const minX = Math.min(...hall.boundary.map((p) => p.x));
+    const maxX = Math.max(...hall.boundary.map((p) => p.x));
+    const minZ = Math.min(...hall.boundary.map((p) => p.z));
+    const maxZ = Math.max(...hall.boundary.map((p) => p.z));
+    const masks = hall.blockedAreas.filter((b) => b.kind === 'outside');
+    const onFloor = (x: number, z: number) =>
+      x > minX && x < maxX && z > minZ && z < maxZ &&
+      !masks.some((m) => Math.abs(x - m.posX) < m.width / 2 && Math.abs(z - m.posZ) < m.length / 2);
+    // Every 5 cm over each wall, its ends included.
+    let onFloorSamples = 0;
+    for (const w of hall.blockedAreas.filter((b) => b.kind === 'wall')) {
+      for (let x = w.posX - w.width / 2 + 0.025; x < w.posX + w.width / 2; x += 0.05)
+        for (let z = w.posZ - w.length / 2 + 0.025; z < w.posZ + w.length / 2; z += 0.05) if (onFloor(x, z)) onFloorSamples++;
+    }
+    expect(onFloorSamples).toBe(0);
+  });
+});
+
 describe('hall import: helpers', () => {
   it.each([
     ['TOILET(F)', 'toilet-female'],

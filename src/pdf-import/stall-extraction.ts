@@ -1,5 +1,6 @@
 import type { Point } from '../layouts/placement/placement-rules';
 import { normalizeFootprint, polygonArea } from '../layouts/placement/stall-footprint';
+import { coveredRegions } from '../hall-import/outline-trace';
 import type { LayerMode, PageVectors, VectorPath, VectorSegment } from './pdf-vectors';
 
 /**
@@ -114,6 +115,18 @@ export interface GroupCalibration {
   usesHalfMetres: boolean;
 }
 
+/**
+ * An area the drawing's stall grid covers (a hall floor, a foyer): its outline in its group's
+ * metres, on the grid lines. The planner lays these over the hall's own grid floor to place the
+ * stalls exactly.
+ */
+export interface GridArea {
+  group: string;
+  outline: Point[];
+  /** m² the grid actually covers (less than the rectangle for a stepped or notched area). */
+  area: number;
+}
+
 /** A stall label the drawing has, but no closed stall outline around it. */
 export interface UnresolvedLabel {
   texts: string[];
@@ -133,6 +146,8 @@ export interface ExtractionResult {
   excluded: ExcludedRegion[];
   /** Stall labels with no closed outline: a line is missing in the drawing. Never guessed. */
   unresolved: UnresolvedLabel[];
+  /** Areas the stall grid covers, per group, largest first. Empty when the grid covers none. */
+  gridAreas: GridArea[];
   issues: string[];
 }
 
@@ -853,8 +868,66 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     stalls,
     excluded,
     unresolved,
+    gridAreas: gridAreas(gridSegs, pitch, groups, stalls),
     issues,
   };
+}
+
+/**
+ * The areas the 1 m grid covers (gaps between its lines closed, stray strokes dropped), each
+ * given to the group whose stalls it holds (else the nearest) and put in that group's metres.
+ */
+function gridAreas(
+  gridSegs: VectorSegment[],
+  pitch: number,
+  groups: GroupCalibration[],
+  stalls: ExtractedStall[],
+): GridArea[] {
+  if (gridSegs.length < 40 || !groups.length) return [];
+  const flat: number[] = [];
+  for (const g of gridSegs) flat.push(g.x1, g.y1, g.x2, g.y2);
+  const box = bounds(gridSegs.flatMap((g) => [{ x: g.x1, z: g.y1 }, { x: g.x2, z: g.y2 }]));
+  const regions = coveredRegions(flat, { minX: box.minX, minY: box.minY, maxX: box.maxX, maxY: box.maxY }, 1 / pitch, {
+    closeMetres: 0.8,
+    minArea: 20,
+    minThickness: 3,
+    openMetres: 0.45,
+  });
+  const out: GridArea[] = [];
+  for (const r of regions) {
+    const b = r.box;
+    // The group holding most of this area's stalls; failing that, the one nearest to it.
+    let best = groups[0];
+    let bestScore = -Infinity;
+    for (const g of groups) {
+      const inside = stalls.filter((s) => {
+        if (s.group !== g.group) return false;
+        const c = centroidOf(s.outlinePt);
+        return c.x >= b.minX && c.x <= b.maxX && c.z >= b.minY && c.z <= b.maxY;
+      }).length;
+      const centre = { x: (b.minX + b.maxX) / 2, z: (b.minY + b.maxY) / 2 };
+      const d = Math.hypot(centre.x - g.originX, centre.z - g.originY);
+      const score = inside * 1e6 - d;
+      if (score > bestScore) [best, bestScore] = [g, score];
+    }
+    // Page y runs down, like the plan's z: no flip. Edges lie on grid lines (half metres in the
+    // group's frame), so the outline keeps the area's own shape: notches, chamfered steps.
+    const half = (v: number) => Math.round(v * 2) / 2;
+    const pts: Point[] = [];
+    for (let i = 0; i < r.ring.length; i += 2) {
+      const p = { x: half((r.ring[i] - best.originX) / best.pitchX), z: half((r.ring[i + 1] - best.originY) / best.pitchY) };
+      const last = pts[pts.length - 1];
+      if (!last || last.x !== p.x || last.z !== p.z) pts.push(p);
+    }
+    while (pts.length > 1 && pts[0].x === pts[pts.length - 1].x && pts[0].z === pts[pts.length - 1].z) pts.pop();
+    const outline = pts.filter((q, k) => {
+      const a = pts[(k - 1 + pts.length) % pts.length];
+      const c = pts[(k + 1) % pts.length];
+      return (q.x - a.x) * (c.z - q.z) - (q.z - a.z) * (c.x - q.x) !== 0;
+    });
+    if (outline.length >= 4) out.push({ group: best.group, outline, area: round3(r.area) });
+  }
+  return out.sort((a, b) => b.area - a.area);
 }
 
 // --- geometry helpers ---------------------------------------------------------------------------------

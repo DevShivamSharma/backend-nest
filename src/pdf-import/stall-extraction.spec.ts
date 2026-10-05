@@ -362,6 +362,22 @@ describe('extractStalls', () => {
     expect(extractStalls(plan).stalls.find((s) => s.letter === 'C')!.category).toBe('standard');
   });
 
+  it('reports the area its grid covers, in the group frame, for laying it on the hall', () => {
+    const r = extractStalls(blockPlan());
+    expect(r.gridAreas).toHaveLength(1);
+    const [area] = r.gridAreas;
+    const xs = area.outline.map((p) => p.x);
+    const zs = area.outline.map((p) => p.z);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(30, 1);
+    expect(Math.max(...zs) - Math.min(...zs)).toBeCloseTo(20, 1);
+    // The stalls lie on it, in the same frame.
+    for (const st of r.stalls)
+      for (const p of st.outline) {
+        expect(p.x).toBeGreaterThanOrEqual(Math.min(...xs));
+        expect(p.z).toBeLessThanOrEqual(Math.max(...zs));
+      }
+  });
+
   it('refuses a drawing without a measurable grid', () => {
     const plan = blockPlan();
     plan.paths = plan.paths.filter((p) => p.layer !== 'GRID');

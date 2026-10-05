@@ -590,9 +590,17 @@ function gridRegions(d: CadDrawing, building: Outline, s: number): GridRegions |
     };
   };
   const [snapX, snapY] = [snap(xs), snap(ys)];
+  // The plan states its grid (1 m): measured line spacing is off by a fraction of a percent (the
+  // plot's scale), which adds up to centimetres across a hall and leaves a stall drawn flush with a
+  // wall a centimetre over it. So each area is put on an exact lattice of the stated pitch,
+  // counted from its own corner (areas of one plan may sit on grids offset from each other).
+  const nominal = Math.max(0.5, Math.round(pitch * 2) / 2);
   const rings = regions.map((r) => {
     const out: number[] = [];
     for (let i = 0; i < r.ring.length; i += 2) out.push(snapX(r.ring[i]), snapY(r.ring[i + 1]));
+    const [ax, ay] = [Math.min(...out.filter((_, i) => i % 2 === 0)), Math.min(...out.filter((_, i) => i % 2 === 1))];
+    const onLattice = (v: number, a: number) => a + (Math.round(((v - a) * s) / pitch) * nominal) / s;
+    for (let i = 0; i < out.length; i += 2) [out[i], out[i + 1]] = [onLattice(out[i], ax), onLattice(out[i + 1], ay)];
     return cleanRing(out, 1e-6 / s);
   });
   return { rings, snapX, snapY };
@@ -723,8 +731,10 @@ function floorMasks(rings: number[][], box: Box, s: number, plan: (x: number, y:
     for (const [key, r] of open) if (!runs.has(key)) areas.push(rect(r.x0, r.y0, xs[i], r.y1, 'outside'));
     open = runs;
   }
-  // Walls: a strip outside every floor edge, long enough to close the corners.
+  // Walls: a strip outside every floor edge. At an outer corner it runs on to close the corner;
+  // at an inner corner (a notch) running on would put it on the floor, so it stops there.
   const t = FLOOR_WALL_METRES / s;
+  const onFloor = (x: number, y: number) => rings.some((ring) => pointInPolygon(x, y, ring));
   for (const r of rings) {
     const n = r.length / 2;
     for (let k = 0; k < n; k++) {
@@ -734,11 +744,15 @@ function floorMasks(rings: number[][], box: Box, s: number, plan: (x: number, y:
       if (horizontal) {
         const up = !pointInPolygon(mx, my + t / 2, r);
         const [y0, y1] = up ? [ay, ay + t] : [ay - t, ay];
-        areas.push(rect(Math.min(ax, bx) - t, y0, Math.max(ax, bx) + t, y1, 'wall'));
+        const [lo, hi] = [Math.min(ax, bx), Math.max(ax, bx)];
+        const cy = (y0 + y1) / 2;
+        areas.push(rect(onFloor(lo - t / 2, cy) ? lo : lo - t, y0, onFloor(hi + t / 2, cy) ? hi : hi + t, y1, 'wall'));
       } else {
         const right = !pointInPolygon(mx + t / 2, my, r);
         const [x0, x1] = right ? [ax, ax + t] : [ax - t, ax];
-        areas.push(rect(x0, Math.min(ay, by) - t, x1, Math.max(ay, by) + t, 'wall'));
+        const [lo, hi] = [Math.min(ay, by), Math.max(ay, by)];
+        const cx = (x0 + x1) / 2;
+        areas.push(rect(x0, onFloor(cx, lo - t / 2) ? lo : lo - t, x1, onFloor(cx, hi + t / 2) ? hi : hi + t, 'wall'));
       }
     }
   }
