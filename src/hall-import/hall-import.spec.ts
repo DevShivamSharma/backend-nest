@@ -1,6 +1,6 @@
 import { UnsupportedMediaTypeException } from '@nestjs/common';
 import { validateHallGeometry } from '../layouts/placement/hall-geometry';
-import { plainText } from './cad-drawing';
+import { plainText, type CadDrawing } from './cad-drawing';
 import { readDxf } from './dxf-reader';
 import { analyseDrawing, classifyBlock, classifyLabel } from './hall-analysis';
 import { detectFormat } from './hall-import.controller';
@@ -195,6 +195,64 @@ describe('hall import: analysis', () => {
         blockedAreas: hall.blockedAreas,
       }),
     ).not.toThrow();
+  });
+});
+
+describe('hall import: plotting floor from the plan grid (Hall 6)', () => {
+  // A 70 x 40 m building, 1 unit = 1 m: a 50 x 34 m hall grid, then a 3 m wall zone, then a
+  // 12 x 20 m foyer grid. Toilets sit in the service core above the foyer, off any grid.
+  const grid: CadDrawing['polylines'] = [];
+  const lattice = (x0: number, y0: number, w: number, h: number) => {
+    for (let x = x0; x <= x0 + w; x++) grid.push({ layer: 'GRID', color: null, closed: false, points: [x, y0, x, y0 + h] });
+    for (let y = y0; y <= y0 + h; y++) grid.push({ layer: 'GRID', color: null, closed: false, points: [x0, y, x0 + w, y] });
+  };
+  lattice(3, 3, 50, 34);
+  lattice(56, 10, 12, 20);
+  // A stray grid stroke beside the hall grid must not grow the floor.
+  grid.push({ layer: 'GRID', color: null, closed: false, points: [10, 37, 10, 39.5] });
+  const drawing: CadDrawing = {
+    format: 'dxf',
+    metresPerUnit: 1,
+    scaleSource: 'test',
+    polylines: [{ layer: 'A-WALL', color: null, closed: true, points: [0, 0, 70, 0, 70, 40, 0, 40] }, ...grid],
+    texts: [{ layer: '', text: 'TOILET (M)', x: 62, y: 35, height: 0.5 }],
+    inserts: [],
+    fills: [],
+    layers: ['A-WALL', 'GRID'],
+    warnings: [],
+  };
+  const result = analyseDrawing(drawing, 'hall-6.dxf');
+  const hall = result.candidates[0];
+
+  it('offers the grid areas, and only them, as the default floor', () => {
+    expect(hall.outlineLabel).toMatch(/^Plotting floor: 2 grid areas/);
+    expect(hall.areaM2).toBeGreaterThan(0.98 * (50 * 34 + 12 * 20));
+    expect(hall.areaM2).toBeLessThan(1.02 * (50 * 34 + 12 * 20));
+    expect(hall.width).toBeCloseTo(65, 0);
+    expect(hall.length).toBeCloseTo(34, 0);
+    // The wider building outline stays available.
+    expect(result.candidates.some((c) => c.areaM2 > 2500)).toBe(true);
+  });
+
+  it('masks off everything between the grids and walls their edges, as SelfCare plans do', () => {
+    const masks = hall.blockedAreas.filter((b) => b.kind === 'outside');
+    const masked = masks.reduce((sum, b) => sum + b.width * b.length, 0);
+    expect(masked).toBeCloseTo(65 * 34 - (50 * 34 + 12 * 20), -1);
+    expect(hall.blockedAreas.filter((b) => b.kind === 'wall')).toHaveLength(8);
+    // The gap between the hall grid and the foyer grid is masked over its full height.
+    const at = (x: number, z: number) => masks.some((b) => Math.abs(x - b.posX) < b.width / 2 && Math.abs(z - b.posZ) < b.length / 2);
+    expect(at(hall.boundary[0].x + 51.5, 0)).toBe(true);
+    expect(at(hall.boundary[0].x + 25, 0)).toBe(false);
+  });
+
+  it('keeps facilities where the plan puts them, beside the grid', () => {
+    const toilet = hall.amenities.find((a) => a.kind === 'toilet-male')!;
+    const minX = Math.min(...hall.boundary.map((p) => p.x));
+    const minZ = Math.min(...hall.boundary.map((p) => p.z));
+    // Plan (62, 35) is above the foyer grid (y 10-30), i.e. z < the foyer's top, off the floor.
+    const foyerTop = minZ + (37 - 30);
+    expect(toilet.position.x - minX).toBeCloseTo(59, 0);
+    expect(toilet.position.z).toBeLessThan(foyerTop);
   });
 });
 

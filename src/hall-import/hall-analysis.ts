@@ -1,3 +1,5 @@
+import { intersection, type MultiPolygon } from 'polygon-clipping';
+
 import type {
   BlockedArea,
   HallAmenity,
@@ -122,7 +124,14 @@ const OUTLINE_WALL = /wall/i;
 const TRACE_LAYER = /wall|shell|glaz|extw|facade|a-col|as-cols|curtain/i;
 const NOT_TRACE_LAYER = /(^|\$|\|)ld-|landscape|planter|kerb|rcc wall|patt|hatch/i;
 /** Layers worth drawing in the review underlay, most useful first. */
-const LINEWORK_PRIORITY: RegExp[] = [/shell|boundary|outline|wall/i, /door|gate|stair|lift|toilet|sanr|exit/i, /col|partition|facia|fascia/i];
+// The stall grid right after the walls: it is the floor a planner plots on, and only a few hundred
+// long lines, while hatch-like layers (smoke curtains) can fill the whole budget.
+const LINEWORK_PRIORITY: RegExp[] = [
+  /shell|boundary|outline|wall/i,
+  /^(?:stall[ _-]*)?grid(?:[ _-]*lines)?$/i,
+  /door|gate|stair|lift|toilet|sanr|exit/i,
+  /col|partition|facia|fascia/i,
+];
 const LINEWORK_SKIP = /hatch|patt|tree|plant|landscape|light|lite|dim|text|anno|furn|seat|jali|glaz|pipe|viewport|defpoints/i;
 
 const HALL_NAME = /\b(?:exhibition\s*)?hall\s*[-–#]?\s*(\d{1,2}\s*[a-z]?)\b/i;
@@ -290,6 +299,10 @@ export function analyseDrawing(drawing: CadDrawing, fileName: string): HallImpor
       }
     : undefined;
   if (floor) outlines.unshift(floor);
+  // Where the plan draws its 1 m stall grid, that grid IS the plotting floor (Hall 6: the hall
+  // and Foyer-6). It comes first; the wider outlines stay available as alternatives.
+  const grid = gridFloor(drawing, building, s);
+  if (grid) outlines.unshift(grid);
 
   // A plan can carry the same hall twice (an xref inserted at two places): offer it once.
   const candidates: HallDraft[] = [];
@@ -508,6 +521,138 @@ function exhibitionFloors(d: CadDrawing, legends: HallLegend[], building: Outlin
     });
 }
 
+/** The stall grid's layer: "GRID", "STALL GRID", "GRID LINES" (not the structural "A-GRID" axes). */
+const STALL_GRID_LAYER = /^(?:stall[ _-]*)?grid(?:[ _-]*lines)?$/i;
+
+/**
+ * The plotting floor of a plan that draws its 1 m stall grid: the areas the grid covers inside
+ * the building (Hall 6: the hall floor and Foyer-6), and nothing else. Service cores, ramps and
+ * wall zones between the grids are not floor, so their toilets, stairs, lifts and gates stay
+ * beside the grid. The outline is the grids' bounding rectangle; `floorRings` hold the grids,
+ * squared onto the plan's own grid lines. null when the plan has no such grid.
+ */
+function gridFloor(d: CadDrawing, building: Outline, s: number): Outline | null {
+  const segments: number[] = [];
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const p of d.polylines) {
+    if (!STALL_GRID_LAYER.test(leaf(p.layer))) continue;
+    for (let i = 0; i + 3 < p.points.length; i += 2) {
+      const [x1, y1, x2, y2] = p.points.slice(i, i + 4);
+      segments.push(x1, y1, x2, y2);
+      if (Math.abs(x2 - x1) * s < 0.01) xs.push(x1);
+      if (Math.abs(y2 - y1) * s < 0.01) ys.push(y1);
+    }
+  }
+  if (segments.length < 4 * 40) return null;
+  const pad = 2 / s;
+  const box = { minX: building.box.minX - pad, minY: building.box.minY - pad, maxX: building.box.maxX + pad, maxY: building.box.maxY + pad };
+  const regions = coveredRegions(segments, box, s, { closeMetres: 0.8, minArea: 100, minThickness: 3, openMetres: 1 }).filter((r) =>
+    pointInPolygon((r.box.minX + r.box.maxX) / 2, (r.box.minY + r.box.maxY) / 2, building.ring),
+  );
+  if (!regions.length || regions[0].area < 400) return null;
+  // The raster is ~0.1 m: put each edge back on the grid line it traces.
+  const snap = (lines: number[]) => {
+    const sorted = [...new Set(lines.map((v) => Math.round(v * s * 100) / (100 * s)))].sort((a, b) => a - b);
+    return (v: number) => {
+      let lo = 0;
+      let hi = sorted.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (sorted[mid] < v) lo = mid + 1;
+        else hi = mid;
+      }
+      const near = [sorted[lo - 1], sorted[lo]].filter((l) => l !== undefined && Math.abs(l - v) * s <= 0.3);
+      return near.sort((a, b) => Math.abs(a - v) - Math.abs(b - v))[0] ?? v;
+    };
+  };
+  const [snapX, snapY] = [snap(xs), snap(ys)];
+  const rings = regions.map((r) => {
+    const out: number[] = [];
+    for (let i = 0; i < r.ring.length; i += 2) out.push(snapX(r.ring[i]), snapY(r.ring[i + 1]));
+    return cleanRing(out, 1e-6 / s);
+  });
+  const all = rings.flat();
+  const bb = boxOf(all);
+  const ring = [bb.minX, bb.minY, bb.maxX, bb.minY, bb.maxX, bb.maxY, bb.minX, bb.maxY];
+  const area = rings.reduce((sum, r) => sum + polygonArea(r), 0);
+  const m2 = Math.round(area * s * s).toLocaleString('en-IN');
+  const parts = rings.length > 1 ? `${rings.length} grid areas` : 'the grid';
+  return { ring, box: bb, area, floorRings: rings, label: `Plotting floor: ${parts} drawn on the plan · ${m2} m²` };
+}
+
+/** A zone cut to the floor rings: one zone per piece left, none when it lies off the floor. */
+function clipZone(zone: HallZone, floors: Point[][]): HallZone[] {
+  const ring = (pts: Point[]): Array<[number, number]> => [...pts.map((p): [number, number] => [p.x, p.z]), [pts[0].x, pts[0].z]];
+  const floor: MultiPolygon = floors.map((f) => [ring(f)]);
+  return intersection([ring(zone.polygon)], floor)
+    .map((piece) => piece[0].slice(0, -1).map(([x, z]) => ({ x: round(x), z: round(z) })))
+    .filter((polygon) => polygon.length >= 3 && validPolygon(polygon.flatMap((p) => [p.x, p.z])))
+    .map((polygon) => ({ ...zone, polygon }));
+}
+
+const FLOOR_WALL_COLOR = '#742371';
+const FLOOR_WALL_METRES = 0.3;
+
+/**
+ * The hall rectangle minus its floor rings, as SelfCare-style rectangles: white 'outside' masks
+ * over everything that is not floor, and purple walls along every floor edge. The planner traces
+ * its floor regions from exactly these (several regions, each with its own grid).
+ */
+function floorMasks(rings: number[][], box: Box, s: number, plan: (x: number, y: number) => Point): BlockedArea[] {
+  const cuts = (values: number[]) => [...new Set(values)].sort((a, b) => a - b);
+  const xs = cuts([box.minX, box.maxX, ...rings.flatMap((r) => r.filter((_, i) => i % 2 === 0))]);
+  const ys = cuts([box.minY, box.maxY, ...rings.flatMap((r) => r.filter((_, i) => i % 2 === 1))]);
+  const isFloor = (i: number, j: number) => {
+    const [x, y] = [(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2];
+    return rings.some((r) => pointInPolygon(x, y, r));
+  };
+  const rect = (x0: number, y0: number, x1: number, y1: number, kind: 'outside' | 'wall'): BlockedArea => {
+    const c = plan((x0 + x1) / 2, (y0 + y1) / 2);
+    return kind === 'outside'
+      ? { posX: c.x, posZ: c.z, width: round((x1 - x0) * s), length: round((y1 - y0) * s), kind, color: '#ffffff', title: 'Not hall floor' }
+      : { posX: c.x, posZ: c.z, width: round((x1 - x0) * s), length: round((y1 - y0) * s), kind, color: FLOOR_WALL_COLOR, title: 'Wall' };
+  };
+  const areas: BlockedArea[] = [];
+  // Masks: runs of non-floor cells down each column, merged across columns with the same run.
+  let open = new Map<string, { x0: number; y0: number; y1: number }>();
+  for (let i = 0; i <= xs.length - 1; i++) {
+    const runs = new Map<string, { x0: number; y0: number; y1: number }>();
+    if (i < xs.length - 1) {
+      for (let j = 0; j < ys.length - 1; j++) {
+        if (isFloor(i, j)) continue;
+        let k = j;
+        while (k + 1 < ys.length - 1 && !isFloor(i, k + 1)) k++;
+        const key = `${j}:${k}`;
+        runs.set(key, open.get(key) ?? { x0: xs[i], y0: ys[j], y1: ys[k + 1] });
+        j = k;
+      }
+    }
+    for (const [key, r] of open) if (!runs.has(key)) areas.push(rect(r.x0, r.y0, xs[i], r.y1, 'outside'));
+    open = runs;
+  }
+  // Walls: a strip outside every floor edge, long enough to close the corners.
+  const t = FLOOR_WALL_METRES / s;
+  for (const r of rings) {
+    const n = r.length / 2;
+    for (let k = 0; k < n; k++) {
+      const [ax, ay, bx, by] = [r[2 * k], r[2 * k + 1], r[(2 * k + 2) % r.length], r[(2 * k + 3) % r.length]];
+      const horizontal = Math.abs(ay - by) < Math.abs(ax - bx);
+      const [mx, my] = [(ax + bx) / 2, (ay + by) / 2];
+      if (horizontal) {
+        const up = !pointInPolygon(mx, my + t / 2, r);
+        const [y0, y1] = up ? [ay, ay + t] : [ay - t, ay];
+        areas.push(rect(Math.min(ax, bx) - t, y0, Math.max(ax, bx) + t, y1, 'wall'));
+      } else {
+        const right = !pointInPolygon(mx + t / 2, my, r);
+        const [x0, x1] = right ? [ax, ax + t] : [ax - t, ax];
+        areas.push(rect(x0, Math.min(ay, by) - t, x1, Math.max(ay, by) + t, 'wall'));
+      }
+    }
+  }
+  return areas;
+}
+
 // --- outline -------------------------------------------------------------------------------
 
 interface Outline {
@@ -515,6 +660,12 @@ interface Outline {
   box: Box;
   area: number; // drawing units²
   label: string;
+  /**
+   * The only floor inside `ring` (axis-aligned rings, drawing units): the hall is then its
+   * bounding rectangle with everything else masked off, as SelfCare plans draw a hall whose
+   * foyer is a separate floor region.
+   */
+  floorRings?: number[][];
 }
 
 function drawingExtent(d: CadDrawing): Box {
@@ -737,19 +888,26 @@ function buildDraft(
   // Amenities and labels may sit just outside the walls (toilet blocks off the foyer).
   const margin = Math.max(12 / s, 0.08 * size);
   const inScope = scope?.owns ?? ((x: number, y: number) => boxContains(box, x, y, margin));
-  const inside = (x: number, y: number) => pointInPolygon(x, y, ring);
+  const floorRings = outline.floorRings;
+  const inside = floorRings
+    ? (x: number, y: number) => floorRings.some((r) => pointInPolygon(x, y, r))
+    : (x: number, y: number) => pointInPolygon(x, y, ring);
 
   const boundary = ringToPlan(ring, plan);
   const amenities = findAmenities(d, s, inScope, plan);
   const markers = findMarkers(d, inScope, plan, amenities);
-  const openings = findOpenings(amenities, boundary);
+  // Entries and exits open onto the floor itself, not onto the masked-off rest of the rectangle.
+  const openings = findOpenings(amenities, floorRings ? floorRings.map((r) => ringToPlan(r, plan)) : [boundary]);
   const painted = legendZones(d, legends, s, box, inside, plan);
   const zones = [
     ...painted,
     // Layer-named zones only for kinds the legend did not already paint.
     ...findZones(d, s, inside, plan).filter((z) => !painted.some((p) => p.kind === z.kind)),
-  ].map((z, i) => ({ ...z, id: `z-${i + 1}` }));
-  const blockedAreas = findPillars(d, s, inside, plan);
+  ]
+    // On a grid floor, a band painted over the grid's edge stops at the floor's edge.
+    .flatMap((z) => (floorRings ? clipZone(z, floorRings.map((r) => ringToPlan(r, plan))) : [z]))
+    .map((z, i) => ({ ...z, id: `z-${i + 1}` }));
+  const blockedAreas = [...findPillars(d, s, inside, plan), ...(floorRings ? floorMasks(floorRings, box, s, plan) : [])];
   const compass = findCompass(d, s, box, margin, plan);
 
   return {
@@ -758,7 +916,7 @@ function buildDraft(
     name: hallName(d, ring, inScope, scope) ?? nameFromFile(fileName),
     width: round((box.maxX - box.minX) * s),
     length: round((box.maxY - box.minY) * s),
-    areaM2: Math.round(polygonArea(ring) * s * s),
+    areaM2: Math.round((floorRings ? floorRings.reduce((sum, r) => sum + polygonArea(r), 0) : polygonArea(ring)) * s * s),
     boundary,
     amenities,
     markers,
@@ -927,19 +1085,22 @@ function findMarkers(
 }
 
 /** Entries, exits and cargo gates on (or right by) the outline become doors in the hall wall. */
-function findOpenings(amenities: ImportedAmenity[], boundary: Point[]): HallOpening[] {
+function findOpenings(amenities: ImportedAmenity[], rings: Point[][]): HallOpening[] {
   const openings: HallOpening[] = [];
   for (const a of amenities) {
     const kind = OPENING_KIND[a.kind];
     if (!kind) continue;
-    let best: { distance: number; x: number; z: number; edge: number } | null = null;
-    for (let i = 0; i < boundary.length; i++) {
-      const p = boundary[i];
-      const q = boundary[(i + 1) % boundary.length];
-      const hit = segmentDistance(a.position.x, a.position.z, p.x, p.z, q.x, q.z);
-      if (!best || hit.distance < best.distance) best = { distance: hit.distance, x: hit.x, z: hit.y, edge: i };
+    let best: { distance: number; x: number; z: number; edge: number; boundary: Point[] } | null = null;
+    for (const boundary of rings) {
+      for (let i = 0; i < boundary.length; i++) {
+        const p = boundary[i];
+        const q = boundary[(i + 1) % boundary.length];
+        const hit = segmentDistance(a.position.x, a.position.z, p.x, p.z, q.x, q.z);
+        if (!best || hit.distance < best.distance) best = { distance: hit.distance, x: hit.x, z: hit.y, edge: i, boundary };
+      }
     }
     if (!best || best.distance > 6) continue;
+    const boundary = best.boundary;
     const p = boundary[best.edge];
     const q = boundary[(best.edge + 1) % boundary.length];
     const facing = inwardFacing(p, q, best, boundary);

@@ -321,7 +321,7 @@ export function coveredRegions(
   segments: number[],
   box: Box,
   metresPerUnit: number,
-  opts: { closeMetres: number; minArea: number; minThickness: number },
+  opts: { closeMetres: number; minArea: number; minThickness: number; openMetres?: number },
 ): TracedOutline[] {
   const s = metresPerUnit;
   const widthM = (box.maxX - box.minX) * s;
@@ -349,6 +349,17 @@ export function coveredRegions(
   const nearOutside = within(outside, w, h, r);
   const covered = new Uint8Array(w * h);
   for (let i = 0; i < covered.length; i++) covered[i] = grown[i] && !nearOutside[i] ? 1 : 0;
+  // Opening: shrink, then grow back, so spurs thinner than 2 * openMetres (a stray line beside a
+  // stall grid) are dropped while the area's own edges stay put.
+  if (opts.openMetres) {
+    const k = Math.max(1, Math.round(opts.openMetres / res));
+    const uncovered = new Uint8Array(w * h);
+    for (let i = 0; i < uncovered.length; i++) uncovered[i] = covered[i] ? 0 : 1;
+    const core = within(uncovered, w, h, k);
+    for (let i = 0; i < core.length; i++) core[i] = core[i] ? 0 : 1;
+    const opened = within(core, w, h, k);
+    for (let i = 0; i < covered.length; i++) covered[i] = covered[i] && opened[i] ? 1 : 0;
+  }
 
   // Zones cannot have holes. A ring-shaped area (a peripheral band around the stall floor) is cut
   // through the middle of each hole, so it becomes pieces without holes and never swallows the
