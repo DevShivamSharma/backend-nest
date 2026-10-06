@@ -24,6 +24,12 @@ export interface AssistPlan {
 /** Pure proposal builder. It never writes a layout or modifies caller-owned data. */
 export function planStalls(intent: LayoutIntent, request: AssistRequest): AssistPlan {
   const zones = request.hall.planningZones ?? [];
+  if (intent.action === 'clear' && !request.zoneId && intent.area.type === 'region') {
+    // "clear the Exhibition zone": a zone named by label or kind, when exactly one matches.
+    const name = intent.area.marker!.toLowerCase().replace(/\s+zone$/, '');
+    const named = zones.filter(z => z.label.toLowerCase() === name || z.kind.toLowerCase() === name || z.id === intent.area.marker);
+    if (named.length === 1) return planZone(intent, { ...request, zoneId: named[0].id });
+  }
   if (intent.action !== 'place' || intent.clarification || !zones.length) return planZone(intent, request);
   let selected = zones.filter(sellableZone);
   if (request.zoneId) selected = selected.filter(z => z.id === request.zoneId);
@@ -67,6 +73,14 @@ function planZone(intent: LayoutIntent, request: AssistRequest, sharedDeadline =
   if (intent.action === 'rules') { result.rules = intent.rules; result.summary = 'Here are the rule changes. Nothing changes until you apply them.'; return result; }
   const hall = request.hall;
   const existing = request.existingStalls.map((s, i) => ({ ...s, id: String(s.id ?? `existing-${i}`) }));
+  // A chosen planning zone is the whole target of a removal: its polygon, not a marker or the
+  // area the intent guessed, decides which stalls go.
+  const clearZone = intent.action === 'clear' ? hall.planningZones?.find(z => z.id === request.zoneId) : undefined;
+  if (clearZone) {
+    result.removals = existing.filter(s => s.status !== 'CANCELLED' && pointInPolygon({x:s.posX,z:s.posZ},clearZone.polygon)).slice(0,intent.count ?? 2000).map(s => ({ id:s.id, name:s.name ?? s.id }));
+    result.summary = `Proposed removal of ${result.removals.length} stalls from ${clearZone.label}. Review and apply to confirm.`;
+    result.notes.push('Nothing has been removed.'); return result;
+  }
   const ctx = buildPlacementContext(hall, hall.eventType ?? 'B2B', existing);
   // The interactive planner applies its default wall clearance even on legacy halls.
   // Proposals meet that stricter preview rule; existing save behavior is untouched.

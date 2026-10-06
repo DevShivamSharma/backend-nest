@@ -648,19 +648,6 @@
             "z": -11.5
           },
           "slot": 0
-        },
-        {
-          "kind": "entry-up",
-          "label": "Entry",
-          "position": {
-            "x": -1.93125,
-            "z": 22.8
-          },
-          "anchor": {
-            "x": -3.75,
-            "z": 21.25
-          },
-          "slot": 0
         }
       ],
       "markers": [
@@ -759,37 +746,37 @@
         },
         {
           "label": "Entry or exit gates",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\">E:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\">E:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "Service Gates",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\">S:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\">S:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "Toilet",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\">T:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "First two digits indicates Hall no.",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\"><span class=\"text-decoration-underline\">09</span>01:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\"><span class=\"text-decoration-underline\">09</span>01:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "Second two digits indicates Toilet no. or Hose reel no. or entry gate no. or service gate no.",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\">09<span class=\"text-decoration-underline\">01</span>:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\">09<span class=\"text-decoration-underline\">01</span>:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "First two digits indicates Hall no.",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\"><span class=\"text-decoration-underline\">10</span>01:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\"><span class=\"text-decoration-underline\">10</span>01:</p>",
           "visibleInBookMode": false
         },
         {
           "label": "Second two digits indicates Toilet no. or Hose reel no. or entry gate no. or service gate no.",
-          "htmlContent": "<p class=\"color-dark fw-600 mb-0\">10<span class=\"text-decoration-underline\">01</span>:</p>",
+          "htmlContent": "<p class=\"color-dark fw-500 mb-0\">10<span class=\"text-decoration-underline\">01</span>:</p>",
           "visibleInBookMode": false
         }
       ]

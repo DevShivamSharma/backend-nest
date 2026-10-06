@@ -445,19 +445,6 @@
           "z": -11.5
         },
         "slot": 0
-      },
-      {
-        "kind": "entry-up",
-        "label": "Entry",
-        "position": {
-          "x": -1.93125,
-          "z": 22.8
-        },
-        "anchor": {
-          "x": -3.75,
-          "z": 21.25
-        },
-        "slot": 0
       }
     ],
     "Hall 11": [
@@ -1118,9 +1105,6 @@
         "slot": 0
       }
     ],
-    "F&B Outlet": [],
-    "PNG Nozzle": [],
-    "F&B Vending Point": [],
     "Hall 1A & Hall 1B": [
       {
         "kind": "toilet-female",

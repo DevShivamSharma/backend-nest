@@ -104,6 +104,14 @@ describe('deterministic proposal planner',()=>{
   });
   it('keeps odd-sized halls on the existing edge snap grid',()=>{const req=request('2 stalls of 3x3');req.hall.width=41;const result=check(req);expect(result.stalls).toHaveLength(2);expect(result.stalls.every(s=>Number.isInteger(s.posX-s.width/2+20.5))).toBe(true);});
   it('reports no space rather than breaking placement rules',()=>{const req=request('20 stalls of 3x3');req.hall.width=5;req.hall.length=5;expect(check(req).placedCount).toBe(0);});
+  it('removes only the stalls inside the chosen or named zone',()=>{
+    const req=request('from exhibition zone delete all the stalls');
+    req.hall.planningZones=[{id:'ex',kind:'EXHIBITION',label:'Exhibition',eventType:'B2B',polygon:[{x:-40,z:-30},{x:0,z:-30},{x:0,z:30},{x:-40,z:30}]}];
+    req.existingStalls=[{id:'in',name:'Inside',width:3,length:3,posX:-20,posZ:0},{id:'out',name:'Outside',width:3,length:3,posX:20,posZ:0}];
+    const intent={...parseSimple('clear all stalls'),area:{type:'whole_hall' as const}};
+    expect(planStalls(intent,{...req,zoneId:'ex'}).removals).toEqual([{id:'in',name:'Inside'}]);
+    expect(planStalls({...intent,area:{type:'region',marker:'Exhibition zone'}},req).removals).toEqual([{id:'in',name:'Inside'}]);
+  });
   it('proposes removals without modifying existing stalls',()=>{const req=request('clear all stalls');req.existingStalls=[{id:'a',name:'Keep until applied',width:3,length:3,posX:0,posZ:0}];const result=check(req);expect(result.stalls).toEqual([]);expect(result.removals).toEqual([{id:'a',name:'Keep until applied'}]);expect(req.existingStalls).toHaveLength(1);});
 });
 

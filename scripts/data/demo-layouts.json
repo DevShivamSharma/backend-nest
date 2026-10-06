@@ -9,13 +9,19 @@
         "prodEventId": "c71a3f90-297f-4a40-9517-73d453b110a1",
         "pxPerUnit": 20,
         "stallsInEvent": 120,
-        "seeded": 119,
+        "seeded": 118,
         "dropped": [
           {
             "name": "BIHAR",
             "posX": 29,
             "posZ": 4.5,
             "reason": "overlaps blocked area (outside at 39,31.5)"
+          },
+          {
+            "name": "M/o Power",
+            "posX": -26.5,
+            "posZ": 16.5,
+            "reason": "overlaps a non-clickable area (zone zone:SMOKE_CURTAIN at -0.5,12)"
           }
         ],
         "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 27"
@@ -380,52 +386,12 @@
             "color": "#742371"
           },
           {
-            "posX": -14.5,
-            "posZ": 53.5,
-            "width": 3,
-            "length": 1,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 16.5,
-            "posZ": 53.5,
-            "width": 3,
-            "length": 1,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
             "posX": 0,
             "posZ": -57.75,
             "width": 84,
             "length": 1.5,
             "kind": "outside",
             "color": "#ffffff"
-          },
-          {
-            "posX": -0.5,
-            "posZ": -38,
-            "width": 83,
-            "length": 1,
-            "kind": "zone",
-            "color": "#8A2BE2"
-          },
-          {
-            "posX": -0.5,
-            "posZ": -12.5,
-            "width": 83,
-            "length": 1,
-            "kind": "zone",
-            "color": "#8A2BE2"
-          },
-          {
-            "posX": -0.5,
-            "posZ": 12,
-            "width": 83,
-            "length": 1,
-            "kind": "zone",
-            "color": "#8A2BE2"
           },
           {
             "posX": -38,
@@ -1884,6 +1850,7 @@
             "length": 1.2,
             "kind": "zone",
             "color": "gray",
+            "strokeColor": "yellow",
             "title": "Pillar"
           },
           {
@@ -1908,10 +1875,9 @@
         "boundary": null,
         "zones": [
           {
-            "id": "zone-1",
+            "id": "sc-zone-1",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": -16,
@@ -1929,13 +1895,13 @@
                 "x": -16,
                 "z": 54
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-2",
+            "id": "sc-zone-2",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": 15,
@@ -1953,13 +1919,13 @@
                 "x": 15,
                 "z": 54
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-3",
-            "kind": "NO_CONSTRUCTION",
+            "id": "sc-zone-3",
+            "kind": "SMOKE_CURTAIN",
             "label": "Fire curtains (No construction zone below)",
-            "color": "#8A2BE2",
             "polygon": [
               {
                 "x": -42,
@@ -1977,13 +1943,14 @@
                 "x": -42,
                 "z": -37.5
               }
-            ]
+            ],
+            "color": "#8a2be2",
+            "hidden": true
           },
           {
-            "id": "zone-4",
-            "kind": "NO_CONSTRUCTION",
+            "id": "sc-zone-4",
+            "kind": "SMOKE_CURTAIN",
             "label": "Fire curtains (No construction zone below)",
-            "color": "#8A2BE2",
             "polygon": [
               {
                 "x": -42,
@@ -2001,13 +1968,14 @@
                 "x": -42,
                 "z": -12
               }
-            ]
+            ],
+            "color": "#8a2be2",
+            "hidden": true
           },
           {
-            "id": "zone-5",
-            "kind": "NO_CONSTRUCTION",
+            "id": "sc-zone-5",
+            "kind": "SMOKE_CURTAIN",
             "label": "Fire curtains (No construction zone below)",
-            "color": "#8A2BE2",
             "polygon": [
               {
                 "x": -42,
@@ -2025,7 +1993,9 @@
                 "x": -42,
                 "z": 12.5
               }
-            ]
+            ],
+            "color": "#8a2be2",
+            "hidden": true
           }
         ],
         "openings": [],
@@ -2143,7 +2113,394 @@
             }
           }
         ],
-        "rules": null
+        "rules": null,
+        "amenities": [
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": -50.73125,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": -54.5,
+              "z": 42
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": -43.10625,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": -54.5,
+              "z": 42
+            },
+            "slot": 1
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -35.2375,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": -54.5,
+              "z": 42
+            },
+            "slot": 2
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -27.125,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": -54.5,
+              "z": 42
+            },
+            "slot": 3
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -47.9875,
+              "z": 7.05
+            },
+            "anchor": {
+              "x": -52,
+              "z": 5.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -47.9875,
+              "z": -10.45
+            },
+            "anchor": {
+              "x": -52,
+              "z": -12
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -47.5,
+              "z": -38.95
+            },
+            "anchor": {
+              "x": -52,
+              "z": -40.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -39.3875,
+              "z": -38.95
+            },
+            "anchor": {
+              "x": -52,
+              "z": -40.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -37,
+              "z": -57.45
+            },
+            "anchor": {
+              "x": -41.5,
+              "z": -59
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -28.8875,
+              "z": -57.45
+            },
+            "anchor": {
+              "x": -41.5,
+              "z": -59
+            },
+            "slot": 1
+          },
+          {
+            "kind": "drinking-water",
+            "label": "Drinking Water",
+            "position": {
+              "x": -21.2625,
+              "z": -57.45
+            },
+            "anchor": {
+              "x": -41.5,
+              "z": -59
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": -2.23125,
+              "z": -62.45
+            },
+            "anchor": {
+              "x": -6,
+              "z": -64
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 5.39375,
+              "z": -62.45
+            },
+            "anchor": {
+              "x": -6,
+              "z": -64
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 39,
+              "z": -44.95
+            },
+            "anchor": {
+              "x": 34.5,
+              "z": -46.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 47.1125,
+              "z": -44.95
+            },
+            "anchor": {
+              "x": 34.5,
+              "z": -46.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "drinking-water",
+            "label": "Drinking Water",
+            "position": {
+              "x": 54.7375,
+              "z": -44.95
+            },
+            "anchor": {
+              "x": 34.5,
+              "z": -46.5
+            },
+            "slot": 2
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 47.0125,
+              "z": -25.45
+            },
+            "anchor": {
+              "x": 43,
+              "z": -27
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 47.5,
+              "z": -13.95
+            },
+            "anchor": {
+              "x": 43,
+              "z": -15.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 48.5125,
+              "z": 16.05
+            },
+            "anchor": {
+              "x": 44.5,
+              "z": 14.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 29.26875,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": 25.5,
+              "z": 42
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 36.89375,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": 25.5,
+              "z": 42
+            },
+            "slot": 1
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 44.7625,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": 25.5,
+              "z": 42
+            },
+            "slot": 2
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 52.875,
+              "z": 43.55
+            },
+            "anchor": {
+              "x": 25.5,
+              "z": 42
+            },
+            "slot": 3
+          },
+          {
+            "kind": "circulation",
+            "label": "Circulation Area",
+            "position": {
+              "x": 1.5,
+              "z": 53.55
+            },
+            "anchor": {
+              "x": -3,
+              "z": 52
+            },
+            "slot": 0
+          }
+        ],
+        "compass": {
+          "position": {
+            "x": 32,
+            "z": 51
+          },
+          "size": 5,
+          "rotation": -270,
+          "label": "N",
+          "labelOffset": {
+            "x": 2.5,
+            "z": 2.75
+          }
+        },
+        "legends": [
+          {
+            "label": "Fire curtains (No construction zone below)",
+            "colorCode": "#8a2be2",
+            "visibleInViewMode": false
+          },
+          {
+            "label": "Compulsory passage for entry/exit/services",
+            "colorCode": "red"
+          },
+          {
+            "label": "Columns",
+            "colorCode": "gray"
+          },
+          {
+            "label": "Gate Ground Floor",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First digit indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG<span class=\"text-decoration-underline\">1</span>-1:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second digits indicates entry gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG1-<span class=\"text-decoration-underline\">1</span>:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Emergency Exit",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First digit indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE<span class=\"text-decoration-underline\">1</span>-1:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second digits indicates emergency gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE1-<span class=\"text-decoration-underline\">1</span>:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Toilet",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First two digits/letters indicates Hall no. and Floor (G-ground & F-First)",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T-<span class=\"text-decoration-underline\">1G</span>C:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Third letter indicates Toilet no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T-1G<span class=\"text-decoration-underline\">C</span>:</p>",
+            "visibleInBookMode": false
+          }
+        ]
       },
       "stalls": [
         {
@@ -2186,17 +2543,6 @@
           "height": 4,
           "posX": 8.5,
           "posZ": -25,
-          "color": "#3498db",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "M/o Power",
-          "width": 17,
-          "length": 27,
-          "height": 4,
-          "posX": -26.5,
-          "posZ": 16.5,
           "color": "#3498db",
           "gateSide": "FRONT",
           "status": "AVAILABLE"
@@ -3465,8 +3811,27 @@
         "prodEventId": "248be12c-a90d-48b3-b482-c892a7ec5b8e",
         "pxPerUnit": 20,
         "stallsInEvent": 48,
-        "seeded": 48,
-        "dropped": [],
+        "seeded": 45,
+        "dropped": [
+          {
+            "name": "Wipro",
+            "posX": -21.5,
+            "posZ": -13,
+            "reason": "overlaps a non-clickable area (zone zone:SMOKE_CURTAIN at -19.5,-9)"
+          },
+          {
+            "name": "Meity",
+            "posX": 14,
+            "posZ": -1.5,
+            "reason": "overlaps a non-clickable area (zone zone:SMOKE_CURTAIN at 14,-9)"
+          },
+          {
+            "name": "L and T Technologies",
+            "posX": -21,
+            "posZ": -31,
+            "reason": "overlaps a non-clickable area (zone zone:SMOKE_CURTAIN at -19.5,-9)"
+          }
+        ],
         "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 18"
       },
       "hall": {
@@ -3677,22 +4042,6 @@
             "color": "#742371"
           },
           {
-            "posX": -18,
-            "posZ": 44,
-            "width": 3,
-            "length": 1,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 12.5,
-            "posZ": 44,
-            "width": 2,
-            "length": 1,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
             "posX": -33.5,
             "posZ": -28,
             "width": 1,
@@ -3772,31 +4121,14 @@
             "kind": "zone",
             "color": "gray",
             "title": "Pillar"
-          },
-          {
-            "posX": -19.5,
-            "posZ": -9,
-            "width": 1,
-            "length": 70,
-            "kind": "zone",
-            "color": "#8A2BE2"
-          },
-          {
-            "posX": 14,
-            "posZ": -9,
-            "width": 1,
-            "length": 70,
-            "kind": "zone",
-            "color": "#8A2BE2"
           }
         ],
         "boundary": null,
         "zones": [
           {
-            "id": "zone-1",
+            "id": "sc-zone-1",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": -19.5,
@@ -3814,13 +4146,13 @@
                 "x": -19.5,
                 "z": 44.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-2",
+            "id": "sc-zone-2",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": 11.5,
@@ -3838,13 +4170,13 @@
                 "x": 11.5,
                 "z": 44.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-3",
-            "kind": "NO_CONSTRUCTION",
+            "id": "sc-zone-3",
+            "kind": "SMOKE_CURTAIN",
             "label": "Fire curtains (No construction zone below)",
-            "color": "#8A2BE2",
             "polygon": [
               {
                 "x": -20,
@@ -3862,13 +4194,14 @@
                 "x": -20,
                 "z": 26
               }
-            ]
+            ],
+            "color": "#8a2be2",
+            "hidden": true
           },
           {
-            "id": "zone-4",
-            "kind": "NO_CONSTRUCTION",
+            "id": "sc-zone-4",
+            "kind": "SMOKE_CURTAIN",
             "label": "Fire curtains (No construction zone below)",
-            "color": "#8A2BE2",
             "polygon": [
               {
                 "x": 13.5,
@@ -3886,7 +4219,9 @@
                 "x": 13.5,
                 "z": 26
               }
-            ]
+            ],
+            "color": "#8a2be2",
+            "hidden": true
           }
         ],
         "openings": [],
@@ -3983,20 +4318,409 @@
             }
           }
         ],
-        "rules": null
+        "rules": null,
+        "amenities": [
+          {
+            "kind": "cargo-truck",
+            "label": "Cargo/Service Entry",
+            "position": {
+              "x": -34.76875,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": -40,
+              "z": -50.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -23,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": -27.5,
+              "z": -50.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": -14.8875,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": -27.5,
+              "z": -50.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": -7.50625,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": -27.5,
+              "z": -50.5
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 0.11875,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": -27.5,
+              "z": -50.5
+            },
+            "slot": 3
+          },
+          {
+            "kind": "cargo-truck",
+            "label": "Cargo/Service Entry",
+            "position": {
+              "x": 9.23125,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": 4,
+              "z": -50.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 18.075,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": 4,
+              "z": -50.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 26.1875,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": 4,
+              "z": -50.5
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 36.26875,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": 32.5,
+              "z": -50.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 43.89375,
+              "z": -48.95
+            },
+            "anchor": {
+              "x": 32.5,
+              "z": -50.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "drinking-water",
+            "label": "Drinking Water",
+            "position": {
+              "x": -43.4875,
+              "z": 29.8
+            },
+            "anchor": {
+              "x": -47.5,
+              "z": 28.25
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -35.375,
+              "z": 29.8
+            },
+            "anchor": {
+              "x": -47.5,
+              "z": 28.25
+            },
+            "slot": 1
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": -27.50625,
+              "z": 29.8
+            },
+            "anchor": {
+              "x": -47.5,
+              "z": 28.25
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": -19.88125,
+              "z": 29.8
+            },
+            "anchor": {
+              "x": -47.5,
+              "z": 28.25
+            },
+            "slot": 3
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 16.26875,
+              "z": 36.55
+            },
+            "anchor": {
+              "x": 12.5,
+              "z": 35
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 23.89375,
+              "z": 36.55
+            },
+            "anchor": {
+              "x": 12.5,
+              "z": 35
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 32.25,
+              "z": 36.55
+            },
+            "anchor": {
+              "x": 12.5,
+              "z": 35
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 28.76875,
+              "z": 29.55
+            },
+            "anchor": {
+              "x": 25,
+              "z": 28
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 36.39375,
+              "z": 29.55
+            },
+            "anchor": {
+              "x": 25,
+              "z": 28
+            },
+            "slot": 1
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 37.5125,
+              "z": 16.05
+            },
+            "anchor": {
+              "x": 33.5,
+              "z": 14.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 45.625,
+              "z": 16.05
+            },
+            "anchor": {
+              "x": 33.5,
+              "z": 14.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 42.0125,
+              "z": -12.95
+            },
+            "anchor": {
+              "x": 38,
+              "z": -14.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "emergency-exit",
+            "label": "Emergency Exit",
+            "position": {
+              "x": 37.5125,
+              "z": -29.95
+            },
+            "anchor": {
+              "x": 33.5,
+              "z": -31.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 45.625,
+              "z": -29.95
+            },
+            "anchor": {
+              "x": 33.5,
+              "z": -31.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "circulation",
+            "label": "Circulation Area",
+            "position": {
+              "x": -29,
+              "z": 42.55
+            },
+            "anchor": {
+              "x": -33.5,
+              "z": 41
+            },
+            "slot": 0
+          }
+        ],
+        "compass": {
+          "position": {
+            "x": 31.6,
+            "z": -56
+          },
+          "size": 5,
+          "rotation": 90,
+          "label": "N",
+          "labelOffset": {
+            "x": 2.9,
+            "z": 2
+          }
+        },
+        "legends": [
+          {
+            "label": "Fire curtains (No construction zone below)",
+            "colorCode": "#8a2be2",
+            "visibleInViewMode": false
+          },
+          {
+            "label": "Compulsory passage for entry/exit/services",
+            "colorCode": "red"
+          },
+          {
+            "label": "Columns",
+            "colorCode": "gray"
+          },
+          {
+            "label": "Gate Ground Floor",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First digit indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG<span class=\"text-decoration-underline\">2</span>-1:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second digits indicates entry gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">GG2-<span class=\"text-decoration-underline\">1</span>:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Emergency Exit",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First digit indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE<span class=\"text-decoration-underline\">2</span>-1:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second digits indicates emergency gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">EE2-<span class=\"text-decoration-underline\">1</span>:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Toilet",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First two digits/letters indicates Hall no. and Floor (G-ground & F-First)",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T-<span class=\"text-decoration-underline\">2G</span>C:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Third letter indicates Toilet no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T-2G<span class=\"text-decoration-underline\">C</span>:</p>",
+            "visibleInBookMode": false
+          }
+        ]
       },
       "stalls": [
-        {
-          "name": "Wipro",
-          "width": 11,
-          "length": 10,
-          "height": 4,
-          "posX": -21.5,
-          "posZ": -13,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
         {
           "name": "Yotta",
           "width": 9,
@@ -4048,28 +4772,6 @@
           "height": 4,
           "posX": -14.5,
           "posZ": 5,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "Meity",
-          "width": 12,
-          "length": 33,
-          "height": 4,
-          "posX": 14,
-          "posZ": -1.5,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "L and T Technologies",
-          "width": 12,
-          "length": 14,
-          "height": 4,
-          "posX": -21,
-          "posZ": -31,
           "color": "#047857",
           "gateSide": "FRONT",
           "status": "AVAILABLE"
@@ -4656,34 +5358,34 @@
         "boundary": [
           {
             "x": -28,
+            "z": -14.5
+          },
+          {
+            "x": -13,
+            "z": -14.5
+          },
+          {
+            "x": -13,
+            "z": -20
+          },
+          {
+            "x": 28,
+            "z": -20
+          },
+          {
+            "x": 28,
+            "z": 19.5
+          },
+          {
+            "x": -13,
+            "z": 19.5
+          },
+          {
+            "x": -13,
             "z": 17.5
           },
           {
             "x": -28,
-            "z": -14.5
-          },
-          {
-            "x": -13,
-            "z": -14.5
-          },
-          {
-            "x": -13,
-            "z": -20
-          },
-          {
-            "x": 28,
-            "z": -20
-          },
-          {
-            "x": 28,
-            "z": 19.5
-          },
-          {
-            "x": -13,
-            "z": 19.5
-          },
-          {
-            "x": -13,
             "z": 17.5
           }
         ],
@@ -4734,7 +5436,104 @@
           "gridUnit": 1,
           "snapStep": 1,
           "stallNumberPrefix": "STALL-"
-        }
+        },
+        "amenities": [
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 3.25625,
+              "z": -24.95
+            },
+            "anchor": {
+              "x": -1,
+              "z": -26.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 16.76875,
+              "z": -24.95
+            },
+            "anchor": {
+              "x": 13,
+              "z": -26.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "entry-up",
+            "label": "Entry",
+            "position": {
+              "x": -20.18125,
+              "z": 22.05
+            },
+            "anchor": {
+              "x": -22,
+              "z": 20.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "entry-left",
+            "label": "Entry from Hall 11",
+            "position": {
+              "x": 37.9875,
+              "z": 10.05
+            },
+            "anchor": {
+              "x": 33,
+              "z": 8.5
+            },
+            "slot": 0
+          }
+        ],
+        "compass": {
+          "position": {
+            "x": 26.5,
+            "z": 26.5
+          },
+          "size": 5,
+          "rotation": -90,
+          "label": "N",
+          "labelOffset": {
+            "x": -4.4,
+            "z": -4.75
+          }
+        },
+        "legends": [
+          {
+            "label": "Compulsory passage for entry/exit/services",
+            "colorCode": "red"
+          },
+          {
+            "label": "NC - No Construction Zone",
+            "colorCode": "saddlebrown"
+          },
+          {
+            "label": "Entry or exit gates",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">E:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Service gates",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">S:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First two digits indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\"><span class=\"text-decoration-underline\">12</span>01:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second two digits indicates Toilet no. or Hose reel no. or entry gate no. or service gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">12<span class=\"text-decoration-underline\">01</span>:</p>",
+            "visibleInBookMode": false
+          }
+        ]
       },
       "stalls": [
         {
@@ -5044,8 +5843,45 @@
         "prodEventId": "353e2435-3ca9-4b30-aca4-32793eb4a071",
         "pxPerUnit": 20,
         "stallsInEvent": 71,
-        "seeded": 71,
-        "dropped": [],
+        "seeded": 65,
+        "dropped": [
+          {
+            "name": "NA",
+            "posX": -41,
+            "posZ": -17,
+            "reason": "overlaps a non-clickable area (zone zone:PASSAGE at -34.5,-16.5)"
+          },
+          {
+            "name": "NA",
+            "posX": -31,
+            "posZ": -17,
+            "reason": "overlaps a non-clickable area (zone zone:PASSAGE at -34.5,-16.5)"
+          },
+          {
+            "name": "NA",
+            "posX": 57,
+            "posZ": 8,
+            "reason": "overlaps a non-clickable area (zone zone:NO_CONSTRUCTION at 54.75,6.5)"
+          },
+          {
+            "name": "NA",
+            "posX": 33,
+            "posZ": -6,
+            "reason": "overlaps a non-clickable area (zone zone:PASSAGE at 36.75,-5.5)"
+          },
+          {
+            "name": "NA",
+            "posX": 36,
+            "posZ": 19,
+            "reason": "overlaps a non-clickable area (zone zone:PASSAGE at 38.5,14)"
+          },
+          {
+            "name": "NA",
+            "posX": -11,
+            "posZ": 1,
+            "reason": "overlaps a non-clickable area (zone zone:PASSAGE at -10.5,9.5)"
+          }
+        ],
         "blockedAreasFrom": "T_EVENT_HALL_LAYOUT_DATA.csv row 2"
       },
       "hall": {
@@ -5200,38 +6036,6 @@
             "color": "#742371"
           },
           {
-            "posX": -34.5,
-            "posZ": -16.5,
-            "width": 8,
-            "length": 4,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -47.5,
-            "posZ": 9.5,
-            "width": 2,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -10.5,
-            "posZ": 9.5,
-            "width": 2,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": -10.75,
-            "posZ": -18,
-            "width": 2.5,
-            "length": 1,
-            "kind": "zone",
-            "color": "saddlebrown"
-          },
-          {
             "posX": 35.5,
             "posZ": 21.5,
             "width": 62,
@@ -5318,30 +6122,6 @@
             "length": 0.5,
             "kind": "wall",
             "color": "#742371"
-          },
-          {
-            "posX": 7,
-            "posZ": 9.5,
-            "width": 3,
-            "length": 12,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 36.75,
-            "posZ": -5.5,
-            "width": 5.5,
-            "length": 4,
-            "kind": "zone",
-            "color": "red"
-          },
-          {
-            "posX": 38.5,
-            "posZ": 14,
-            "width": 2,
-            "length": 9,
-            "kind": "zone",
-            "color": "red"
           },
           {
             "posX": 62.5,
@@ -5494,14 +6274,6 @@
             "length": 0.5,
             "kind": "wall",
             "color": "#742371"
-          },
-          {
-            "posX": 54.75,
-            "posZ": 6.5,
-            "width": 0.5,
-            "length": 5,
-            "kind": "zone",
-            "color": "saddlebrown"
           }
         ],
         "boundary": [
@@ -5628,10 +6400,9 @@
         ],
         "zones": [
           {
-            "id": "zone-1",
+            "id": "sc-zone-1",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": -38.5,
@@ -5649,13 +6420,13 @@
                 "x": -38.5,
                 "z": -14.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-2",
+            "id": "sc-zone-2",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": -48.5,
@@ -5673,13 +6444,13 @@
                 "x": -48.5,
                 "z": 15.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-3",
+            "id": "sc-zone-3",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": -11.5,
@@ -5697,13 +6468,13 @@
                 "x": -11.5,
                 "z": 15.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-4",
+            "id": "sc-zone-4",
             "kind": "NO_CONSTRUCTION",
             "label": "NC - No Construction Zone",
-            "color": "saddlebrown",
             "polygon": [
               {
                 "x": -12,
@@ -5721,13 +6492,13 @@
                 "x": -12,
                 "z": -17.5
               }
-            ]
+            ],
+            "color": "saddlebrown"
           },
           {
-            "id": "zone-5",
+            "id": "sc-zone-5",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": 5.5,
@@ -5745,13 +6516,13 @@
                 "x": 5.5,
                 "z": 15.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-6",
+            "id": "sc-zone-6",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": 34,
@@ -5769,13 +6540,13 @@
                 "x": 34,
                 "z": -3.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-7",
+            "id": "sc-zone-7",
             "kind": "PASSAGE",
             "label": "Compulsory passage for entry/exit/services",
-            "color": "red",
             "polygon": [
               {
                 "x": 37.5,
@@ -5793,13 +6564,13 @@
                 "x": 37.5,
                 "z": 18.5
               }
-            ]
+            ],
+            "color": "red"
           },
           {
-            "id": "zone-8",
+            "id": "sc-zone-8",
             "kind": "NO_CONSTRUCTION",
             "label": "NC - No Construction Zone",
-            "color": "saddlebrown",
             "polygon": [
               {
                 "x": 54.5,
@@ -5817,7 +6588,8 @@
                 "x": 54.5,
                 "z": 9
               }
-            ]
+            ],
+            "color": "saddlebrown"
           }
         ],
         "openings": [],
@@ -5908,7 +6680,158 @@
           "gridUnit": 1,
           "snapStep": 1,
           "stallNumberPrefix": "STALL-"
-        }
+        },
+        "amenities": [
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": -52.73125,
+              "z": -25.95
+            },
+            "anchor": {
+              "x": -56.5,
+              "z": -27.5
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": -45.10625,
+              "z": -25.95
+            },
+            "anchor": {
+              "x": -56.5,
+              "z": -27.5
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -36.75,
+              "z": -25.95
+            },
+            "anchor": {
+              "x": -56.5,
+              "z": -27.5
+            },
+            "slot": 2
+          },
+          {
+            "kind": "toilet-male",
+            "label": "Toilet (Male)",
+            "position": {
+              "x": 47.76875,
+              "z": -2.45
+            },
+            "anchor": {
+              "x": 44,
+              "z": -4
+            },
+            "slot": 0
+          },
+          {
+            "kind": "toilet-female",
+            "label": "Toilet (Female)",
+            "position": {
+              "x": 55.39375,
+              "z": -2.45
+            },
+            "anchor": {
+              "x": 44,
+              "z": -4
+            },
+            "slot": 1
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": 63.75,
+              "z": -2.45
+            },
+            "anchor": {
+              "x": 44,
+              "z": -4
+            },
+            "slot": 2
+          },
+          {
+            "kind": "stairs",
+            "label": "Stairs/Elevators",
+            "position": {
+              "x": -1.5,
+              "z": -9.95
+            },
+            "anchor": {
+              "x": -6,
+              "z": -11.5
+            },
+            "slot": 0
+          }
+        ],
+        "compass": {
+          "position": {
+            "x": 66.5,
+            "z": 29
+          },
+          "size": 5,
+          "rotation": -90,
+          "label": "N",
+          "labelOffset": {
+            "x": -4.4,
+            "z": -4.75
+          }
+        },
+        "legends": [
+          {
+            "label": "Compulsory passage for entry/exit/services",
+            "colorCode": "red"
+          },
+          {
+            "label": "NC - No Construction Zone",
+            "colorCode": "saddlebrown"
+          },
+          {
+            "label": "Entry or exit gates",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">E:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Service Gates",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">S:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Toilet",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">T:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First two digits indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\"><span class=\"text-decoration-underline\">09</span>01:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second two digits indicates Toilet no. or Hose reel no. or entry gate no. or service gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">09<span class=\"text-decoration-underline\">01</span>:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "First two digits indicates Hall no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\"><span class=\"text-decoration-underline\">10</span>01:</p>",
+            "visibleInBookMode": false
+          },
+          {
+            "label": "Second two digits indicates Toilet no. or Hose reel no. or entry gate no. or service gate no.",
+            "htmlContent": "<p class=\"color-dark fw-500 mb-0\">10<span class=\"text-decoration-underline\">01</span>:</p>",
+            "visibleInBookMode": false
+          }
+        ]
       },
       "stalls": [
         {
@@ -6023,17 +6946,6 @@
         },
         {
           "name": "NA",
-          "width": 7,
-          "length": 3,
-          "height": 4,
-          "posX": -41,
-          "posZ": -17,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
           "width": 4,
           "length": 3,
           "height": 4,
@@ -6078,33 +6990,11 @@
         },
         {
           "name": "NA",
-          "width": 5,
-          "length": 3,
-          "height": 4,
-          "posX": -31,
-          "posZ": -17,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
           "width": 3,
           "length": 7,
           "height": 4,
           "posX": 61,
           "posZ": 14,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
-          "width": 5,
-          "length": 3,
-          "height": 4,
-          "posX": 57,
-          "posZ": 8,
           "color": "#047857",
           "gateSide": "FRONT",
           "status": "AVAILABLE"
@@ -6160,17 +7050,6 @@
           "height": 4,
           "posX": -38.5,
           "posZ": 19,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
-          "width": 5,
-          "length": 3,
-          "height": 4,
-          "posX": 33,
-          "posZ": -6,
           "color": "#047857",
           "gateSide": "FRONT",
           "status": "AVAILABLE"
@@ -6430,17 +7309,6 @@
         },
         {
           "name": "NA",
-          "width": 7,
-          "length": 3,
-          "height": 4,
-          "posX": 36,
-          "posZ": 19,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
           "width": 4,
           "length": 3,
           "height": 4,
@@ -6578,17 +7446,6 @@
           "height": 4,
           "posX": -35.5,
           "posZ": -10,
-          "color": "#047857",
-          "gateSide": "FRONT",
-          "status": "AVAILABLE"
-        },
-        {
-          "name": "NA",
-          "width": 3,
-          "length": 7,
-          "height": 4,
-          "posX": -11,
-          "posZ": 1,
           "color": "#047857",
           "gateSide": "FRONT",
           "status": "AVAILABLE"
@@ -6750,7 +7607,36 @@
         "zones": [],
         "openings": [],
         "markers": [],
-        "rules": null
+        "rules": null,
+        "amenities": [
+          {
+            "kind": "entry-right",
+            "label": "Entry/Exit",
+            "position": {
+              "x": -34.9625,
+              "z": -15.95
+            },
+            "anchor": {
+              "x": -38,
+              "z": -17.5
+            },
+            "slot": 0
+          }
+        ],
+        "compass": {
+          "position": {
+            "x": 27.5,
+            "z": 37.9
+          },
+          "size": 5,
+          "rotation": 270,
+          "label": "N",
+          "labelOffset": {
+            "x": -4.5,
+            "z": -4.4
+          }
+        },
+        "legends": []
       },
       "stalls": [
         {
