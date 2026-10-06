@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { json } from 'express';
+import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import type { AppConfig } from './config/configuration';
@@ -12,28 +13,40 @@ import type { AppConfig } from './config/configuration';
 export function configureApp(app: INestApplication): AppConfig {
   const appConfig = app.get(ConfigService).getOrThrow<AppConfig>('app');
 
-  // Routes become /api/layout/**, /api/layouts — matching the Java @RequestMapping values.
-  // /health stays outside the migrated contract.
   app.setGlobalPrefix('api', { exclude: ['health', 'health/ready'] });
 
-  // 500 normalized price rows exceed Express's default 100 kB body limit. Scope the larger
-  // parser to this import, and wrap it so Nest still registers its default JSON parser elsewhere.
-  const priceImportJson = json({ limit: '1mb' });
-  app.use('/api/price-masters/import', (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => priceImportJson(req, res, next));
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          // Organisation logos are https URLs anywhere; fonts come from Google Fonts.
+          imgSrc: ["'self'", 'data:', 'https:'],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+          scriptSrc: ["'self'"],
+          connectSrc: ["'self'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+    }),
+  );
 
-  // Type checking only. Business rules live in layout.validator.ts, because they must report
-  // the FIRST failure in a specific order that decorators cannot express (ADR-010).
-  // No implicit conversion: a JSON string where a number belongs is a 400, not a silent cast.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Reads the httpOnly refresh-token cookie.
+  app.use(cookieParser());
+
+  // whitelist + forbidNonWhitelisted: unknown fields are a 400, never silently stored.
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Replaces @CrossOrigin(origins = "*") on all three Java controllers (S-01).
-  // Credentials stay off: nothing authenticates.
+  // Credentials on: the browser sends the refresh cookie to /api/auth/refresh.
   app.enableCors({
     origin: appConfig.corsOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: false,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true,
   });
 
   app.enableShutdownHooks();

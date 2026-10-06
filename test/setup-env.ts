@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { parseEnv } from 'node:util';
 import { join } from 'node:path';
+import { parseEnv } from 'node:util';
 
 /**
  * End-to-end tests run against a REAL PostgreSQL, but never the development database:
- * credentials come from .env, and the database name is forced to the dedicated test database.
- * Values already in process.env win over the .env file, so the override below sticks.
+ * credentials come from .env, and the database name is forced to the dedicated test database,
+ * which every suite wipes. Values already in process.env win over the .env file.
  */
 for (const [key, value] of Object.entries(
   parseEnv(readFileSync(join(__dirname, '..', '.env'), 'utf8')),
@@ -14,8 +14,11 @@ for (const [key, value] of Object.entries(
 }
 
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_NAME = 'stall_designer_test';
+process.env.DATABASE_NAME = 'venue_platform_test';
 process.env.CORS_ORIGINS = 'http://localhost:4200';
+process.env.APP_PUBLIC_URL = 'http://localhost:4200';
+process.env.MAIL_TRANSPORT = 'log';
+process.env.JWT_ACCESS_SECRET ??= 'e2e-secret-e2e-secret-e2e-secret-e2e';
 
 // URL mode takes precedence over DATABASE_NAME: never allow tests onto a managed database.
 delete process.env.DATABASE_URL;

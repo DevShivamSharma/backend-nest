@@ -1,9 +1,11 @@
-import { Environment } from './env.validation';
+import { Environment, MailTransport } from './env.validation';
 
 export interface AppConfig {
   env: Environment;
   port: number;
   corsOrigins: string[];
+  /** Base URL of the web app, without a trailing slash. */
+  publicUrl: string;
 }
 
 export interface DatabaseConfig {
@@ -21,14 +23,22 @@ export interface DatabaseConfig {
   statementTimeoutMs: number;
 }
 
-export interface LimitsConfig {
-  maxStallsPerLayout: number;
+export interface AuthConfig {
+  accessSecret: string;
+  accessTtlSeconds: number;
+  refreshTtlDays: number;
+  cookieSecure: boolean;
+}
+
+export interface MailConfig {
+  transport: MailTransport;
 }
 
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
-  limits: LimitsConfig;
+  auth: AuthConfig;
+  mail: MailConfig;
 }
 
 /**
@@ -39,19 +49,20 @@ export interface Configuration {
  */
 export function configuration(): Configuration {
   const env = process.env;
+  const nodeEnv = (env.NODE_ENV as Environment) ?? Environment.Development;
 
   return {
     app: {
-      env: (env.NODE_ENV as Environment) ?? Environment.Development,
+      env: nodeEnv,
       port: Number(env.PORT ?? 8080),
-      corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:3000')
+      corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:4200')
         .split(',')
         .map((origin) => origin.trim())
         .filter((origin) => origin.length > 0),
+      publicUrl: (env.APP_PUBLIC_URL ?? 'http://localhost:4200').replace(/\/+$/, ''),
     },
     database: {
-      // The configured project secret wins: Verdent injects its own DATABASE_URL at runtime,
-      // which does not point at the project's managed Postgres.
+      // The configured project secret wins over a platform-injected DATABASE_URL.
       url: env.SUPABASE_DB_URL ?? env.DATABASE_URL,
       ssl:
         env.DATABASE_SSL !== undefined
@@ -66,8 +77,17 @@ export function configuration(): Configuration {
       connectionTimeoutMs: Number(env.DATABASE_CONNECTION_TIMEOUT_MS ?? 10_000),
       statementTimeoutMs: Number(env.DATABASE_STATEMENT_TIMEOUT_MS ?? 15_000),
     },
-    limits: {
-      maxStallsPerLayout: Number(env.MAX_STALLS_PER_LAYOUT ?? 2000),
+    auth: {
+      accessSecret: env.JWT_ACCESS_SECRET as string,
+      accessTtlSeconds: Number(env.JWT_ACCESS_TTL_SECONDS ?? 900),
+      refreshTtlDays: Number(env.REFRESH_TOKEN_TTL_DAYS ?? 14),
+      cookieSecure:
+        env.COOKIE_SECURE !== undefined
+          ? env.COOKIE_SECURE === 'true'
+          : nodeEnv === Environment.Production,
+    },
+    mail: {
+      transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,
     },
   };
 }

@@ -6,18 +6,17 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   Min,
+  MinLength,
   ValidateIf,
   validateSync,
 } from 'class-validator';
 
 /**
- * Boot-time environment validation.
- *
- * The Java application had none: `application.properties` carried literal values, so a missing
- * or wrong setting surfaced as a connection failure at the first request rather than at startup
- * (docs/05-integrations.md). This fails loudly at boot instead, naming the offending variable.
+ * Boot-time environment validation. A missing or malformed variable aborts startup with a
+ * message naming it, rather than surfacing as a failure at the first request.
  */
 export enum Environment {
   Development = 'development',
@@ -25,27 +24,18 @@ export enum Environment {
   Test = 'test',
 }
 
+/** Where outgoing mail goes. Only `log` exists today: links are written to the server log. */
+export enum MailTransport {
+  Log = 'log',
+}
+
 export class EnvironmentVariables {
-  /** Optional: only the assistant uses these; no key enables the simple parser. */
-  @IsString()
-  @IsOptional()
-  AI_PROVIDER?: string;
-
-  @IsString()
-  @IsOptional()
-  AI_API_KEY?: string;
-
-  @IsString()
-  @IsOptional()
-  AI_MODEL?: string;
-
   @IsEnum(Environment, {
     message: 'NODE_ENV must be one of: development, production, test',
   })
   @IsOptional()
   NODE_ENV: Environment = Environment.Development;
 
-  /** Default 8080 matches the Java `server.port` so the frontend base URL keeps working. */
   @IsInt()
   @Min(1)
   @Max(65535)
@@ -53,10 +43,8 @@ export class EnvironmentVariables {
   PORT: number = 8080;
 
   /**
-   * Full postgres:// connection string. Platforms with a managed database may inject
-   * DATABASE_URL; Verdent reserves that name for platform use, so its project Secrets use
-   * SUPABASE_DB_URL instead. When either is present, the discrete DATABASE_* settings below
-   * are optional and ignored. Local development keeps using the discrete settings.
+   * Full postgres:// connection string. When set, the discrete DATABASE_* settings below are
+   * optional and ignored. SUPABASE_DB_URL exists for platforms that reserve DATABASE_URL.
    */
   @IsString()
   @IsNotEmpty()
@@ -68,11 +56,7 @@ export class EnvironmentVariables {
   @IsOptional()
   SUPABASE_DB_URL?: string;
 
-  /**
-   * Whether the Postgres connection requires TLS. Managed databases require it, so it defaults
-   * to true when a connection-string variable is set and false otherwise (see
-   * configuration.ts). Set explicitly ('true'/'false') to override either default.
-   */
+  /** TLS for the database. Defaults to true when a connection string is set, else false. */
   @IsBoolean()
   @IsOptional()
   DATABASE_SSL?: boolean;
@@ -98,10 +82,7 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   DATABASE_USER?: string;
 
-  /**
-   * Never logged, never echoed, never included in an error message. The validator below reports
-   * only property names, never values, precisely so a malformed password cannot leak into logs.
-   */
+  /** Never logged or echoed: the validator below reports property names only. */
   @ValidateIf((o: EnvironmentVariables) => !o.DATABASE_URL && !o.SUPABASE_DB_URL)
   @IsString()
   @IsNotEmpty()
@@ -123,20 +104,42 @@ export class EnvironmentVariables {
   @IsOptional()
   DATABASE_STATEMENT_TIMEOUT_MS: number = 15_000;
 
-  /**
-   * Comma-separated allow-list. Replaces the Java `@CrossOrigin(origins = "*")` that sat on all
-   * three controllers (docs/06-authentication.md S-01). Defaults to the CRA dev server.
-   */
+  /** Comma-separated origin allow-list for the browser app. */
   @IsString()
   @IsNotEmpty()
   @IsOptional()
-  CORS_ORIGINS: string = 'http://localhost:3000';
+  CORS_ORIGINS: string = 'http://localhost:4200';
 
-  /** Upper bound on the `stalls` array, closing the unbounded-request risk (R-07). */
+  /** Base URL of the web app, used to build links in invitation and reset emails. */
+  @IsUrl({ require_tld: false, require_protocol: true })
+  @IsOptional()
+  APP_PUBLIC_URL: string = 'http://localhost:4200';
+
+  /** HMAC secret for access tokens. At least 32 characters; rotating it signs everyone out. */
+  @IsString()
+  @MinLength(32, { message: 'JWT_ACCESS_SECRET must be at least 32 characters' })
+  JWT_ACCESS_SECRET!: string;
+
+  @IsInt()
+  @Min(60)
+  @Max(3600)
+  @IsOptional()
+  JWT_ACCESS_TTL_SECONDS: number = 900;
+
   @IsInt()
   @Min(1)
+  @Max(90)
   @IsOptional()
-  MAX_STALLS_PER_LAYOUT: number = 2000;
+  REFRESH_TOKEN_TTL_DAYS: number = 14;
+
+  /** Secure flag on the refresh cookie. Defaults to true in production. */
+  @IsBoolean()
+  @IsOptional()
+  COOKIE_SECURE?: boolean;
+
+  @IsEnum(MailTransport)
+  @IsOptional()
+  MAIL_TRANSPORT: MailTransport = MailTransport.Log;
 }
 
 export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables {
@@ -151,8 +154,8 @@ export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables 
   });
 
   if (errors.length > 0) {
-    // Report property names and constraint text only — never the offending value, which could
-    // be a credential.
+    // Property names and constraint text only — never the offending value, which could be a
+    // credential.
     const detail = errors
       .map((error) => {
         const reasons = Object.values(error.constraints ?? {}).join('; ');

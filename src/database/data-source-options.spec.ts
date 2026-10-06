@@ -13,9 +13,9 @@ describe('buildDataSourceOptions', () => {
   it('registers every migration file in the migrations directory', () => {
     const dir = join(__dirname, 'migrations');
     const onDisk = readdirSync(dir)
-      .filter(f => /\.ts$/.test(f) && !f.endsWith('.spec.ts'))
-      // "1758240400000-AddHallAmenities.ts" -> "AddHallAmenities1758240400000"
-      .map(f => {
+      .filter((f) => /\.ts$/.test(f) && !f.endsWith('.spec.ts'))
+      // "1791100000000-PlatformFoundation.ts" -> "PlatformFoundation1791100000000"
+      .map((f) => {
         const [timestamp, rest] = f.replace(/\.ts$/, '').split('-');
         return `${rest}${timestamp}`;
       })
@@ -33,9 +33,7 @@ describe('buildDataSourceOptions', () => {
       statementTimeoutMs: 1000,
     });
 
-    const registered = (options.migrations as Array<{ name: string }>)
-      .map(m => m.name)
-      .sort();
+    const registered = (options.migrations as Array<{ name: string }>).map((m) => m.name).sort();
 
     expect(registered).toEqual(onDisk);
   });

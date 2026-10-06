@@ -1,18 +1,19 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
+import { AccessModule } from './access/access.module';
+import { AdminModule } from './admin/admin.module';
+import { AuthModule } from './auth/auth.module';
 import { HealthController } from './common/health/health.controller';
-import { configuration } from './config/configuration';
-import { validateEnv } from './config/env.validation';
+import { AppConfig, configuration } from './config/configuration';
+import { Environment, validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
-import { HallsModule } from './halls/halls.module';
-import { LayoutsModule } from './layouts/layouts.module';
-import { AssistModule } from './layouts/assist/assist.module';
-import { PdfImportModule } from './pdf-import/pdf-import.module';
-import { PlannerRulesModule } from './planner-rules/planner-rules.module';
-import { HallImportModule } from './hall-import/hall-import.module';
+import { OrgSettingsModule } from './org-settings/org-settings.module';
+import { OrganisationsModule } from './organisations/organisations.module';
+import { TeamModule } from './team/team.module';
 
-/** Root composition. HallsModule serves /api/halls: ported but deprecated, no known consumer (ADR-002). */
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -21,17 +22,26 @@ import { HallImportModule } from './hall-import/hall-import.module';
       load: [configuration],
       validate: validateEnv,
       envFilePath: ['.env'],
-      // Test bootstrap supplies a local, isolated environment; never reload production URLs.
+      // The test bootstrap supplies its own isolated environment.
       ignoreEnvFile: process.env.NODE_ENV === 'test',
     }),
+    // A broad per-client ceiling; sign-in and email routes set tighter limits of their own.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [{ ttl: 60_000, limit: 300 }],
+        skipIf: () => config.getOrThrow<AppConfig>('app').env === Environment.Test,
+      }),
+    }),
     DatabaseModule,
-    LayoutsModule,
-    HallsModule,
-    AssistModule,
-    PdfImportModule,
-    PlannerRulesModule,
-    HallImportModule,
+    AuthModule,
+    OrganisationsModule,
+    AccessModule,
+    TeamModule,
+    OrgSettingsModule,
+    AdminModule,
   ],
   controllers: [HealthController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

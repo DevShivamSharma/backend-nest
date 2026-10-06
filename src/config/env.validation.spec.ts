@@ -8,7 +8,8 @@ const complete = {
   DATABASE_NAME: 'stall_designer_db',
   DATABASE_USER: 'postgres',
   DATABASE_PASSWORD: 'irrelevant-test-value',
-  CORS_ORIGINS: 'http://localhost:3000',
+  CORS_ORIGINS: 'http://localhost:4200',
+  JWT_ACCESS_SECRET: 'a-test-secret-that-is-long-enough-to-pass',
 };
 
 describe('validateEnv', () => {
@@ -26,13 +27,16 @@ describe('validateEnv', () => {
       DATABASE_NAME: 'stall_designer_db',
       DATABASE_USER: 'postgres',
       DATABASE_PASSWORD: 'irrelevant-test-value',
+      JWT_ACCESS_SECRET: 'a-test-secret-that-is-long-enough-to-pass',
     });
 
     expect(result.PORT).toBe(8080);
     expect(result.DATABASE_PORT).toBe(5432);
     expect(result.DATABASE_POOL_SIZE).toBe(10);
-    expect(result.CORS_ORIGINS).toBe('http://localhost:3000');
-    expect(result.MAX_STALLS_PER_LAYOUT).toBe(2000);
+    expect(result.CORS_ORIGINS).toBe('http://localhost:4200');
+    expect(result.APP_PUBLIC_URL).toBe('http://localhost:4200');
+    expect(result.JWT_ACCESS_TTL_SECONDS).toBe(900);
+    expect(result.REFRESH_TOKEN_TTL_DAYS).toBe(14);
     expect(result.NODE_ENV).toBe(Environment.Development);
   });
 
@@ -41,6 +45,7 @@ describe('validateEnv', () => {
     ['DATABASE_NAME'],
     ['DATABASE_USER'],
     ['DATABASE_PASSWORD'],
+    ['JWT_ACCESS_SECRET'],
   ])('fails loudly and names the missing variable: %s', (missing) => {
     const partial: Record<string, unknown> = { ...complete };
     delete partial[missing];
@@ -50,6 +55,12 @@ describe('validateEnv', () => {
 
   it('rejects an out-of-range port', () => {
     expect(() => validateEnv({ ...complete, PORT: '70000' })).toThrow(/PORT/);
+  });
+
+  it('rejects a short access-token secret', () => {
+    expect(() => validateEnv({ ...complete, JWT_ACCESS_SECRET: 'too-short' })).toThrow(
+      /JWT_ACCESS_SECRET/,
+    );
   });
 
   it('rejects an unknown NODE_ENV', () => {

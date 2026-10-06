@@ -1,6 +1,8 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import { Public } from '../decorators/public.decorator';
+
 export interface HealthResponse {
   status: 'ok';
   uptimeSeconds: number;
@@ -12,13 +14,12 @@ export interface ReadinessResponse {
 }
 
 /**
- * The Java application had no health endpoint of any kind (R-13).
- *
  *  GET /health        liveness  — the process is up. Never touches the database.
  *  GET /health/ready  readiness — the database answers. 503 when it does not.
  *
- * Both sit outside the `/api` prefix and outside the migrated contract.
+ * Both sit outside the `/api` prefix and need no sign-in.
  */
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}

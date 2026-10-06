@@ -1,69 +1,59 @@
-import { AddPlacementAndSplits1758240600000 } from './migrations/1758240600000-AddPlacementAndSplits';
-import { PlanningZonesAndPublish1791000000000 } from './migrations/1791000000000-PlanningZonesAndPublish';
-import { AddStallFootprint1758240700000 } from './migrations/1758240700000-AddStallFootprint';
-import { AddPlannerRules1758240800000 } from './migrations/1758240800000-AddPlannerRules';
-import { PlannerRuleEntity } from '../planner-rules/planner-rule.entity';
-import { IndependentPlannerRules1758240900000 } from './migrations/1758240900000-IndependentPlannerRules';
 import { types } from 'pg';
-import { PriceMasterEntity } from '../pricing/price-master.entity';
-import { PricingMasters1791030000000 } from './migrations/1791030000000-PricingMasters';
-import { PricingLibrary1791040000000 } from './migrations/1791040000000-PricingLibrary';
 import type { DataSourceOptions } from 'typeorm';
 
+import { MembershipEntity } from '../access/membership.entity';
+import { AuditLogEntity } from '../audit/audit-log.entity';
+import { PasswordResetTokenEntity } from '../auth/password-reset-token.entity';
+import { RefreshTokenEntity } from '../auth/refresh-token.entity';
 import type { DatabaseConfig } from '../config/configuration';
-import { HallEntity } from '../layouts/entities/hall.entity';
-import { LayoutEntity } from '../layouts/entities/layout.entity';
-import { StallEntity } from '../layouts/entities/stall.entity';
-import { Baseline1758240000000 } from './migrations/1758240000000-Baseline';
-import { AddBlockedAreas1758240100000 } from './migrations/1758240100000-AddBlockedAreas';
-import { AddStallOpenSides1758240200000 } from './migrations/1758240200000-AddStallOpenSides';
-import { AddLayoutRulesAndStallIdentity1758240300000 } from './migrations/1758240300000-AddLayoutRulesAndStallIdentity';
-import { AddHallAmenities1758240400000 } from './migrations/1758240400000-AddHallAmenities';
-import { AddHallCompassAndLegends1758240500000 } from './migrations/1758240500000-AddHallCompassAndLegends';
+import { OrganisationConfigVersionEntity } from '../organisations/organisation-config-version.entity';
+import { OrganisationSlugAliasEntity } from '../organisations/organisation-slug-alias.entity';
+import { OrganisationEntity } from '../organisations/organisation.entity';
+import { RoleEntity } from '../roles/role.entity';
+import { InvitationEntity } from '../team/invitation.entity';
+import { UserEntity } from '../users/user.entity';
+import { PlatformFoundation1791100000000 } from './migrations/1791100000000-PlatformFoundation';
 
-// The pg driver returns int8 (bigint ids, COUNT(*)) as strings by default. The API contract
-// sends ids as JSON numbers, exactly as Jackson serialised Java `Long`. Ids here are far below
+// The pg driver returns int8 (COUNT(*)) as a string by default. Counts here are far below
 // Number.MAX_SAFE_INTEGER, so parsing to a JS number is safe.
 types.setTypeParser(types.builtins.INT8, (value: string) => parseInt(value, 10));
+
+export const ENTITIES = [
+  UserEntity,
+  OrganisationEntity,
+  OrganisationSlugAliasEntity,
+  OrganisationConfigVersionEntity,
+  RoleEntity,
+  MembershipEntity,
+  InvitationEntity,
+  RefreshTokenEntity,
+  PasswordResetTokenEntity,
+  AuditLogEntity,
+];
 
 /**
  * Single source of DataSource options, shared by the Nest module and the TypeORM CLI.
  *
- * `synchronize` is false unconditionally (ADR-006): schema changes happen only via migrations.
- * Entities and migrations are listed explicitly rather than globbed, so the same options work
- * from `src/` (ts-node, jest) and `dist/` (production) without path tricks.
+ * `synchronize` is always false: schema changes happen only through migrations. Entities and
+ * migrations are listed explicitly rather than globbed, so the same options work from `src/`
+ * (ts-node, jest) and `dist/` (production) without path tricks.
  */
 export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const base = {
     type: 'postgres' as const,
-    entities: [HallEntity, LayoutEntity, StallEntity, PlannerRuleEntity, PriceMasterEntity],
-    migrations: [
-      Baseline1758240000000,
-      AddBlockedAreas1758240100000,
-      AddStallOpenSides1758240200000,
-      AddLayoutRulesAndStallIdentity1758240300000,
-      AddHallAmenities1758240400000,
-      AddHallCompassAndLegends1758240500000,
-      AddPlacementAndSplits1758240600000,
-      AddStallFootprint1758240700000,
-      AddPlannerRules1758240800000,
-      IndependentPlannerRules1758240900000,
-      PlanningZonesAndPublish1791000000000,
-      PricingMasters1791030000000,
-      PricingLibrary1791040000000,
-    ],
+    entities: ENTITIES,
+    migrations: [PlatformFoundation1791100000000],
     synchronize: false,
-    // Run pending migrations at startup: the published deployment owns its database, so a
-    // redeploy self-applies new columns. All migrations are idempotent (IF NOT EXISTS), and
-    // databases with a recorded history simply skip them.
+    // A deployment owns its database, so a redeploy applies its own pending migrations.
     migrationsRun: true,
+    migrationsTransactionMode: 'each' as const,
     extra: {
       max: db.poolSize,
       connectionTimeoutMillis: db.connectionTimeoutMs,
       statement_timeout: db.statementTimeoutMs,
     },
-    // Managed Postgres (Supabase) enforces TLS; its chain is not verifiable without the CA
-    // bundle, so certificate verification stays off. Credentials still travel encrypted.
+    // Managed Postgres enforces TLS; its chain is not verifiable without the CA bundle, so
+    // certificate verification stays off. Credentials still travel encrypted.
     ...(db.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 
