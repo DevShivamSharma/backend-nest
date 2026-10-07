@@ -1,0 +1,129 @@
+{
+  "case": "two-halls-shared-foyer",
+  "file": "two-halls-shared-foyer.png",
+  "source": "Synthetic scene: two titled halls, one untitled foyer touching neither by grid.",
+  "sheet": {
+    "width": 180,
+    "height": 90
+  },
+  "gridMetres": 1,
+  "halls": [
+    {
+      "name": "Hall B",
+      "page": 1,
+      "floor": [
+        {
+          "x": 8,
+          "y": 12,
+          "w": 50,
+          "h": 40
+        }
+      ],
+      "bands": [
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 8,
+            "y": 12,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 52,
+            "y": 49,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "fire_curtain",
+          "color": "#8a2be2",
+          "rect": {
+            "x": 37.5,
+            "y": 12,
+            "w": 1,
+            "h": 40
+          }
+        }
+      ],
+      "voids": [],
+      "foyer": [],
+      "printed": {
+        "width": 50,
+        "depth": 40
+      }
+    },
+    {
+      "name": "Hall C",
+      "page": 1,
+      "floor": [
+        {
+          "x": 66,
+          "y": 12,
+          "w": 50,
+          "h": 40
+        }
+      ],
+      "bands": [
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 66,
+            "y": 12,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 110,
+            "y": 49,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "fire_curtain",
+          "color": "#8a2be2",
+          "rect": {
+            "x": 95.5,
+            "y": 12,
+            "w": 1,
+            "h": 40
+          }
+        }
+      ],
+      "voids": [],
+      "foyer": [],
+      "printed": {
+        "width": 50,
+        "depth": 40
+      }
+    }
+  ],
+  "sharedFoyer": [
+    {
+      "x": 30,
+      "y": 58,
+      "w": 64,
+      "h": 14
+    }
+  ],
+  "legend": {
+    "#e04848": "passage",
+    "#8a2be2": "fire_curtain",
+    "#8c8c8c": "column"
+  },
+  "expect": {
+    "halls": 2,
+    "sharedFoyerUndecided": true
+  }
+}

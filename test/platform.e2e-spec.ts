@@ -395,6 +395,17 @@ describe('Platform and organisations (e2e)', () => {
       await http.get('/api/orgs/bharat-mandapam/public-config').expect(200);
     });
 
+    it('summarises the platform for the console home page', async () => {
+      const res = await http.get('/api/admin/overview').set(auth(root)).expect(200);
+      expect(res.body.organisations).toEqual({ total: 2, active: 2, suspended: 0 });
+      expect(res.body.people.users).toBeGreaterThanOrEqual(2);
+      expect(res.body.roles.platform).toBeGreaterThanOrEqual(5);
+      expect(res.body.latestOrganisations[0].slug).toBe('yashobhoomi');
+      expect(res.body.recentActivity.length).toBeGreaterThan(0);
+
+      await http.get('/api/admin/overview').set(auth(owner)).expect(403);
+    });
+
     it('records the actions in the audit log', async () => {
       const res = await http
         .get(`/api/admin/audit?organisationId=${organisationId}&pageSize=100`)

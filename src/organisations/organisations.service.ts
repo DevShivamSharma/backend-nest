@@ -64,6 +64,8 @@ export interface OrganisationSummary {
 export interface OrganisationListQuery {
   q?: string;
   status?: OrganisationStatus;
+  /** Alphabetical (default) or most recently created first. */
+  sort?: 'name' | 'newest';
   page: number;
   pageSize: number;
 }
@@ -224,7 +226,10 @@ export class OrganisationsService {
             .andWhere('i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()'),
         'open_invitation_count',
       )
-      .orderBy('org.name', 'ASC');
+      .orderBy(
+        query.sort === 'newest' ? 'org.createdAt' : 'org.name',
+        query.sort === 'newest' ? 'DESC' : 'ASC',
+      );
 
     if (query.q) {
       qb.andWhere('(org.name ILIKE :q OR org.slug ILIKE :q)', { q: `%${escapeLike(query.q)}%` });

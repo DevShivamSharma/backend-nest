@@ -119,6 +119,10 @@ export class OrganisationListQueryDto extends PageQueryDto {
   @IsIn(Object.values(OrganisationStatus))
   @IsOptional()
   status?: OrganisationStatus;
+
+  @IsIn(['name', 'newest'])
+  @IsOptional()
+  sort?: 'name' | 'newest';
 }
 
 export class SlugCheckQueryDto {

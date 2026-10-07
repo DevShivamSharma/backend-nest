@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -31,6 +32,9 @@ export function configureApp(app: INestApplication): AppConfig {
       },
     }),
   );
+
+  // Hall floors and their imports are whole documents: ITPO's export of every hall is ~2 MB.
+  (app as NestExpressApplication).useBodyParser('json', { limit: '15mb' });
 
   // Reads the httpOnly refresh-token cookie.
   app.use(cookieParser());

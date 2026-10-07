@@ -13,6 +13,7 @@ import { DatabaseModule } from './database/database.module';
 import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { TeamModule } from './team/team.module';
+import { VenuesModule } from './venues/venues.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { TeamModule } from './team/team.module';
     TeamModule,
     OrgSettingsModule,
     AdminModule,
+    VenuesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -1,0 +1,47 @@
+{
+  "case": "connected-halls",
+  "file": "connected-halls.png",
+  "source": "Synthetic scene: one floor carrying two hall titles; split at x = 50 m by the reviewer.",
+  "sheet": {
+    "width": 130,
+    "height": 70
+  },
+  "gridMetres": 1,
+  "halls": [
+    {
+      "name": "Hall D",
+      "page": 1,
+      "floor": [
+        {
+          "x": 10,
+          "y": 12,
+          "w": 40,
+          "h": 40
+        }
+      ],
+      "bands": [],
+      "voids": [],
+      "foyer": []
+    },
+    {
+      "name": "Hall E",
+      "page": 1,
+      "floor": [
+        {
+          "x": 50,
+          "y": 12,
+          "w": 40,
+          "h": 40
+        }
+      ],
+      "bands": [],
+      "voids": [],
+      "foyer": []
+    }
+  ],
+  "legend": {},
+  "expect": {
+    "separationIssue": true,
+    "cutAtX": 50
+  }
+}

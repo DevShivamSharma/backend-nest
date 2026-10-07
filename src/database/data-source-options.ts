@@ -6,13 +6,18 @@ import { AuditLogEntity } from '../audit/audit-log.entity';
 import { PasswordResetTokenEntity } from '../auth/password-reset-token.entity';
 import { RefreshTokenEntity } from '../auth/refresh-token.entity';
 import type { DatabaseConfig } from '../config/configuration';
+import { ExternalRefEntity } from '../integrations/external-ref.entity';
 import { OrganisationConfigVersionEntity } from '../organisations/organisation-config-version.entity';
 import { OrganisationSlugAliasEntity } from '../organisations/organisation-slug-alias.entity';
 import { OrganisationEntity } from '../organisations/organisation.entity';
 import { RoleEntity } from '../roles/role.entity';
 import { InvitationEntity } from '../team/invitation.entity';
 import { UserEntity } from '../users/user.entity';
+import { HallEntity, HallFloorVersionEntity } from '../venues/hall.entity';
+import { VenueEntity } from '../venues/venue.entity';
 import { PlatformFoundation1791100000000 } from './migrations/1791100000000-PlatformFoundation';
+import { VenuesAndHalls1791200000000 } from './migrations/1791200000000-VenuesAndHalls';
+import { DrawingFloorSource1791300000000 } from './migrations/1791300000000-DrawingFloorSource';
 
 // The pg driver returns int8 (COUNT(*)) as a string by default. Counts here are far below
 // Number.MAX_SAFE_INTEGER, so parsing to a JS number is safe.
@@ -29,6 +34,10 @@ export const ENTITIES = [
   RefreshTokenEntity,
   PasswordResetTokenEntity,
   AuditLogEntity,
+  VenueEntity,
+  HallEntity,
+  HallFloorVersionEntity,
+  ExternalRefEntity,
 ];
 
 /**
@@ -42,7 +51,11 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const base = {
     type: 'postgres' as const,
     entities: ENTITIES,
-    migrations: [PlatformFoundation1791100000000],
+    migrations: [
+      PlatformFoundation1791100000000,
+      VenuesAndHalls1791200000000,
+      DrawingFloorSource1791300000000,
+    ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.
     migrationsRun: true,

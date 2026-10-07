@@ -1,0 +1,2 @@
+import { hallNameOf } from '../../src/venues/plan-import/detect-halls';
+for (const t of ['HALL MASTER - H5G', 'HALL 5 (GROUND FLOOR)', 'HALL -6', 'EXHIBITION HALLS -14', 'FROM HALL-12A', 'HAL 12-12AFOYER', 'HALL 12A = 4633.00 SQ.M.', 'EXHIBITION HALL 6', 'EXHIBITION HALLS - 8,9,10 & 11', 'Hall B', 'HALL A', 'Halle 3', 'Pavilion 2', 'HALL-1 (GROUND FLOOR)', 'EXH. HALL 5 (Ground Floor)', 'Hall 12 = 1681.00 SQ.M.', 'Entry to Hall 5', 'HALL 12 & 12A', 'H - Hall']) console.log(JSON.stringify(t), '->', hallNameOf(t));

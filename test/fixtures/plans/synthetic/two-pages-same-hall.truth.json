@@ -1,0 +1,120 @@
+{
+  "case": "two-pages-same-hall",
+  "file": "two-pages-same-hall.pdf",
+  "source": "Synthetic scene: one hall printed on two pages.",
+  "sheet": {
+    "width": 120,
+    "height": 75
+  },
+  "gridMetres": 1,
+  "halls": [
+    {
+      "name": "Hall K",
+      "page": 1,
+      "floor": [
+        {
+          "x": 10,
+          "y": 14,
+          "w": 60,
+          "h": 40
+        }
+      ],
+      "bands": [
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 10,
+            "y": 14,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 64,
+            "y": 51,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "fire_curtain",
+          "color": "#8a2be2",
+          "rect": {
+            "x": 39.5,
+            "y": 14,
+            "w": 1,
+            "h": 40
+          }
+        }
+      ],
+      "voids": [],
+      "foyer": [],
+      "printed": {
+        "width": 60,
+        "depth": 40
+      }
+    },
+    {
+      "name": "Hall K",
+      "page": 2,
+      "floor": [
+        {
+          "x": 10,
+          "y": 14,
+          "w": 60,
+          "h": 40
+        }
+      ],
+      "bands": [
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 10,
+            "y": 14,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "passage",
+          "color": "#e04848",
+          "rect": {
+            "x": 64,
+            "y": 51,
+            "w": 6,
+            "h": 3
+          }
+        },
+        {
+          "kind": "fire_curtain",
+          "color": "#8a2be2",
+          "rect": {
+            "x": 39.5,
+            "y": 14,
+            "w": 1,
+            "h": 40
+          }
+        }
+      ],
+      "voids": [],
+      "foyer": [],
+      "printed": {
+        "width": 60,
+        "depth": 40
+      }
+    }
+  ],
+  "legend": {
+    "#e04848": "passage",
+    "#8a2be2": "fire_curtain",
+    "#8c8c8c": "column"
+  },
+  "expect": {
+    "duplicateOnPage": 2
+  }
+}

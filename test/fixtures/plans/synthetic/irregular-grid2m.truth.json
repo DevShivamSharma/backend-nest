@@ -1,0 +1,64 @@
+{
+  "case": "irregular-grid2m",
+  "file": "irregular-grid2m.pdf",
+  "source": "Synthetic scene: L-shaped floor on a 2 m grid, a lift void, a 1 m curtain off the grid lines.",
+  "sheet": {
+    "width": 140,
+    "height": 100
+  },
+  "gridMetres": 2,
+  "halls": [
+    {
+      "name": "Pavilion 2",
+      "page": 1,
+      "floor": [
+        {
+          "x": 10,
+          "y": 14,
+          "w": 80,
+          "h": 30
+        },
+        {
+          "x": 10,
+          "y": 44,
+          "w": 30,
+          "h": 40
+        }
+      ],
+      "bands": [
+        {
+          "kind": "fire_curtain",
+          "color": "#8a2be2",
+          "rect": {
+            "x": 10,
+            "y": 33,
+            "w": 80,
+            "h": 1
+          }
+        }
+      ],
+      "voids": [
+        {
+          "x": 50,
+          "y": 24,
+          "w": 6,
+          "h": 6
+        }
+      ],
+      "foyer": [],
+      "printed": {
+        "width": 80,
+        "depth": 70
+      }
+    }
+  ],
+  "legend": {
+    "#8a2be2": "fire_curtain"
+  },
+  "expect": {
+    "halls": 1,
+    "scaleStatus": [
+      "verified"
+    ]
+  }
+}

@@ -140,6 +140,33 @@ export class EnvironmentVariables {
   @IsEnum(MailTransport)
   @IsOptional()
   MAIL_TRANSPORT: MailTransport = MailTransport.Log;
+
+  /**
+   * A local open-source model server (Ollama), e.g. http://localhost:11434. Optional: without
+   * it, floor-plan texts are read by the built-in rules alone.
+   */
+  @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
+  @IsOptional()
+  LLM_BASE_URL?: string;
+
+  /** Reads the texts of a vector plan. Any Ollama model name. */
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  LLM_TEXT_MODEL: string = 'qwen3:4b';
+
+  /** Reads text off a scanned or image plan. Must be a vision model. */
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  LLM_VISION_MODEL: string = 'qwen3-vl:4b';
+
+  /** Local models on a CPU are slow; one call may take minutes. */
+  @IsInt()
+  @Min(1000)
+  @Max(900_000)
+  @IsOptional()
+  LLM_TIMEOUT_MS: number = 180_000;
 }
 
 export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables {
