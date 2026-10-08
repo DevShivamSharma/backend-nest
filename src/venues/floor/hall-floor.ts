@@ -1,3 +1,5 @@
+import type { FloorGeometry } from '../floor-plan/plan.types';
+import { area as polygonArea, geometryProblems } from '../floor-plan/geometry';
 /**
  * Our own description of a hall's empty floor, the same for every venue system. A venue's
  * format (ITPO's `T_HALL_LAYOUTS`, a DXF drawing...) is converted into this by an adapter, and
@@ -70,12 +72,16 @@ export interface FloorLabel {
   text: string;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
 }
 
 /** A card of facility icons drawn side by side (toilets, stairs, exits). Top-left corner. */
 export interface FloorIconGroup {
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   icons: { kind: string; label: string }[];
 }
 
@@ -131,10 +137,14 @@ export interface FloorPlacement {
   gridMetres: number | null;
   /** How the scale is known: the evidence, or the person's calibration. */
   scaleSource: string;
+  /** The hall's (0, 0) in the file's own coordinates: PDF points, drawing units or pixels. */
+  source?: { unit: string; x: number; y: number };
 }
 
 export interface HallFloor {
   schema: typeof FLOOR_SCHEMA;
+  /** Authoritative geometry for reviewed imports; legacy rectangles remain supported. */
+  geometry?: FloorGeometry;
   width: number;
   depth: number;
   areas: FloorArea[];
@@ -214,6 +224,16 @@ export function finite(value: unknown): number | undefined {
 /** Checks the limits every stored floor keeps, whatever produced it. Returns the problems. */
 export function floorProblems(floor: HallFloor): string[] {
   const problems: string[] = [];
+  if (floor.geometry) {
+    problems.push(...geometryProblems(floor.geometry.boundary));
+    const g = floor.geometry.grid;
+    if (
+      ![g.x, g.y, g.width, g.height, g.rotation].every(Number.isFinite) ||
+      g.width < 0.001 ||
+      g.height < 0.001
+    )
+      problems.push('Invalid floor grid.');
+  }
   const side = (value: number) => value > 0 && value <= MAX_HALL_SIDE;
   if (!side(floor.width) || !side(floor.depth)) {
     problems.push(`The hall must measure between 0 and ${MAX_HALL_SIDE} m each way.`);
@@ -246,7 +266,7 @@ export type FloorCounts = Record<FloorAreaKind, number>;
 /** How many areas of each kind the floor has. */
 export function countAreas(floor: HallFloor): FloorCounts {
   const counts = Object.fromEntries(FLOOR_AREA_KINDS.map((kind) => [kind, 0])) as FloorCounts;
-  for (const area of floor.areas) {
+  for (const area of floor.geometry?.objects ?? floor.areas) {
     counts[area.kind] += 1;
   }
   return counts;
@@ -254,6 +274,14 @@ export function countAreas(floor: HallFloor): FloorCounts {
 
 /** Square metres of the floor's zones of one kind (zone rectangles never overlap). */
 export function zoneArea(floor: HallFloor, kind: FloorZoneKind): number {
+  if (floor.geometry)
+    return (
+      Math.round(
+        floor.geometry.zones
+          .filter((z) => z.kind === kind)
+          .reduce((sum, z) => sum + polygonArea(z.geometry), 0) * 100,
+      ) / 100
+    );
   let total = 0;
   for (const zone of floor.zones ?? []) {
     if (zone.kind !== kind) continue;
@@ -270,6 +298,7 @@ const CELL = 0.5;
  * the walls, measured on a 0.5 m raster (exact for geometry on that grid, close otherwise).
  */
 export function floorArea(floor: HallFloor): number {
+  if (floor.geometry) return Math.round(polygonArea(floor.geometry.hallBoundary) * 100) / 100;
   const columns = Math.ceil(floor.width / CELL);
   const rows = Math.ceil(floor.depth / CELL);
   const taken = new Uint8Array(columns * rows);

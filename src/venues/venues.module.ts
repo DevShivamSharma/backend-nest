@@ -1,3 +1,6 @@
+import { JsonHallImportService } from './json-import/json-import.service';
+import { FloorPlanController } from './floor-plan/floor-plan.controller';
+import { FloorPlanService } from './floor-plan/floor-plan.service';
 import { Module } from '@nestjs/common';
 
 import { AccessModule } from '../access/access.module';

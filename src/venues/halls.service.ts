@@ -11,7 +11,8 @@ import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../common/http/authenticated-request';
 import { ExternalRefEntity } from '../integrations/external-ref.entity';
 import { CreateHallDto, UpdateHallDto } from './dto/venue.dto';
-import { blankFloor, floorArea, floorProblems, HallFloor } from './floor/hall-floor';
+import { blankFloor, floorArea, floorProblems, HallFloor, sameFloor } from './floor/hall-floor';
+import { withAnnotations } from './floor/hall-annotations';
 import { FloorSource, HallEntity, HallFloorVersionEntity, HallUses } from './hall.entity';
 import { VenueEntity } from './venue.entity';
 import type { FloorVersionView, HallDetailView, HallSourceView, HallView } from './venue.views';
@@ -99,7 +100,12 @@ export class HallsService {
           level: dto.level,
           uses: dto.uses,
         },
-        { floor: blankFloor(dto.width, dto.depth), source: 'blank' },
+        {
+          floor: dto.annotations
+            ? withAnnotations(blankFloor(dto.width, dto.depth), dto.annotations)
+            : blankFloor(dto.width, dto.depth),
+          source: 'blank',
+        },
         actor,
       );
       await this.audit.record(
@@ -125,7 +131,28 @@ export class HallsService {
     actor: Actor,
   ): Promise<HallView> {
     const hall = await this.dataSource.transaction(async (em) => {
-      const hall = await this.getHall(em, organisationId, hallId);
+      const hall = await this.getHall(em, organisationId, hallId, true);
+      if (dto.annotations) {
+        if (dto.expectedVersion !== hall.currentVersion)
+          throw new ConflictException('The hall layout changed. Reload before editing helpers.');
+        const current = await em.getRepository(HallFloorVersionEntity).findOneByOrFail({
+          hallId,
+          version: hall.currentVersion,
+        });
+        const floor = withAnnotations(current.floor, dto.annotations);
+        if (!sameFloor(floor, current.floor))
+          await this.addVersion(
+            em,
+            hall,
+            {
+              floor,
+              source: current.source,
+              sourceRef: current.sourceRef,
+              note: 'Updated legends and helper text positions',
+            },
+            actor,
+          );
+      }
       const before = { name: hall.name, code: hall.code, level: hall.level, uses: hall.uses };
       if (dto.name !== undefined && dto.name !== hall.name) {
         await this.assertNameFree(em, hall.venueId, dto.name, hall.id);
@@ -149,6 +176,7 @@ export class HallsService {
                 JSON.stringify(before[key as keyof typeof before]) !==
                 JSON.stringify(saved[key as keyof typeof before]),
             ),
+            ...(dto.annotations ? { floorVersion: saved.currentVersion } : {}),
           },
         },
         em,

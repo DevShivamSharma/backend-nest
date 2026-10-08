@@ -1,3 +1,5 @@
+import { JsonHallImportService } from './json-import/json-import.service';
+import { JsonFileDto, JsonImportDto } from './json-import/dto';
 import {
   Body,
   Controller,

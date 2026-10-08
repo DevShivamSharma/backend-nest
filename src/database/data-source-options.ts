@@ -1,3 +1,8 @@
+import { PlanReaderVersion1791600000000 } from './migrations/1791600000000-PlanReaderVersion';
+import { CsvFloorSource1791700000000 } from './migrations/1791700000000-CsvFloorSource';
+import { JsonFloorSource1791500000000 } from './migrations/1791500000000-JsonFloorSource';
+import { FloorPlanImportEntity } from '../venues/floor-plan/plan-import.entity';
+import { FloorPlanDocuments1791400000000 } from './migrations/1791400000000-FloorPlanDocuments';
 import { types } from 'pg';
 import type { DataSourceOptions } from 'typeorm';
 
@@ -38,6 +43,7 @@ export const ENTITIES = [
   HallEntity,
   HallFloorVersionEntity,
   ExternalRefEntity,
+  FloorPlanImportEntity,
 ];
 
 /**
@@ -55,6 +61,10 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       PlatformFoundation1791100000000,
       VenuesAndHalls1791200000000,
       DrawingFloorSource1791300000000,
+      FloorPlanDocuments1791400000000,
+      JsonFloorSource1791500000000,
+      PlanReaderVersion1791600000000,
+      CsvFloorSource1791700000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

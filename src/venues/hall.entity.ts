@@ -78,7 +78,7 @@ export class HallEntity {
 }
 
 /** Where a floor version came from. */
-export type FloorSource = 'blank' | 'itpo' | 'restore' | 'drawing';
+export type FloorSource = 'blank' | 'itpo' | 'restore' | 'drawing' | 'json' | 'csv';
 
 /** One saved state of a hall's floor. Rows are never updated. */
 @Entity({ name: 'hall_floor_versions' })

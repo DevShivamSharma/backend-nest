@@ -79,9 +79,8 @@ export const PERMISSION_GROUPS = [
       },
       {
         key: 'halls.import',
-        label: 'Import floor plans',
-        description:
-          'Bring hall floors in from a venue system export (ITPO); DXF, PDF and images later',
+        label: 'Import venue hall data',
+        description: 'Import and review hall floors from plans or venue system exports',
         available: true,
       },
     ],

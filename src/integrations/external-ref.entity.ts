@@ -1,7 +1,7 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 /** A venue system we exchange data with. */
-export type ExternalSystem = 'itpo';
+export type ExternalSystem = 'itpo' | 'json' | 'csv';
 
 /** The kinds of our records a venue system has its own id for. */
 export type ExternalEntityType = 'hall';

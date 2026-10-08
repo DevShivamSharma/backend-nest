@@ -19,6 +19,7 @@ import {
 
 import { EmptyToNull, Trim } from '../../common/validation';
 import { MAX_HALL_SIDE } from '../floor/hall-floor';
+import { HallAnnotationsDto } from './hall-annotations.dto';
 
 export class CreateVenueDto {
   @Trim()
@@ -112,6 +113,11 @@ export class CreateHallDto extends HallDetailsDto {
   @Min(1)
   @Max(MAX_HALL_SIDE)
   depth!: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => HallAnnotationsDto)
+  annotations?: HallAnnotationsDto;
 }
 
 export class UpdateHallDto extends HallDetailsDto {
@@ -120,6 +126,16 @@ export class UpdateHallDto extends HallDetailsDto {
   @IsString()
   @Length(1, 120)
   name?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => HallAnnotationsDto)
+  annotations?: HallAnnotationsDto;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
 }
 
 /** About 12 MB of text: ITPO's whole `T_HALL_LAYOUTS` export is under 2 MB. */

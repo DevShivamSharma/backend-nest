@@ -184,6 +184,95 @@ describe('Venues and halls (e2e)', () => {
       await http.get(`/api/orgs/itpo/halls/${hallId}`).set(auth(owner)).expect(404);
     });
 
+    it('stores positioned manual helpers and legends, and versions later annotation edits without resizing', async () => {
+      const annotations = {
+        labels: [{ text: 'Gate A', x: 3, y: 42, width: 10, height: 1 }],
+        iconGroups: [
+          {
+            x: 12,
+            y: -5,
+            width: 8,
+            height: 4,
+            icons: [
+              { kind: 'toilet-male', label: 'Male toilet' },
+              { kind: 'lift', label: 'Lift' },
+            ],
+          },
+        ],
+        legend: [{ label: 'Facilities', color: '#53849d', showInView: true }],
+      };
+      const url = `/api/orgs/itpo/venues/${venueId}/halls`;
+      const created = await http
+        .post(url)
+        .set(auth(owner))
+        .send({ name: 'Manual helpers', width: 60, depth: 40, annotations })
+        .expect(201);
+      const id = created.body.id;
+      const detailUrl = `/api/orgs/itpo/halls/${id}`;
+      const detail = (await http.get(detailUrl).set(auth(owner)).expect(200)).body;
+      expect(detail.floor).toMatchObject({ ...annotations, width: 60, depth: 40, areas: [] });
+      expect(detail.floorArea).toBe(2400);
+      expect(detail.floor.geometry.source.documentId).toBe('manual');
+      const moved = {
+        ...annotations,
+        iconGroups: annotations.iconGroups.map((g) => ({ ...g, x: 63, y: 8 })),
+      };
+      await http
+        .patch(detailUrl)
+        .set(auth(viewer))
+        .send({ annotations: moved, expectedVersion: 1 })
+        .expect(403);
+      await http
+        .patch(detailUrl)
+        .set(auth(owner))
+        .send({ annotations: moved, expectedVersion: 1 })
+        .expect(200);
+      const edited = (await http.get(detailUrl).set(auth(owner)).expect(200)).body;
+      expect(edited.currentVersion).toBe(2);
+      expect(edited.floor).toMatchObject(moved);
+      expect(edited.floor.geometry).toEqual(detail.floor.geometry);
+      expect([edited.width, edited.depth, edited.floorArea]).toEqual([60, 40, 2400]);
+      expect(edited.versions).toHaveLength(2);
+      const old = (
+        await http
+          .get(detailUrl + '/versions/1')
+          .set(auth(owner))
+          .expect(200)
+      ).body;
+      expect(old.floor).toEqual(detail.floor);
+      await http
+        .patch(detailUrl)
+        .set(auth(owner))
+        .send({ annotations, expectedVersion: 1 })
+        .expect(409);
+      await http
+        .patch(detailUrl)
+        .set(auth(owner))
+        .send({ annotations: moved, expectedVersion: 2 })
+        .expect(200);
+      expect((await http.get(detailUrl).set(auth(owner)).expect(200)).body.currentVersion).toBe(2);
+      for (const bad of [
+        { ...annotations, labels: [{ text: 'Bad', x: 'invalid', y: 0 }] },
+        {
+          ...annotations,
+          iconGroups: [{ x: 0, y: 0, icons: [{ kind: 'unknown', label: 'Bad' }] }],
+        },
+        { ...annotations, legend: [{ label: 'Bad', color: 'url(unsafe)', showInView: true }] },
+        { ...annotations, geometry: {} },
+      ]) {
+        await http
+          .post(url)
+          .set(auth(owner))
+          .send({
+            name: 'Invalid helpers',
+            width: 20,
+            depth: 30,
+            annotations: bad,
+          })
+          .expect(400);
+      }
+      await http.delete(detailUrl).set(auth(owner)).expect(204);
+    });
     it('deletes several halls at once, all or none', async () => {
       const make = async (name: string) =>
         (
