@@ -1,0 +1,3 @@
+Hall Ref,Venue Block,Hall Title,Level,Breadth (m),Length (m),Ceiling Height (m),Foyer Zones,Obstructions,Remarks
+11,Block B,Exhibition Hall 11,Ground,40,60,12,"[{""name"":""Foyer 11"",""x"":20,""y"":40,""width"":20,""height"":8}]","[{""type"":""Pillar"",""left"":15,""top"":12,""w"":1,""h"":1},{""type"":""Pillar"",""left"":30,""top"":12,""w"":1,""h"":1},{""type"":""Pillar"",""left"":45,""top"":12,""w"":1,""h"":1},{""type"":""Passage"",""left"":25,""top"":34,""w"":10,""h"":6,""name"":""Entry passage""}]",Air conditioned
+12A,Block B,Hall 12A,First,30,45,9,"[{""name"":""Foyer 12A"",""x"":0,""y"":-8,""width"":15,""height"":8}]","[{""type"":""No Construction"",""left"":35,""top"":0,""w"":10,""h"":8,""name"":""NC zone""}]",

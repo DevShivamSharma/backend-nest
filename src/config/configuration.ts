@@ -34,11 +34,17 @@ export interface MailConfig {
   transport: MailTransport;
 }
 
+export interface IntegrationsConfig {
+  /** Signs the venue booking system's status reports. Null: the callback is off. */
+  venueWebhookSecret: string | null;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   auth: AuthConfig;
   mail: MailConfig;
+  integrations: IntegrationsConfig;
 }
 
 /**
@@ -88,6 +94,9 @@ export function configuration(): Configuration {
     },
     mail: {
       transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,
+    },
+    integrations: {
+      venueWebhookSecret: env.VENUE_SYSTEM_WEBHOOK_SECRET ?? null,
     },
   };
 }

@@ -6,10 +6,14 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AccessModule } from './access/access.module';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { BookingsModule } from './bookings/bookings.module';
 import { HealthController } from './common/health/health.controller';
 import { AppConfig, configuration } from './config/configuration';
 import { Environment, validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { EventsModule } from './events/events.module';
+import { ExhibitorsModule } from './exhibitors/exhibitors.module';
+import { StallPlansModule } from './stall-plans/stall-plans.module';
 import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { TeamModule } from './team/team.module';
@@ -44,6 +48,10 @@ import { VenuesModule } from './venues/venues.module';
     AdminModule,
     VenuesModule,
     RulesModule,
+    EventsModule,
+    ExhibitorsModule,
+    StallPlansModule,
+    BookingsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

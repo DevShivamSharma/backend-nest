@@ -17,7 +17,7 @@ import {
   VALUE_LIMITS,
   valueProblems,
 } from './rule-catalogue';
-import { checkLayout, RuleReport } from './rule-engine';
+import { CheckInput, checkLayout, RuleReport } from './rule-engine';
 import { OrganisationRulesEntity, RuleReference } from './rules.entity';
 
 export interface RulesView {
@@ -139,6 +139,23 @@ export class RulesService {
       ...report,
       hall: { id: hall.id, name: hall.name, version: hall.currentVersion },
     };
+  }
+
+  /**
+   * Checks stalls on a given floor — the floor version an event booked, which may be older than
+   * the hall's current one — against the organisation's rules.
+   */
+  async checkOnFloor(
+    organisationId: string,
+    input: Pick<CheckInput, 'floor' | 'stalls' | 'eventType' | 'overrides'>,
+  ): Promise<RuleReport> {
+    const rules = await this.row(this.dataSource.manager, organisationId);
+    return checkLayout({
+      ...input,
+      switches: rules.switches,
+      values: effectiveValues(rules.values),
+      profile: drawingProfile(rules.drawingProfile),
+    });
   }
 
   // ---- helpers ------------------------------------------------------------------------------

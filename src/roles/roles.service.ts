@@ -46,10 +46,14 @@ export class RolesService {
 
   /**
    * Whether a member holding `granterPermissions` may give `role`: never more than they hold,
-   * and event roles only once events exist.
+   * and event roles only once events exist (`hasEvents`).
    */
-  static grantCheck(granterPermissions: readonly string[], role: RoleEntity): string | null {
-    if (role.scopeKind === RoleScopeKind.Event) {
+  static grantCheck(
+    granterPermissions: readonly string[],
+    role: RoleEntity,
+    hasEvents = false,
+  ): string | null {
+    if (role.scopeKind === RoleScopeKind.Event && !hasEvents) {
       return 'Event roles can be given once the event exists.';
     }
     if (!holdsAll(granterPermissions, RolesService.effectivePermissions(role))) {
@@ -81,9 +85,14 @@ export class RolesService {
     return role;
   }
 
+  /**
+   * The roles the organisation can use, and which of them the granter may give. An
+   * event-scoped granter (`eventScoped`) gives event roles only.
+   */
   async listForOrganisation(
     organisation: OrganisationEntity,
     granterPermissions: readonly string[],
+    options: { hasEvents?: boolean; eventScoped?: boolean } = {},
   ): Promise<AssignableRoleView[]> {
     const roles = await this.roles.find({
       where: [{ organisationId: IsNull() }, { organisationId: organisation.id }],
@@ -92,7 +101,10 @@ export class RolesService {
     });
 
     return roles.map((role) => {
-      const reason = RolesService.grantCheck(granterPermissions, role);
+      const reason =
+        options.eventScoped && role.scopeKind !== RoleScopeKind.Event
+          ? 'You can give only event roles, for your own events.'
+          : RolesService.grantCheck(granterPermissions, role, options.hasEvents ?? false);
       return { ...RolesService.view(role), assignable: reason === null, reason };
     });
   }

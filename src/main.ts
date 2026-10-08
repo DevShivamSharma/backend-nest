@@ -36,7 +36,8 @@ function serveAngularBuild(app: Express): void {
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  // rawBody: the venue system's status reports are signed over the exact bytes it sent.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const appConfig = configureApp(app);
 

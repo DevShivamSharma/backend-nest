@@ -13,6 +13,8 @@ export interface InvitationView {
   id: string;
   email: string;
   role: RoleRef;
+  /** The events (and exhibitor) an event role is given for; empty for the whole organisation. */
+  scope: MembershipScope;
   invitedBy: { name: string; email: string } | null;
   createdAt: string;
   expiresAt: string;

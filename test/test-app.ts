@@ -30,7 +30,7 @@ async function resetDatabase(): Promise<void> {
 export async function createTestApp(): Promise<INestApplication> {
   await resetDatabase();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication({ logger: ['error'] });
+  const app = moduleRef.createNestApplication({ logger: ['error'], rawBody: true });
   configureApp(app);
   await app.init();
 

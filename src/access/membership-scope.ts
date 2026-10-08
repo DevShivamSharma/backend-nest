@@ -5,6 +5,8 @@
 export interface MembershipScope {
   eventIds?: string[];
   hallIds?: string[];
+  /** The exhibitor an event-scoped member who books stalls acts for. */
+  exhibitorId?: string;
 }
 
 export function scopeAllows(

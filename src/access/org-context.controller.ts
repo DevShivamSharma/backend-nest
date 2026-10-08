@@ -4,6 +4,7 @@ import type { OrgAccessContext } from '../common/http/authenticated-request';
 import type { BookingMode, OrganisationFeatures } from '../organisations/organisation-config';
 import type { Permission } from '../roles/permissions';
 import { RolesService } from '../roles/roles.service';
+import type { RoleScopeKind } from '../roles/role.entity';
 import type { RoleRef } from '../roles/role.views';
 import type { MembershipScope } from './membership-scope';
 import { CurrentAccess, OrgAccess } from './org-access.decorators';
@@ -16,7 +17,8 @@ export interface OrgContextView {
     bookingMode: BookingMode;
     features: OrganisationFeatures;
   };
-  membership: { id: string; role: RoleRef; scope: MembershipScope };
+  /** `scopeKind`: an event role works on the events in `scope` only. */
+  membership: { id: string; role: RoleRef & { scopeKind: RoleScopeKind }; scope: MembershipScope };
   /** What the signed-in member may do here; the app shows only what these allow. */
   permissions: readonly Permission[];
 }
@@ -37,7 +39,7 @@ export class OrgContextController {
       },
       membership: {
         id: membership.id,
-        role: RolesService.ref(membership.role!),
+        role: { ...RolesService.ref(membership.role!), scopeKind: membership.role!.scopeKind },
         scope: membership.scope,
       },
       permissions,

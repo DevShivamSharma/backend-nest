@@ -1,3 +1,8 @@
+import { EventsAndBookings1791900000000 } from './migrations/1791900000000-EventsAndBookings';
+import { BookingEntity, BookingStatusDeliveryEntity } from '../bookings/booking.entity';
+import { EventEntity, EventHallEntity } from '../events/event.entity';
+import { EventExhibitorEntity, ExhibitorEntity } from '../exhibitors/exhibitor.entity';
+import { StallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
 import { PlanReaderVersion1791600000000 } from './migrations/1791600000000-PlanReaderVersion';
 import { CsvFloorSource1791700000000 } from './migrations/1791700000000-CsvFloorSource';
 import { Rules1791800000000 } from './migrations/1791800000000-Rules';
@@ -47,6 +52,14 @@ export const ENTITIES = [
   ExternalRefEntity,
   FloorPlanImportEntity,
   OrganisationRulesEntity,
+  EventEntity,
+  EventHallEntity,
+  ExhibitorEntity,
+  EventExhibitorEntity,
+  StallPlanEntity,
+  StallEntity,
+  BookingEntity,
+  BookingStatusDeliveryEntity,
 ];
 
 /**
@@ -69,6 +82,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       PlanReaderVersion1791600000000,
       CsvFloorSource1791700000000,
       Rules1791800000000,
+      EventsAndBookings1791900000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

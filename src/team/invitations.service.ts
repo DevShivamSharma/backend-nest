@@ -17,13 +17,14 @@ import type { Actor } from '../common/http/authenticated-request';
 import { PASSWORD_MIN } from '../common/validation';
 import { MailService } from '../mail/mail.service';
 import { OrganisationEntity, OrganisationStatus } from '../organisations/organisation.entity';
-import { RoleEntity } from '../roles/role.entity';
+import { RoleEntity, RoleScopeKind } from '../roles/role.entity';
 import { RolesService } from '../roles/roles.service';
 import { PasswordService } from '../users/password.service';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
 import { invitationEmail } from './invitation-email';
 import { InvitationEntity } from './invitation.entity';
+import { hasLiveEvents, resolveScope, ScopeInput, withinEvents } from './member-scope';
 import type { CreatedInvitationView, InvitationPreview, InvitationView } from './team.views';
 
 const INVITATION_TTL_DAYS = 7;
@@ -32,6 +33,8 @@ export interface Granter {
   actor: Actor & { name: string };
   /** What the inviter holds; a role with more than this cannot be given. */
   permissions: readonly string[];
+  /** The inviter's own events when it is event-scoped; absent or null for the whole organisation. */
+  events?: readonly string[] | null;
 }
 
 export interface AcceptInput {
@@ -58,16 +61,19 @@ export class InvitationsService {
    */
   async invite(
     organisation: OrganisationEntity,
-    input: { email: string; roleId: string },
+    input: { email: string; roleId: string } & ScopeInput,
     granter: Granter,
     manager?: EntityManager,
   ): Promise<{ view: CreatedInvitationView; send: () => Promise<void> }> {
     const run = async (em: EntityManager) => {
       const role = await this.roleFor(em, organisation.id, input.roleId);
-      const refusal = RolesService.grantCheck(granter.permissions, role);
+      const events =
+        role.scopeKind === RoleScopeKind.Event && (await hasLiveEvents(em, organisation.id));
+      const refusal = RolesService.grantCheck(granter.permissions, role, events);
       if (refusal) {
         throw new ForbiddenException(refusal);
       }
+      const scope = await resolveScope(em, organisation.id, role, input, granter.events ?? null);
 
       const email = UsersService.normaliseEmail(input.email);
       const existingUser = await this.users.findByEmail(email, em);
@@ -95,7 +101,7 @@ export class InvitationsService {
           organisationId: organisation.id,
           email,
           roleId: role.id,
-          scope: {},
+          scope,
           tokenHash: hashToken(token),
           invitedById: granter.actor.id,
           expiresAt,
@@ -109,7 +115,7 @@ export class InvitationsService {
           organisationId: organisation.id,
           targetType: 'invitation',
           targetId: invitation.id,
-          metadata: { email, role: role.key },
+          metadata: { email, role: role.key, ...scope },
         },
         em,
       );
@@ -144,17 +150,25 @@ export class InvitationsService {
     return result;
   }
 
-  /** Open invitations, newest first; expired ones are listed so they can be sent again. */
-  async listOpen(organisationId: string): Promise<InvitationView[]> {
+  /**
+   * Open invitations, newest first; expired ones are listed so they can be sent again. An
+   * event-scoped member (`events`) sees only invitations to its own events.
+   */
+  async listOpen(
+    organisationId: string,
+    events: readonly string[] | null = null,
+  ): Promise<InvitationView[]> {
     const rows = await this.invitations.find({
       where: { organisationId, acceptedAt: IsNull(), revokedAt: IsNull() },
       relations: { role: true, invitedBy: true },
       order: { createdAt: 'DESC' },
     });
-    return rows.map((row) => InvitationsService.view(row, row.role!, row.invitedBy ?? null));
+    return rows
+      .filter((row) => !events || withinEvents(row.role, row.scope, events))
+      .map((row) => InvitationsService.view(row, row.role!, row.invitedBy ?? null));
   }
 
-  /** A new link for the same person and role; the old link stops working. */
+  /** A new link for the same person, role and scope; the old link stops working. */
   async resend(
     organisation: OrganisationEntity,
     invitationId: string,
@@ -163,14 +177,30 @@ export class InvitationsService {
     const invitation = await this.getOpen(organisation.id, invitationId);
     const { view } = await this.invite(
       organisation,
-      { email: invitation.email, roleId: invitation.roleId },
+      {
+        email: invitation.email,
+        roleId: invitation.roleId,
+        eventIds: invitation.scope.eventIds,
+        exhibitorId: invitation.scope.exhibitorId,
+      },
       granter,
     );
     return view;
   }
 
-  async revoke(organisationId: string, invitationId: string, actor: Actor): Promise<void> {
+  async revoke(
+    organisationId: string,
+    invitationId: string,
+    actor: Actor,
+    events: readonly string[] | null = null,
+  ): Promise<void> {
     const invitation = await this.getOpen(organisationId, invitationId);
+    if (events) {
+      const role = await this.roleFor(this.dataSource.manager, organisationId, invitation.roleId);
+      if (!withinEvents(role, invitation.scope, events)) {
+        throw new ForbiddenException('This invitation is for events you do not work on.');
+      }
+    }
     await this.dataSource.transaction(async (em) => {
       await em
         .getRepository(InvitationEntity)
@@ -362,6 +392,7 @@ export class InvitationsService {
       id: invitation.id,
       email: invitation.email,
       role: RolesService.ref(role),
+      scope: invitation.scope,
       invitedBy: invitedBy ? { name: invitedBy.name, email: invitedBy.email } : null,
       createdAt: invitation.createdAt.toISOString(),
       expiresAt: invitation.expiresAt.toISOString(),

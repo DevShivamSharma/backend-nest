@@ -140,6 +140,15 @@ export class EnvironmentVariables {
   @IsEnum(MailTransport)
   @IsOptional()
   MAIL_TRANSPORT: MailTransport = MailTransport.Log;
+
+  /**
+   * Shared secret the venue's booking system signs status reports with. Unset: the callback is
+   * off. At least 32 characters.
+   */
+  @IsString()
+  @MinLength(32, { message: 'VENUE_SYSTEM_WEBHOOK_SECRET must be at least 32 characters' })
+  @IsOptional()
+  VENUE_SYSTEM_WEBHOOK_SECRET?: string;
 }
 
 export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables {
