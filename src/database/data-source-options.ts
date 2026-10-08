@@ -1,6 +1,8 @@
 import { PlanReaderVersion1791600000000 } from './migrations/1791600000000-PlanReaderVersion';
 import { CsvFloorSource1791700000000 } from './migrations/1791700000000-CsvFloorSource';
 import { Rules1791800000000 } from './migrations/1791800000000-Rules';
+import { Events1791900000000 } from './migrations/1791900000000-Events';
+import { EventEntity, EventHallEntity } from '../events/event.entity';
 import { OrganisationRulesEntity } from '../rules/rules.entity';
 import { JsonFloorSource1791500000000 } from './migrations/1791500000000-JsonFloorSource';
 import { FloorPlanImportEntity } from '../venues/floor-plan/plan-import.entity';
@@ -29,6 +31,8 @@ import { DrawingFloorSource1791300000000 } from './migrations/1791300000000-Draw
 // The pg driver returns int8 (COUNT(*)) as a string by default. Counts here are far below
 // Number.MAX_SAFE_INTEGER, so parsing to a JS number is safe.
 types.setTypeParser(types.builtins.INT8, (value: string) => parseInt(value, 10));
+// A calendar date stays the text it is ("2026-08-10"), never a Date shifted by a time zone.
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
 export const ENTITIES = [
   UserEntity,
@@ -47,6 +51,8 @@ export const ENTITIES = [
   ExternalRefEntity,
   FloorPlanImportEntity,
   OrganisationRulesEntity,
+  EventEntity,
+  EventHallEntity,
 ];
 
 /**
@@ -69,6 +75,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       PlanReaderVersion1791600000000,
       CsvFloorSource1791700000000,
       Rules1791800000000,
+      Events1791900000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

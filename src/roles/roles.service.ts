@@ -46,11 +46,18 @@ export class RolesService {
 
   /**
    * Whether a member holding `granterPermissions` may give `role`: never more than they hold,
-   * and event roles only once events exist.
+   * and event roles only for an event, from that event's page (`forEvent`).
    */
-  static grantCheck(granterPermissions: readonly string[], role: RoleEntity): string | null {
-    if (role.scopeKind === RoleScopeKind.Event) {
-      return 'Event roles can be given once the event exists.';
+  static grantCheck(
+    granterPermissions: readonly string[],
+    role: RoleEntity,
+    forEvent = false,
+  ): string | null {
+    if (role.scopeKind === RoleScopeKind.Event && !forEvent) {
+      return 'Event roles are given from the event, to its organiser.';
+    }
+    if (role.scopeKind !== RoleScopeKind.Event && forEvent) {
+      return 'Only event roles can be given for an event.';
     }
     if (!holdsAll(granterPermissions, RolesService.effectivePermissions(role))) {
       return 'This role has permissions you do not have.';

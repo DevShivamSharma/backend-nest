@@ -9,6 +9,7 @@ import { DataSource, EntityManager, In } from 'typeorm';
 
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../common/http/authenticated-request';
+import { EventHallEntity } from '../events/event.entity';
 import { ExternalRefEntity } from '../integrations/external-ref.entity';
 import { CreateHallDto, UpdateHallDto } from './dto/venue.dto';
 import { blankFloor, floorArea, floorProblems, HallFloor, sameFloor } from './floor/hall-floor';
@@ -189,6 +190,7 @@ export class HallsService {
   async remove(organisationId: string, hallId: string, actor: Actor): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       const hall = await this.getHall(em, organisationId, hallId);
+      await this.assertNotInEvents(em, [hall]);
       await em.getRepository(ExternalRefEntity).delete({ organisationId, localId: hall.id });
       await em.getRepository(HallEntity).delete({ id: hall.id });
       await this.audit.record(
@@ -227,6 +229,7 @@ export class HallsService {
           'Some of these halls are not in this venue any more. Reload and try again.',
         );
       }
+      await this.assertNotInEvents(em, halls);
       await em.getRepository(ExternalRefEntity).delete({ organisationId, localId: In(ids) });
       await em.getRepository(HallEntity).delete({ id: In(ids) });
       for (const hall of halls) {
@@ -383,6 +386,24 @@ export class HallsService {
       throw new NotFoundException('There is no such hall in this organisation.');
     }
     return hall;
+  }
+
+  /** A hall an event uses keeps its floor history; remove it from the events first. */
+  private async assertNotInEvents(em: EntityManager, halls: HallEntity[]): Promise<void> {
+    const used = await em
+      .getRepository(EventHallEntity)
+      .createQueryBuilder('eh')
+      .innerJoin('eh.event', 'event')
+      .select(['eh.hallId AS "hallId"', 'event.name AS "eventName"'])
+      .where('eh.hallId IN (:...ids)', { ids: halls.map((h) => h.id) })
+      .orderBy('event.startsOn', 'ASC')
+      .getRawOne<{ hallId: string; eventName: string }>();
+    if (used) {
+      const hall = halls.find((h) => h.id === used.hallId);
+      throw new ConflictException(
+        `${hall?.name ?? 'A hall'} is used by the event "${used.eventName}". Remove it from the event first.`,
+      );
+    }
   }
 
   async getVenue(em: EntityManager, organisationId: string, venueId: string): Promise<VenueEntity> {

@@ -3,10 +3,11 @@ import { Controller, Get } from '@nestjs/common';
 import type { OrgAccessContext } from '../common/http/authenticated-request';
 import type { BookingMode, OrganisationFeatures } from '../organisations/organisation-config';
 import type { Permission } from '../roles/permissions';
+import { RoleScopeKind } from '../roles/role.entity';
 import { RolesService } from '../roles/roles.service';
 import type { RoleRef } from '../roles/role.views';
 import type { MembershipScope } from './membership-scope';
-import { CurrentAccess, OrgAccess } from './org-access.decorators';
+import { AllowEventRoles, CurrentAccess, OrgAccess } from './org-access.decorators';
 
 export interface OrgContextView {
   organisation: {
@@ -16,12 +17,14 @@ export interface OrgContextView {
     bookingMode: BookingMode;
     features: OrganisationFeatures;
   };
-  membership: { id: string; role: RoleRef; scope: MembershipScope };
+  /** `eventScoped`: an organiser, who sees only the events in `scope`. */
+  membership: { id: string; role: RoleRef; scope: MembershipScope; eventScoped: boolean };
   /** What the signed-in member may do here; the app shows only what these allow. */
   permissions: readonly Permission[];
 }
 
 @OrgAccess()
+@AllowEventRoles()
 @Controller('orgs/:slug/context')
 export class OrgContextController {
   @Get()
@@ -39,6 +42,7 @@ export class OrgContextController {
         id: membership.id,
         role: RolesService.ref(membership.role!),
         scope: membership.scope,
+        eventScoped: membership.role!.scopeKind === RoleScopeKind.Event,
       },
       permissions,
     };

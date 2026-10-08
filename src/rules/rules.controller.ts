@@ -1,6 +1,11 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from '@nestjs/common';
 
-import { CurrentAccess, OrgAccess, RequirePermissions } from '../access/org-access.decorators';
+import {
+  AllowEventRoles,
+  CurrentAccess,
+  OrgAccess,
+  RequirePermissions,
+} from '../access/org-access.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { CheckLayoutDto, UpdateRulesDto } from './dto/rules.dto';
@@ -13,6 +18,7 @@ export class RulesController {
   constructor(private readonly rules: RulesService) {}
 
   /** The rules that can be checked, the limits on their values, and the drawing profiles. */
+  @AllowEventRoles()
   @Get('catalogue')
   catalogue(): ReturnType<RulesService['catalogue']> {
     return this.rules.catalogue();

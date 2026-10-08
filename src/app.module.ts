@@ -13,6 +13,7 @@ import { DatabaseModule } from './database/database.module';
 import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { TeamModule } from './team/team.module';
+import { EventsModule } from './events/events.module';
 import { RulesModule } from './rules/rules.module';
 import { VenuesModule } from './venues/venues.module';
 
@@ -44,6 +45,7 @@ import { VenuesModule } from './venues/venues.module';
     AdminModule,
     VenuesModule,
     RulesModule,
+    EventsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

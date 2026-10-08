@@ -52,7 +52,10 @@ export class TeamService {
         await this.memberships.assertNotLastOwner(em, member);
       }
 
-      await em.getRepository(MembershipEntity).update({ id: member.id }, { roleId: role.id });
+      // An organisation role covers the whole organisation: no event scope left behind.
+      await em
+        .getRepository(MembershipEntity)
+        .update({ id: member.id }, { roleId: role.id, scope: {} });
       await this.audit.record(
         {
           action: 'membership.role_changed',

@@ -10,6 +10,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
+import type { MembershipScope } from '../access/membership-scope';
 import { MembershipsService } from '../access/memberships.service';
 import { AuditService } from '../audit/audit.service';
 import { hashToken, randomToken } from '../common/crypto';
@@ -58,13 +59,18 @@ export class InvitationsService {
    */
   async invite(
     organisation: OrganisationEntity,
-    input: { email: string; roleId: string },
+    input: { email: string; roleId: string; scope?: MembershipScope },
     granter: Granter,
     manager?: EntityManager,
   ): Promise<{ view: CreatedInvitationView; send: () => Promise<void> }> {
+    const scope = input.scope ?? {};
     const run = async (em: EntityManager) => {
       const role = await this.roleFor(em, organisation.id, input.roleId);
-      const refusal = RolesService.grantCheck(granter.permissions, role);
+      const refusal = RolesService.grantCheck(
+        granter.permissions,
+        role,
+        Boolean(scope.eventIds?.length),
+      );
       if (refusal) {
         throw new ForbiddenException(refusal);
       }
@@ -95,7 +101,7 @@ export class InvitationsService {
           organisationId: organisation.id,
           email,
           roleId: role.id,
-          scope: {},
+          scope,
           tokenHash: hashToken(token),
           invitedById: granter.actor.id,
           expiresAt,
@@ -163,7 +169,7 @@ export class InvitationsService {
     const invitation = await this.getOpen(organisation.id, invitationId);
     const { view } = await this.invite(
       organisation,
-      { email: invitation.email, roleId: invitation.roleId },
+      { email: invitation.email, roleId: invitation.roleId, scope: invitation.scope },
       granter,
     );
     return view;
