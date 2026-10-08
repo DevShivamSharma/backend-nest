@@ -92,14 +92,14 @@ export const PERMISSION_GROUPS = [
       {
         key: 'rules.view',
         label: 'See rules',
-        description: 'Safety and plotting rules',
-        available: false,
+        description: 'Safety and layout rules',
+        available: true,
       },
       {
         key: 'rules.manage',
         label: 'Manage rules',
         description: 'Switch rules on or off and set their values',
-        available: false,
+        available: true,
       },
     ],
   },
