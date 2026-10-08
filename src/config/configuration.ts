@@ -34,21 +34,11 @@ export interface MailConfig {
   transport: MailTransport;
 }
 
-/** The local open-source model server that reads floor-plan texts. */
-export interface LlmConfig {
-  /** Null when no model server is configured: the built-in rules are used alone. */
-  baseUrl: string | null;
-  textModel: string;
-  visionModel: string;
-  timeoutMs: number;
-}
-
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   auth: AuthConfig;
   mail: MailConfig;
-  llm: LlmConfig;
 }
 
 /**
@@ -98,12 +88,6 @@ export function configuration(): Configuration {
     },
     mail: {
       transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,
-    },
-    llm: {
-      baseUrl: env.LLM_BASE_URL ? env.LLM_BASE_URL.replace(/\/+$/, '') : null,
-      textModel: env.LLM_TEXT_MODEL ?? 'qwen3:4b',
-      visionModel: env.LLM_VISION_MODEL ?? 'qwen3-vl:4b',
-      timeoutMs: Number(env.LLM_TIMEOUT_MS ?? 180_000),
     },
   };
 }
