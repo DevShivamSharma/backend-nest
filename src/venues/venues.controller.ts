@@ -46,6 +46,7 @@ export class VenuesController {
     private readonly venues: VenuesService,
     private readonly halls: HallsService,
     private readonly itpo: ItpoHallImportService,
+    private readonly json: JsonHallImportService,
   ) {}
 
   @Get('venues')
@@ -146,6 +147,50 @@ export class VenuesController {
     @Body() dto: ItpoImportDto,
   ): Promise<ItpoImportResult> {
     return this.itpo.import(access.organisation.id, venueId, dto, user);
+  }
+
+  @RequirePermissions('halls.import')
+  @Post('venues/:venueId/halls/import/json/preview')
+  @HttpCode(HttpStatus.OK)
+  previewJson(
+    @CurrentAccess() access: OrgAccessContext,
+    @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body() dto: JsonFileDto,
+  ) {
+    return this.json.preview(access.organisation.id, venueId, { ...dto, format: 'json' });
+  }
+
+  @RequirePermissions('halls.import')
+  @Post('venues/:venueId/halls/import/json')
+  importJson(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body() dto: JsonImportDto,
+  ): Promise<ItpoImportResult> {
+    return this.json.import(access.organisation.id, venueId, { ...dto, format: 'json' }, user);
+  }
+
+  @RequirePermissions('halls.import')
+  @Post('venues/:venueId/halls/import/csv/preview')
+  @HttpCode(HttpStatus.OK)
+  previewCsv(
+    @CurrentAccess() access: OrgAccessContext,
+    @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body() dto: JsonFileDto,
+  ) {
+    return this.json.preview(access.organisation.id, venueId, { ...dto, format: 'csv' });
+  }
+
+  @RequirePermissions('halls.import')
+  @Post('venues/:venueId/halls/import/csv')
+  importCsv(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('venueId', ParseUUIDPipe) venueId: string,
+    @Body() dto: JsonImportDto,
+  ): Promise<ItpoImportResult> {
+    return this.json.import(access.organisation.id, venueId, { ...dto, format: 'csv' }, user);
   }
 
   @Get('halls/:hallId')

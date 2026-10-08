@@ -23,7 +23,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "admin:create": "node --env-file=.env -r ts-node/register scripts/create-super-admin.ts"
+    "admin:create": "node --env-file=.env -r ts-node/register scripts/create-super-admin.ts",
+    "eval:plans": "jest --runInBand --testPathPattern=\"venues/floor-plan/.*\\.spec\\.ts$\" && ts-node --transpile-only scripts/eval-floor-plans.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.100",
@@ -34,15 +35,21 @@
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/throttler": "^6.7.1",
     "@nestjs/typeorm": "^11.0.0",
+    "@techstark/opencv-js": "5.0.0-release.1",
+    "@tesseract.js-data/eng": "1.0.0",
     "argon2": "^0.45.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
     "dxf-parser": "^1.1.2",
     "helmet": "^8.3.0",
+    "pdfjs-dist": "5.4.624",
+    "pdfjs-drawing": "npm:pdfjs-dist@3.11.174",
     "pg": "^8.13.0",
+    "polygon-clipping": "0.15.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "tesseract.js": "7.0.0",
     "typeorm": "^0.3.20"
   },
   "devDependencies": {

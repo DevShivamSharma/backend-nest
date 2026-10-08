@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   IsBoolean,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,

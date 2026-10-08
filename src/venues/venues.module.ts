@@ -13,8 +13,14 @@ import { VenuesService } from './venues.service';
 /** Module B: venues, halls, their floor history, and floor imports from venue systems. */
 @Module({
   imports: [AccessModule, AuditModule],
-  controllers: [VenuesController],
-  providers: [VenuesService, HallsService, ItpoHallImportService],
+  controllers: [VenuesController, FloorPlanController],
+  providers: [
+    VenuesService,
+    HallsService,
+    ItpoHallImportService,
+    JsonHallImportService,
+    FloorPlanService,
+  ],
   exports: [HallsService],
 })
 export class VenuesModule {}
