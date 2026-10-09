@@ -24,6 +24,13 @@ export enum Environment {
   Test = 'test',
 }
 
+/** Which model answers the planner's AI assistant: Gemini's or Groq's API, or a local Ollama. */
+export enum AiProvider {
+  Gemini = 'gemini',
+  Groq = 'groq',
+  Ollama = 'ollama',
+}
+
 /** Where outgoing mail goes. Only `log` exists today: links are written to the server log. */
 export enum MailTransport {
   Log = 'log',
@@ -140,6 +147,32 @@ export class EnvironmentVariables {
   @IsEnum(MailTransport)
   @IsOptional()
   MAIL_TRANSPORT: MailTransport = MailTransport.Log;
+
+  @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
+  @IsOptional()
+  AI_PROVIDER: AiProvider = AiProvider.Gemini;
+
+  /** Gemini or Groq API key. Without it the assistant says it is not set up. Never logged. */
+  @IsString()
+  @IsOptional()
+  AI_API_KEY?: string;
+
+  /** The Gemini or Groq model. */
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  AI_MODEL?: string;
+
+  /** Ollama's address, e.g. http://localhost:11434. */
+  @IsUrl({ require_tld: false, require_protocol: true })
+  @IsOptional()
+  LLM_BASE_URL?: string;
+
+  /** The Ollama model, e.g. qwen3:4b. */
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  LLM_TEXT_MODEL?: string;
 }
 
 export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables {

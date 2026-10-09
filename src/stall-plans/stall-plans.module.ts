@@ -11,5 +11,6 @@ import { StallPlansService } from './stall-plans.service';
   imports: [AccessModule, AuditModule, EventsModule],
   controllers: [StallPlansController],
   providers: [StallPlansService],
+  exports: [StallPlansService],
 })
 export class StallPlansModule {}

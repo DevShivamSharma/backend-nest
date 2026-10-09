@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AccessModule } from './access/access.module';
 import { AdminModule } from './admin/admin.module';
+import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthController } from './common/health/health.controller';
 import { AppConfig, configuration } from './config/configuration';
@@ -50,6 +51,7 @@ import { VenuesModule } from './venues/venues.module';
     EventsModule,
     CategoriesModule,
     StallPlansModule,
+    AiModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

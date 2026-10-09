@@ -1,4 +1,4 @@
-import { Environment, MailTransport } from './env.validation';
+import { AiProvider, Environment, MailTransport } from './env.validation';
 
 export interface AppConfig {
   env: Environment;
@@ -34,12 +34,29 @@ export interface MailConfig {
   transport: MailTransport;
 }
 
+export interface AiConfig {
+  provider: AiProvider;
+  /** Gemini or Groq key; null when not set. */
+  apiKey: string | null;
+  model: string;
+  /** Ollama's address, without a trailing slash. */
+  baseUrl: string;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   auth: AuthConfig;
   mail: MailConfig;
+  ai: AiConfig;
 }
+
+/** The model each provider uses when AI_MODEL (or LLM_TEXT_MODEL for Ollama) is not set. */
+const DEFAULT_MODELS: Record<AiProvider, string> = {
+  [AiProvider.Gemini]: 'gemini-2.5-flash',
+  [AiProvider.Groq]: 'llama-3.3-70b-versatile',
+  [AiProvider.Ollama]: 'qwen3:4b',
+};
 
 /**
  * Builds the typed configuration tree from the already-validated environment.
@@ -89,5 +106,17 @@ export function configuration(): Configuration {
     mail: {
       transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,
     },
+    ai: aiConfig(env),
+  };
+}
+
+function aiConfig(env: NodeJS.ProcessEnv): AiConfig {
+  const provider = (env.AI_PROVIDER as AiProvider) ?? AiProvider.Gemini;
+  const model = provider === AiProvider.Ollama ? env.LLM_TEXT_MODEL : env.AI_MODEL;
+  return {
+    provider,
+    apiKey: env.AI_API_KEY?.trim() || null,
+    model: model?.trim() || DEFAULT_MODELS[provider],
+    baseUrl: (env.LLM_BASE_URL ?? 'http://127.0.0.1:11434').replace(/\/+$/, ''),
   };
 }
