@@ -169,6 +169,32 @@ describe('Venue JSON adaptation', () => {
     expect(f.geometry!.objects[0].blocksStalls).toBe(true);
     expect(area(f.geometry!.objects[0].geometry)).toBe(2);
   });
+  it('reads an area whose type names its meaning as a rectangle', () => {
+    const f = convert(
+      {
+        unit: 'm',
+        width: 20,
+        depth: 30,
+        obstructions: [{ type: 'Pillar', left: 2, top: 3, w: 1, h: 1 }],
+      },
+      { areas: 'obstructions' },
+    ).rows[0].floor!;
+    expect(f.geometry!.objects[0].kind).toBe('column');
+    expect(bounds(f.geometry!.objects[0].geometry)).toEqual({ x: 2, y: 3, width: 1, height: 1 });
+    const circle = { type: 'circle', kind: 'column', radius: 2 };
+    expect(convert({ unit: 'm', width: 20, depth: 30, areas: [circle] }).rows[0].error).toMatch(
+      /polygon export/,
+    );
+  });
+  it('maps the hall ID and a units column under other names, including names with dots', () => {
+    const r = convert(
+      { 'Hall No.': 'H-7', 'Measured in': 'ft', size: { a: 10, b: 20 } },
+      { id: 'Hall No.', unitField: 'Measured in', width: 'size.a', depth: 'size.b' },
+    ).rows[0];
+    expect(r.error).toBeNull();
+    expect(r.sourceId).toBe('H-7');
+    expect(r.floor!.width).toBeCloseTo(3.048);
+  });
   it('does not silently discard unsupported canvas paths', () => {
     const r = convert({
       unit: 'm',
