@@ -247,3 +247,136 @@ describe('Venue CSV import', () => {
       .expect(400);
   });
 });
+
+describe('Venue CSV import: other column names and one row per space', () => {
+  let app: INestApplication, http: ReturnType<typeof request>, token: string;
+  const venues: Record<'itpo' | 'external', string> = { itpo: '', external: '' };
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const url = (venue: string) => `/api/orgs/csv-formats/venues/${venue}/halls/import/csv`;
+  const read = (name: string) => readFileSync(join(__dirname, 'fixtures/csv', name), 'utf8');
+  const preview = async (venue: string, content: string, mapping = {}) =>
+    (
+      await http
+        .post(url(venue) + '/preview')
+        .set(auth())
+        .send({ content, mapping })
+        .expect(200)
+    ).body;
+  const save = async (venue: string, content: string, mapping: object, p: any) =>
+    (
+      await http
+        .post(url(venue))
+        .set(auth())
+        .send({
+          content,
+          mapping,
+          halls: p.rows.map((r: any) => ({ externalId: r.externalId, name: r.name })),
+          previewToken: p.previewToken,
+          reviewed: true,
+        })
+        .expect(201)
+    ).body;
+  const hall = async (id: string) =>
+    (await http.get(`/api/orgs/csv-formats/halls/${id}`).set(auth()).expect(200)).body;
+  beforeAll(async () => {
+    app = await createTestApp();
+    http = request(app.getHttpServer());
+    const root = (await login(app, SUPER_ADMIN.email, SUPER_ADMIN.password)).token;
+    const org = await http
+      .post('/api/admin/organisations')
+      .set({ Authorization: `Bearer ${root}` })
+      .send({
+        name: 'CSV formats',
+        slug: 'csv-formats',
+        limits: { venues: 2, users: 25, storageMb: 1024 },
+        firstAdmin: { email: 'formats@venue.test' },
+      })
+      .expect(201);
+    token = (
+      await http
+        .post(`/api/auth/invitations/${tokenFrom(org.body.invitation.inviteUrl)}/accept`)
+        .send({ name: 'Formats owner', password: 'csv-formats-password-123' })
+        .expect(200)
+    ).body.accessToken;
+    for (const key of ['itpo', 'external'] as const)
+      venues[key] = (
+        await http
+          .post('/api/orgs/csv-formats/venues')
+          .set(auth())
+          .send({ name: `Venue ${key}` })
+          .expect(201)
+      ).body.id;
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  it('saves the existing-format export and reads every floor back unchanged', async () => {
+    const content = read('existing-format-halls.csv');
+    const p = await preview(venues.itpo, content);
+    expect(p.format).toBe('itpo');
+    expect(p.rows.map((r: any) => [r.sourceId, r.width, r.depth, r.error])).toEqual([
+      ['11', 60, 40, null],
+      ['12A', 45, 30, null],
+      ['14', 30, 20, null],
+    ]);
+    const result = await save(venues.itpo, content, {}, p);
+    expect(result.created).toHaveLength(3);
+    for (const row of p.rows) {
+      const saved = result.created.find((h: any) => h.name === row.name);
+      expect((await hall(saved.id)).floor).toEqual(row.floor);
+    }
+  });
+  it('saves one row per space as halls with their foyers, and repeats without changes', async () => {
+    const content = read('external-format-spaces.csv');
+    const mapping = { rows: 'space' };
+    const p = await preview(venues.external, content, mapping);
+    expect(p.rowLayout).toBe('space');
+    expect(p.columns).toContain('Exhibitor');
+    expect(p.rows.map((r: any) => [r.sourceId, r.name, r.records, r.error])).toEqual([
+      ['11', 'Exhibition Hall 11', 14, null],
+      ['12A', 'Hall 12A', 10, null],
+    ]);
+    const result = await save(venues.external, content, mapping, p);
+    expect(result.created).toHaveLength(2);
+    const h11 = await hall(result.created.find((h: any) => h.name === 'Exhibition Hall 11').id);
+    expect(h11.floor).toEqual(p.rows[0].floor);
+    expect(h11.floor.geometry.zones).toEqual([
+      expect.objectContaining({ name: 'Foyer 11', kind: 'foyer' }),
+    ]);
+    expect(h11.versions[0].source).toBe('csv');
+    const again = await preview(venues.external, content, mapping);
+    expect(again.rows.every((r: any) => r.existing?.sameFloor)).toBe(true);
+    const repeat = await save(venues.external, content, mapping, again);
+    expect([repeat.created.length, repeat.unchanged.length]).toEqual([0, 2]);
+  });
+  it('matches the same hall IDs from a file with other column names as updates', async () => {
+    const content = read('external-format-halls.csv');
+    const p = await preview(venues.external, content);
+    expect(p.suggested).toMatchObject({
+      id: 'Hall Ref',
+      width: 'Length (m)',
+      zones: 'Foyer Zones',
+    });
+    expect(p.rows.map((r: any) => [r.existing?.name, r.existing?.sameFloor])).toEqual([
+      ['Exhibition Hall 11', false],
+      ['Hall 12A', false],
+    ]);
+    const result = await save(venues.external, content, {}, p);
+    expect([result.created.length, result.updated.length]).toEqual([0, 2]);
+    const updated = await hall(result.updated[0].id);
+    expect(updated.currentVersion).toBe(2);
+    expect(updated.floor.geometry.zones[0].geometry).toEqual(
+      p.rows[0].floor.geometry.zones[0].geometry,
+    );
+  });
+  it('lists missing required columns instead of converting, and rejects unknown layouts', async () => {
+    const p = await preview(venues.external, 'Hall,X,Y\n11,0,0', { rows: 'space' });
+    expect(p.rows).toEqual([]);
+    expect(p.missing).toEqual(['kind', 'width', 'depth', 'unit']);
+    await http
+      .post(url(venues.external) + '/preview')
+      .set(auth())
+      .send({ content: 'Hall,X\n1,2', mapping: { rows: 'stalls' } })
+      .expect(400);
+  });
+});

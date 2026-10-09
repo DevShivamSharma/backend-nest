@@ -23,8 +23,21 @@ import type { AreaKind, FloorGeometry, MultiPolygon, Point } from '../floor-plan
 import { itpoRowToFloor, readItpoHallRows } from '../../integrations/itpo/itpo-hall-layout';
 
 type Obj = Record<string, any>;
+/** Field names recognised without a mapping, compared ignoring case, spaces and punctuation. */
+export const FIELD_NAMES = {
+  id: ['id', 'hallId', 'externalId'],
+  name: ['name', 'hallName', 'title'],
+  width: ['width', 'length', 'hallWidth'],
+  depth: ['depth', 'breadth', 'height', 'hallDepth'],
+  boundary: ['boundary', 'outline', 'polygon'],
+  zones: ['zones', 'foyers'],
+  areas: ['areas', 'obstacles', 'restrictions', 'objects', 'nonClickableAreas'],
+  unitField: ['unit', 'units'],
+} as const;
+/** Field paths. Absent means recognise the field by name; an empty path means the file has none. */
 export interface JsonMapping {
   halls?: string;
+  id?: string;
   name?: string;
   width?: string;
   depth?: string;
@@ -32,6 +45,7 @@ export interface JsonMapping {
   areas?: string;
   zones?: string;
   unit?: string;
+  unitField?: string;
   metresPerUnit?: number;
   kinds?: Record<string, string>;
   yAxis?: 'down' | 'up';
@@ -41,11 +55,15 @@ export interface JsonMapping {
 }
 export interface JsonRow {
   externalId: string;
+  /** The hall's own ID in the file, when it has one. */
+  sourceId: string | null;
   name: string;
   floor: HallFloor | null;
   warnings: string[];
   error: string | null;
   source: 'itpo' | 'json' | 'csv';
+  /** CSV rows read into this hall, when the file has one row per space. */
+  records?: number;
 }
 export interface JsonAdaptation {
   rows: JsonRow[];
@@ -54,9 +72,11 @@ export interface JsonAdaptation {
   areaTypes: string[];
 }
 const obj = (v: any): Obj | null => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
-const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-function at(v: any, path: string): any {
+export const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+export function at(v: any, path: string): any {
   if (!path || path === '$') return v;
+  // A column named "Hall No." is one key, not a path.
+  if (obj(v) && Object.prototype.hasOwnProperty.call(v, path)) return v[path];
   return path
     .replace(/^\$\./, '')
     .split('.')
@@ -157,7 +177,12 @@ function scaleFor(row: Obj, root: Obj, m: JsonMapping): number {
     in: 0.0254,
     inches: 0.0254,
   };
-  const unit = m.unit || pick(row, 'unit', 'units') || pick(root, 'unit', 'units');
+  const unit =
+    m.unit ||
+    (m.unitField !== undefined
+      ? m.unitField && at(row, m.unitField)
+      : pick(row, ...FIELD_NAMES.unitField)) ||
+    pick(root, ...FIELD_NAMES.unitField);
   const s = units[key(String(unit ?? ''))];
   if (!s)
     throw new Error('Choose source units, or enter metres per source unit for a pixel drawing.');
@@ -168,7 +193,7 @@ function number(v: any, label: string): number {
   if (n === undefined) throw new Error(`${label} must be a finite number.`);
   return n;
 }
-function geometry(v: any): MultiPolygon {
+export function geometry(v: any): MultiPolygon {
   if (typeof v === 'string') {
     try {
       v = JSON.parse(v);
@@ -205,7 +230,10 @@ function shape(r: Obj): MultiPolygon {
   const polygon = pick(r, 'geometry', 'boundary', 'polygon', 'points');
   let g: MultiPolygon;
   if (polygon !== undefined) g = geometry(polygon);
-  else if (!r.type || /^(rect|rectangle|area)$/i.test(r.type)) {
+  // Any other type names what the area is ("Pillar"); only these canvas shapes are not rectangles.
+  else if (
+    !/^(circle|ellipse|triangle|line|polyline|polygon|path|image|group)$/i.test(r.type ?? '')
+  ) {
     const w = number(pick(r, 'width', 'w'), 'Area width'),
       h = number(pick(r, 'height', 'depth', 'h'), 'Area height');
     if (w <= 0 || h <= 0) throw new Error('An area has no positive size.');
@@ -392,13 +420,16 @@ function convert(raw: Obj, root: Obj, m: JsonMapping, name: string): HallFloor {
     throw new Error(
       'Geographic coordinates need conversion to a planar local drawing before import.',
     );
-  const read = (field: keyof JsonMapping, names: string[]) =>
-    m[field] ? at(row, String(m[field])) : pick(row, ...names);
+  const read = (field: keyof JsonMapping, names: readonly string[]) =>
+    m[field] !== undefined
+      ? m[field]
+        ? at(row, String(m[field]))
+        : undefined
+      : pick(row, ...names);
   const boundary =
-    read('boundary', ['boundary', 'outline', 'polygon']) ??
-    (row.type === 'Feature' ? row.geometry : undefined);
-  const w = read('width', ['width', 'length', 'hallWidth']),
-    d = read('depth', ['depth', 'breadth', 'height', 'hallDepth']);
+    read('boundary', FIELD_NAMES.boundary) ?? (row.type === 'Feature' ? row.geometry : undefined);
+  const w = read('width', FIELD_NAMES.width),
+    d = read('depth', FIELD_NAMES.depth);
   let hall =
     boundary !== undefined
       ? geometry(boundary)
@@ -407,7 +438,7 @@ function convert(raw: Obj, root: Obj, m: JsonMapping, name: string): HallFloor {
     throw new Error('Hall dimensions or boundary are invalid.');
   hall = transform(hall, metric);
   const shapes = sourceAreas(row, m);
-  const sourceZones = read('zones', ['zones', 'foyers']) ?? [];
+  const sourceZones = read('zones', FIELD_NAMES.zones) ?? [];
   if (
     !Array.isArray(shapes) ||
     shapes.length > 1000 ||
@@ -546,24 +577,29 @@ export function adaptJson(content: string, mapping: JsonMapping = {}): JsonAdapt
     throw new Error('Choose a hall object or an array of up to 500 halls.');
   const seen = new Set<string>();
   const result = rows.map((raw: Obj, i: number): JsonRow => {
-    const name =
-      cleanText(
-        mapping.name
-          ? at(raw, mapping.name)
-          : (pick(raw, 'name', 'hallName', 'title') ?? raw.properties?.name),
-        120,
-      ) ?? `Hall ${i + 1}`;
+    const named =
+      mapping.name !== undefined
+        ? mapping.name && at(raw, mapping.name)
+        : (pick(raw, ...FIELD_NAMES.name) ?? raw.properties?.name);
+    const name = cleanText(named, 120) ?? `Hall ${i + 1}`;
     const isItpo =
       pick(raw, 'layoutData') !== undefined &&
       pick(raw, 'hallId') !== undefined &&
       raw.length !== undefined &&
       raw.breadth !== undefined;
-    const identity = cleanText(pick(raw, 'id', 'hallId', 'externalId'), 200);
+    const identity = cleanText(
+      mapping.id !== undefined ? mapping.id && at(raw, mapping.id) : pick(raw, ...FIELD_NAMES.id),
+      200,
+    );
     const externalId = createHash('sha256')
       .update(
         identity
           ? `id:${identity}`
-          : mapping.name || pick(raw, 'name', 'hallName', 'title') || raw.properties?.name
+          : (
+                mapping.name !== undefined
+                  ? mapping.name
+                  : pick(raw, ...FIELD_NAMES.name) || raw.properties?.name
+              )
             ? `name:${name}`
             : `file:${content}:row:${i}`,
       )
@@ -571,6 +607,7 @@ export function adaptJson(content: string, mapping: JsonMapping = {}): JsonAdapt
       .slice(0, 32);
     const r: JsonRow = {
       externalId,
+      sourceId: identity ?? null,
       name,
       floor: null,
       warnings: [],
@@ -585,6 +622,7 @@ export function adaptJson(content: string, mapping: JsonMapping = {}): JsonAdapt
         const legacy = readItpoHallRows(JSON.stringify(raw), 'json')[0],
           adapted = itpoRowToFloor(legacy);
         r.externalId = legacy.hallId;
+        r.sourceId = legacy.hallId;
         r.name = legacy.name ?? name;
         r.floor = canonical({
           ...adapted.floor,
@@ -639,9 +677,10 @@ const fieldPath = z
     (p) => !p.split('.').some((s) => ['__proto__', 'prototype', 'constructor'].includes(s)),
     'Invalid field path',
   );
-const mappingSchema = z
+export const mappingSchema = z
   .object({
     halls: fieldPath.optional(),
+    id: fieldPath.optional(),
     name: fieldPath.optional(),
     width: fieldPath.optional(),
     depth: fieldPath.optional(),
@@ -649,6 +688,7 @@ const mappingSchema = z
     areas: fieldPath.optional(),
     zones: fieldPath.optional(),
     unit: z.string().max(30).optional(),
+    unitField: fieldPath.optional(),
     metresPerUnit: z.number().finite().positive().max(1000).optional(),
     yAxis: z.enum(['up', 'down']).optional(),
     kinds: z
@@ -674,24 +714,24 @@ function mappedArea(a: Obj, m: JsonMapping): Obj {
   for (const [k, path] of Object.entries(m.areaFields ?? {})) if (path) result[k] = at(a, path);
   return result;
 }
+/** Arrays of one kind of area, read beside the main areas when Areas is not mapped. */
+export const AREA_GROUPS: Record<string, AreaKind> = {
+  walls: 'wall',
+  columns: 'column',
+  pillars: 'column',
+  passages: 'passage',
+  corridors: 'passage',
+  facilities: 'facility',
+  utilities: 'utility',
+  exits: 'entry',
+};
 function sourceAreas(row: Obj, m: JsonMapping): any {
-  if (m.areas) return at(row, m.areas) ?? [];
-  const primary =
-    pick(row, 'areas', 'obstacles', 'restrictions', 'objects', 'nonClickableAreas') ?? [];
+  if (m.areas !== undefined) return m.areas ? (at(row, m.areas) ?? []) : [];
+  const primary = pick(row, ...FIELD_NAMES.areas) ?? [];
   if (!Array.isArray(primary)) return primary;
-  const groups: Record<string, AreaKind> = {
-    walls: 'wall',
-    columns: 'column',
-    pillars: 'column',
-    passages: 'passage',
-    corridors: 'passage',
-    facilities: 'facility',
-    utilities: 'utility',
-    exits: 'entry',
-  };
   return [
     ...primary,
-    ...Object.entries(groups).flatMap(([field, kind]) => {
+    ...Object.entries(AREA_GROUPS).flatMap(([field, kind]) => {
       const values = pick(row, field);
       return Array.isArray(values) && values !== primary
         ? values.map((a) => ({ ...a, kind: a.kind ?? kind }))

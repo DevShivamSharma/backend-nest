@@ -1,0 +1,25 @@
+Element Ref,Space Type,Hall No.,Hall Name,X (m),Y (m),Length (m),Breadth (m),Space Name,Exhibitor,Status,Remarks
+H11-OUT,Hall Outline,11,Exhibition Hall 11,0,0,60,40,Hall 11 shell,,Active,Inner face of walls
+H12A-OUT,Hall Outline,12A,Hall 12A,80,0,45,30,Hall 12A shell,,Active,
+H11-FOY,Foyer,11,Exhibition Hall 11,20,40,20,8,Foyer 11,,Active,Pre-function area at Gate 11A
+H12A-FOY,Foyer,12A,Hall 12A,80,-8,15,8,Foyer 12A,,Active,Registration lobby
+H11-C1,Pillar,11,,15,12,1,1,C1,,,
+H11-C2,Pillar,11,,30,12,1,1,C2,,,
+H11-C3,Pillar,11,,45,12,1,1,C3,,,
+H12A-C1,Pillar,12A,,92,10,1,1,C1,,,
+H11-C4,Pillar,11,,15,27,1,1,C4,,,
+H11-C5,Pillar,11,,30,27,1,1,C5,,,
+H11-C6,Pillar,11,,45,27,1,1,C6,,,
+H12A-C2,Pillar,12A,,104,10,1,1,C2,,,
+H12A-C3,Pillar,12A,,92,20,1,1,C3,,,
+H12A-C4,Pillar,12A,,104,20,1,1,C4,,,
+H11-PS1,Passage,11,,25,34,10,6,Entry passage,,,Keep clear
+H11-EX1,Exit,11,,59,18,1,4,EE11-1,,,
+H11-EP1,Utility,11,,1,1,1.5,1,Electrical Panel,,,
+H12A-NC1,No Construction,12A,,115,0,10,8,NC zone,,,
+H12A-PS1,Passage,12A,,98,26,9,4,Entry passage,,,
+S-1101,Stall,11,,3,3,3,3,A1,Tata Motors,Booked,Shell scheme
+S-1102,Stall,11,,6,3,3,3,A2,Infosys,Booked,Shell scheme
+S-1103,Stall,11,,9,3,6,3,A3,,Available,Bare space
+S-12A01,Stall,12A,,84,4,4,3,B1,Amul,Booked,
+S-12A02,Stall,12A,,88,4,4,3,B2,,Blocked,Under review
