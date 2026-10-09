@@ -13,6 +13,9 @@ import type { StallSide } from '../rules/rule-engine';
 export const STALL_SCHEMES = ['shell', 'raw'] as const;
 export type StallScheme = (typeof STALL_SCHEMES)[number];
 
+export const PLAN_OBJECT_KINDS = ['line', 'rect', 'circle', 'polyline', 'text'] as const;
+export type PlanObjectKind = (typeof PLAN_OBJECT_KINDS)[number];
+
 /** The stall plan of one hall of an event. `revision` goes up with every save. */
 @Entity({ name: 'stall_plans' })
 export class StallPlanEntity {
@@ -162,4 +165,32 @@ export class PlanSeatEntity {
 
   @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId!: string | null;
+}
+
+/**
+ * A drawing on the plan: a line, rectangle, circle, polyline or text, floor metres. Drawing
+ * only; the rules do not see it.
+ */
+@Entity({ name: 'plan_objects' })
+export class PlanObjectEntity {
+  @PrimaryColumn('uuid')
+  id!: string;
+
+  @Column({ name: 'plan_id', type: 'uuid' })
+  planId!: string;
+
+  @Column({ type: 'varchar', length: 10 })
+  kind!: PlanObjectKind;
+
+  @Column({ type: 'jsonb' })
+  points!: Point[];
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  text!: string | null;
+
+  @Column({ type: 'varchar', length: 9 })
+  color!: string;
+
+  @Column({ name: 'sort_order', type: 'integer' })
+  sortOrder!: number;
 }

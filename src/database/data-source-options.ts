@@ -3,8 +3,10 @@ import { CsvFloorSource1791700000000 } from './migrations/1791700000000-CsvFloor
 import { Rules1791800000000 } from './migrations/1791800000000-Rules';
 import { Events1791900000000 } from './migrations/1791900000000-Events';
 import { StallPlanning1792000000000 } from './migrations/1792000000000-StallPlanning';
+import { PlanObjects1792100000000 } from './migrations/1792100000000-PlanObjects';
 import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
 import {
+  PlanObjectEntity,
   PlanSeatEntity,
   PlanStallEntity,
   PlanZoneEntity,
@@ -67,6 +69,7 @@ export const ENTITIES = [
   PlanZoneEntity,
   PlanStallEntity,
   PlanSeatEntity,
+  PlanObjectEntity,
 ];
 
 /**
@@ -91,6 +94,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       Rules1791800000000,
       Events1791900000000,
       StallPlanning1792000000000,
+      PlanObjects1792100000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

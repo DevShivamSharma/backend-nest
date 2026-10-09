@@ -21,11 +21,17 @@ import {
 
 import { EmptyToNull, Trim } from '../../common/validation';
 import { STALL_SIDES, StallSide } from '../../rules/rule-engine';
-import { STALL_SCHEMES, StallScheme } from '../stall-plan.entity';
+import {
+  PLAN_OBJECT_KINDS,
+  PlanObjectKind,
+  STALL_SCHEMES,
+  StallScheme,
+} from '../stall-plan.entity';
 
 export const MAX_ZONES = 200;
 export const MAX_STALLS = 3000;
 export const MAX_SEATS = 20000;
+export const MAX_OBJECTS = 2000;
 /** Floor metres; halls are at most 2 km a side. */
 const MAX_COORD = 5000;
 
@@ -34,7 +40,7 @@ const COLOR = /^#[0-9a-fA-F]{6}$/;
 const FINITE = { allowNaN: false, allowInfinity: false };
 
 /** Every item is a point: two finite numbers within the floor's reach. */
-function IsPoints() {
+function IsPoints(message = 'A zone outline is a list of [x, y] points in metres.') {
   return ValidateBy({
     name: 'isPoints',
     validator: {
@@ -46,7 +52,7 @@ function IsPoints() {
             p.length === 2 &&
             p.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_COORD),
         ),
-      defaultMessage: () => 'A zone outline is a list of [x, y] points in metres.',
+      defaultMessage: () => message,
     },
   });
 }
@@ -201,6 +207,31 @@ export class PlanSeatDto {
   categoryId?: string | null;
 }
 
+export class PlanObjectDto {
+  @IsUUID('4')
+  id!: string;
+
+  @IsIn(PLAN_OBJECT_KINDS)
+  kind!: PlanObjectKind;
+
+  /** Floor metres. How many, and what they mean, depends on the kind: see the service. */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsPoints('A drawing is a list of [x, y] points in metres.')
+  points!: Array<[number, number]>;
+
+  /** The label; a text drawing needs one, the other kinds may have one. */
+  @IsOptional()
+  @EmptyToNull()
+  @IsString()
+  @MaxLength(120)
+  text?: string | null;
+
+  @Matches(COLOR, { message: 'A drawing colour is written #rrggbb.' })
+  color!: string;
+}
+
 class PlanContentDto {
   @IsArray()
   @ArrayMaxSize(MAX_ZONES)
@@ -219,6 +250,12 @@ class PlanContentDto {
   @ValidateNested({ each: true })
   @Type(() => PlanSeatDto)
   seats!: PlanSeatDto[];
+
+  @IsArray()
+  @ArrayMaxSize(MAX_OBJECTS)
+  @ValidateNested({ each: true })
+  @Type(() => PlanObjectDto)
+  objects!: PlanObjectDto[];
 }
 
 /** The whole plan, replacing what is saved. `revision` is the one the planner opened. */

@@ -16,6 +16,7 @@ import { drawingProfile } from '../rules/drawing-profiles';
 import { ringArea } from '../venues/floor-plan/geometry';
 import {
   CheckPlanDto,
+  PlanObjectDto,
   PlanSeatDto,
   PlanStallDto,
   PlanZoneDto,
@@ -23,6 +24,7 @@ import {
 } from './dto/stall-plans.dto';
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
 import {
+  PlanObjectEntity,
   PlanSeatEntity,
   PlanStallEntity,
   PlanZoneEntity,
@@ -31,6 +33,7 @@ import {
 import type {
   PlanCheckView,
   PlannerView,
+  PlanObjectView,
   PlanSeatView,
   PlanStallView,
   PlanZoneView,
@@ -42,7 +45,12 @@ const CHUNK = 1000;
 /** Broken rules named in a refusal; the rest are counted. */
 const NAMED = 3;
 
-type PlanContent = { zones: PlanZoneDto[]; stalls: PlanStallDto[]; seats: PlanSeatDto[] };
+type PlanContent = {
+  zones: PlanZoneDto[];
+  stalls: PlanStallDto[];
+  seats: PlanSeatDto[];
+  objects: PlanObjectDto[];
+};
 
 /**
  * The stall plan of an event hall (Module E): zones, stalls and seats on the floor version the
@@ -125,6 +133,7 @@ export class StallPlansService {
         );
       }
 
+      await em.getRepository(PlanObjectEntity).delete({ planId: plan.id });
       await em.getRepository(PlanSeatEntity).delete({ planId: plan.id });
       await em.getRepository(PlanStallEntity).delete({ planId: plan.id });
       await em.getRepository(PlanZoneEntity).delete({ planId: plan.id });
@@ -165,6 +174,19 @@ export class StallPlansService {
           categoryId: s.categoryId ?? null,
         })),
       );
+      await insertAll(
+        em,
+        PlanObjectEntity,
+        dto.objects.map((o, i) => ({
+          id: o.id,
+          planId: plan.id,
+          kind: o.kind,
+          points: o.points,
+          text: o.text ?? null,
+          color: o.color.toLowerCase(),
+          sortOrder: i,
+        })),
+      );
 
       plan.revision += 1;
       plan.updatedById = actor.id;
@@ -183,6 +205,7 @@ export class StallPlansService {
             zones: dto.zones.length,
             stalls: dto.stalls.length,
             seats: dto.seats.length,
+            objects: dto.objects.length,
           },
         },
         em,
@@ -213,11 +236,11 @@ export class StallPlansService {
     if (reason) throw new ForbiddenException(reason);
   }
 
-  /** What makes the plan unsound before any rule: ids, numbers, zones and categories. */
+  /** What makes the plan unsound before any rule: ids, numbers, zones, categories and drawings. */
   private static structure(plan: PlanContent, hall: EventHallDetailView): PlanFinding[] {
     const out: PlanFinding[] = [];
     const ids = new Set<string>();
-    for (const item of [...plan.zones, ...plan.stalls, ...plan.seats]) {
+    for (const item of [...plan.zones, ...plan.stalls, ...plan.seats, ...plan.objects]) {
       if (ids.has(item.id))
         out.push({ ruleId: 'plan', message: 'An id appears twice.', ids: [item.id] });
       ids.add(item.id);
@@ -273,6 +296,10 @@ export class StallPlansService {
         out.push({ ruleId: 'plan', message: `Zone ${z.name} has no area.`, ids: [z.id] });
       }
     }
+    for (const o of plan.objects) {
+      const problem = objectProblem(o);
+      if (problem) out.push({ ruleId: 'plan', message: problem, ids: [o.id] });
+    }
     return out;
   }
 
@@ -312,7 +339,9 @@ export class StallPlansService {
   }
 
   private async planView(em: EntityManager, plan: StallPlanEntity | null): Promise<StallPlanView> {
-    if (!plan) return { revision: 0, updatedAt: null, zones: [], stalls: [], seats: [] };
+    if (!plan) {
+      return { revision: 0, updatedAt: null, zones: [], stalls: [], seats: [], objects: [] };
+    }
     // One after the other: inside a transaction they share one connection.
     const zones = await em
       .getRepository(PlanZoneEntity)
@@ -322,12 +351,16 @@ export class StallPlansService {
       where: { planId: plan.id },
       order: { rowLabel: 'ASC', seatNumber: 'ASC' },
     });
+    const objects = await em
+      .getRepository(PlanObjectEntity)
+      .find({ where: { planId: plan.id }, order: { sortOrder: 'ASC' } });
     return {
       revision: plan.revision,
       updatedAt: plan.updatedAt.toISOString(),
       zones: zones.map(zoneView),
       stalls: stalls.map(stallView),
       seats: seats.map(seatView),
+      objects: objects.map(objectView),
     };
   }
 }
@@ -335,6 +368,36 @@ export class StallPlansService {
 /** A stall's full number, as ITPO writes it: island and stall, e.g. "12A-27 E". */
 function stallNumber(s: { islandNumber?: string | null; stallNumber: string }): string {
   return s.islandNumber ? `${s.islandNumber}${s.stallNumber}` : s.stallNumber;
+}
+
+/**
+ * What is wrong with a drawing's shape, in words; null when nothing. The DTO has checked each
+ * point; this checks how many there are for the kind, and that the shape has a size.
+ */
+function objectProblem(o: PlanObjectDto): string | null {
+  const [a, b] = o.points;
+  switch (o.kind) {
+    case 'line':
+      if (o.points.length !== 2) return 'A line is drawn with exactly 2 points.';
+      return null;
+    case 'rect':
+      if (o.points.length !== 2) return 'A rectangle is drawn with 2 opposite corners.';
+      if (a[0] === b[0] || a[1] === b[1]) return 'A rectangle has no area.';
+      return null;
+    case 'circle':
+      if (o.points.length !== 2) {
+        return 'A circle is drawn with its centre and a point on its edge.';
+      }
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) <= 0) return 'A circle has no radius.';
+      return null;
+    case 'polyline':
+      if (o.points.length < 2) return 'A polyline is drawn with 2 to 500 points.';
+      return null;
+    case 'text':
+      if (o.points.length !== 1) return 'A text is placed with exactly 1 point.';
+      if (!o.text) return 'A text drawing needs some text.';
+      return null;
+  }
 }
 
 async function insertAll<T extends object>(
@@ -394,4 +457,8 @@ function seatView(s: PlanSeatEntity): PlanSeatView {
     depth: s.depth,
     categoryId: s.categoryId,
   };
+}
+
+function objectView(o: PlanObjectEntity): PlanObjectView {
+  return { id: o.id, kind: o.kind, points: o.points, text: o.text, color: o.color };
 }

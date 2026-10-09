@@ -2,7 +2,7 @@ import type { EventHallDetailView } from '../events/event.views';
 import type { StallSide } from '../rules/rule-engine';
 import type { Point } from '../venues/floor-plan/plan.types';
 import type { PlanFinding } from './plan-check';
-import type { StallScheme } from './stall-plan.entity';
+import type { PlanObjectKind, StallScheme } from './stall-plan.entity';
 
 export interface PlanZoneView {
   id: string;
@@ -49,6 +49,15 @@ export interface PlanSeatView {
   categoryId: string | null;
 }
 
+export interface PlanObjectView {
+  id: string;
+  kind: PlanObjectKind;
+  /** Floor metres; line 2, rect 2 opposite corners, circle centre and edge, polyline 2+, text 1. */
+  points: Point[];
+  text: string | null;
+  color: string;
+}
+
 export interface StallPlanView {
   /** 0 before the first save. */
   revision: number;
@@ -56,6 +65,7 @@ export interface StallPlanView {
   zones: PlanZoneView[];
   stalls: PlanStallView[];
   seats: PlanSeatView[];
+  objects: PlanObjectView[];
 }
 
 /** Everything the planner opens with: the hall as the event has it, and its plan. */

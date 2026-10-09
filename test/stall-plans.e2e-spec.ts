@@ -166,14 +166,20 @@ describe('Stall planning (e2e)', () => {
     const check = await http
       .post(`${plan(fair)}/check`)
       .set(auth(owner))
-      .send({ zones: [], stalls: [a, overlapping], seats: [], changed: [overlapping.id] })
+      .send({
+        zones: [],
+        stalls: [a, overlapping],
+        seats: [],
+        objects: [],
+        changed: [overlapping.id],
+      })
       .expect(200);
     expect(check.body.findings.map((f: { ruleId: string }) => f.ruleId)).toContain('stallOverlap');
 
     const outside = await http
       .put(plan(fair))
       .set(auth(owner))
-      .send({ revision: 0, zones: [], stalls: [a, stall('3', 39, 5)], seats: [] });
+      .send({ revision: 0, zones: [], stalls: [a, stall('3', 39, 5)], seats: [], objects: [] });
     expect(outside.status).toBe(400);
     expect(outside.body.message).toMatch(/not saved: Stall B-3 reaches past/);
 
@@ -202,7 +208,13 @@ describe('Stall planning (e2e)', () => {
     const saved = await http
       .put(plan(fair))
       .set(auth(owner))
-      .send({ revision: 0, zones: [zone], stalls: [{ ...a, zoneId: zone.id }], seats: [seat] })
+      .send({
+        revision: 0,
+        zones: [zone],
+        stalls: [{ ...a, zoneId: zone.id }],
+        seats: [seat],
+        objects: [],
+      })
       .expect(200);
     expect(saved.body).toMatchObject({ revision: 1, zones: [{ area: 300 }] });
     expect(saved.body.stalls[0]).toMatchObject({ islandNumber: 'B-', stallNumber: '1' });
@@ -211,7 +223,7 @@ describe('Stall planning (e2e)', () => {
     await http
       .put(plan(fair))
       .set(auth(owner))
-      .send({ revision: 0, zones: [], stalls: [], seats: [] })
+      .send({ revision: 0, zones: [], stalls: [], seats: [], objects: [] })
       .expect(409);
 
     // A category a stall uses stays on the hall.
@@ -244,7 +256,7 @@ describe('Stall planning (e2e)', () => {
     await http
       .put(plan(expo))
       .set(auth(owner))
-      .send({ revision: 0, zones: [], stalls: [], seats: [] })
+      .send({ revision: 0, zones: [], stalls: [], seats: [], objects: [] })
       .expect(403);
 
     const mine = await http.get(plan(expo)).set(auth(organiser)).expect(200);
@@ -252,7 +264,7 @@ describe('Stall planning (e2e)', () => {
     await http
       .put(plan(expo))
       .set(auth(organiser))
-      .send({ revision: 0, zones: [], stalls: [stall('1', 10, 10)], seats: [] })
+      .send({ revision: 0, zones: [], stalls: [stall('1', 10, 10)], seats: [], objects: [] })
       .expect(200);
     // Not their event, not their plan.
     await http.get(plan(fair)).set(auth(organiser)).expect(404);
