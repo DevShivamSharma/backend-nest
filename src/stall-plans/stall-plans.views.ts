@@ -62,6 +62,8 @@ export interface StallPlanView {
   /** 0 before the first save. */
   revision: number;
   updatedAt: string | null;
+  /** The published revision; it may be older than the saved one. */
+  published: { revision: number; at: string } | null;
   zones: PlanZoneView[];
   stalls: PlanStallView[];
   seats: PlanSeatView[];
@@ -75,6 +77,8 @@ export interface PlannerView {
   canEdit: boolean;
   /** Why the plan is read-only for this member; null when they can edit. */
   readOnlyReason: string | null;
+  /** Whether this member may publish the saved plan. */
+  canPublish: boolean;
 }
 
 export interface PlanCheckView {

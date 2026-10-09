@@ -237,6 +237,24 @@ describe('Stall planning (e2e)', () => {
     expect(detail.body.plan).toEqual({ stalls: 1, seats: 1, revision: 1 });
   });
 
+  it('publishes the saved plan, and only that revision', async () => {
+    const opened = await http.get(plan(fair)).set(auth(owner)).expect(200);
+    expect(opened.body).toMatchObject({ canPublish: true, plan: { revision: 1, published: null } });
+    await http
+      .post(`${plan(fair)}/publish`)
+      .set(auth(owner))
+      .send({ revision: 2 })
+      .expect(409);
+    const published = await http
+      .post(`${plan(fair)}/publish`)
+      .set(auth(owner))
+      .send({ revision: 1 })
+      .expect(200);
+    expect(published.body.published).toMatchObject({ revision: 1 });
+    const again = await http.get(plan(fair)).set(auth(owner)).expect(200);
+    expect(again.body.plan.published.revision).toBe(1);
+  });
+
   it('lets only the organiser draw an external event; the venue reads it', async () => {
     const invited = await http
       .post(`${base}/events/${expo}/people`)
@@ -266,6 +284,13 @@ describe('Stall planning (e2e)', () => {
       .set(auth(organiser))
       .send({ revision: 0, zones: [], stalls: [stall('1', 10, 10)], seats: [], objects: [] })
       .expect(200);
+    // An architect draws; publishing is the organiser admin's.
+    expect(mine.body.canPublish).toBe(false);
+    await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(organiser))
+      .send({ revision: 1 })
+      .expect(403);
     // Not their event, not their plan.
     await http.get(plan(fair)).set(auth(organiser)).expect(404);
     // Categories are the venue's.

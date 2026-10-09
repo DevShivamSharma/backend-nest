@@ -18,7 +18,7 @@ import {
 } from '../access/org-access.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
-import { CheckPlanDto, SavePlanDto } from './dto/stall-plans.dto';
+import { CheckPlanDto, PublishPlanDto, SavePlanDto } from './dto/stall-plans.dto';
 import { StallPlansService } from './stall-plans.service';
 import type { PlanCheckView, PlannerView, StallPlanView } from './stall-plans.views';
 
@@ -52,6 +52,19 @@ export class StallPlansController {
     @Body() dto: CheckPlanDto,
   ): Promise<PlanCheckView> {
     return this.plans.check(access, id, hallId, dto);
+  }
+
+  @RequirePermissions('events.view', 'layouts.publish')
+  @Post('publish')
+  @HttpCode(HttpStatus.OK)
+  publish(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Body() dto: PublishPlanDto,
+  ): Promise<StallPlanView> {
+    return this.plans.publish(access, id, hallId, dto, user);
   }
 
   @RequirePermissions('events.view', 'layouts.edit')

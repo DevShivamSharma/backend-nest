@@ -126,6 +126,31 @@ describe('rule engine', () => {
     expect(r.violations.find((v) => v.stallIds[0] === 'A')?.stallIds).toContain('B');
   });
 
+  it('lets an open side face an aisle or an open side, never a closed one', () => {
+    const facesBack = run(
+      hall(),
+      // A opens at the bottom onto a 3 m aisle; across it, B's top is closed.
+      [stall('A', 10, 10), stall('B', 10, 16)],
+      only('openSideAccess'),
+    );
+    expect(facesBack.violations).toHaveLength(1);
+    expect(facesBack.violations[0].stallIds).toEqual(['A', 'B']);
+    expect(facesBack.violations[0].message).toMatch(/faces the closed side of Stall B/);
+
+    // Rows facing each other across the aisle, and stalls side by side, are fine.
+    const facing = run(
+      hall(),
+      [
+        stall('A', 10, 10),
+        stall('A2', 13, 10),
+        stall('B', 10, 16, { openSides: ['top'] }),
+        stall('B2', 13, 16, { openSides: ['top'] }),
+      ],
+      only('openSideAccess'),
+    );
+    expect(facing.violations).toEqual([]);
+  });
+
   it('keeps stalls off passages, no-construction zones and entries, and clear of curtains and services', () => {
     const floor = hall({
       areas: [

@@ -4,6 +4,7 @@ import { Rules1791800000000 } from './migrations/1791800000000-Rules';
 import { Events1791900000000 } from './migrations/1791900000000-Events';
 import { StallPlanning1792000000000 } from './migrations/1792000000000-StallPlanning';
 import { PlanObjects1792100000000 } from './migrations/1792100000000-PlanObjects';
+import { PlanPublishing1792200000000 } from './migrations/1792200000000-PlanPublishing';
 import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
 import {
   PlanObjectEntity,
@@ -95,6 +96,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       Events1791900000000,
       StallPlanning1792000000000,
       PlanObjects1792100000000,
+      PlanPublishing1792200000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

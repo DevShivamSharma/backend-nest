@@ -31,6 +31,16 @@ export class StallPlanEntity {
   @Column({ name: 'updated_by', type: 'uuid', nullable: true })
   updatedById!: string | null;
 
+  /** The saved revision that is published; null before the first publish. */
+  @Column({ name: 'published_revision', type: 'integer', nullable: true })
+  publishedRevision!: number | null;
+
+  @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
+  @Column({ name: 'published_by', type: 'uuid', nullable: true })
+  publishedById!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

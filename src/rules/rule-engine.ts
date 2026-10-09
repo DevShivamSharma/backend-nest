@@ -308,6 +308,26 @@ export function checkLayout(input: CheckInput): RuleReport {
             [s.id, ...blockers.map((b) => b.id)],
             [access],
           );
+          continue;
+        }
+        // Across the aisle, an open side faces an open side, never another stall's wall.
+        const facing = facingStall(s, side, stalls);
+        if (facing && !facing.stall.openSides.includes(OPPOSITE[side])) {
+          const between = rectangle(
+            facing.band.x,
+            facing.band.y,
+            facing.band.width,
+            facing.band.height,
+          );
+          // A wall or room between them: they do not face each other.
+          if (area(difference(between, standable)) <= AREA_EPS) {
+            add(
+              'openSideAccess',
+              `The ${side} open side of ${label} faces the closed side of ${stallLabel(facing.stall)}; an open side faces an aisle or another stall's open side.`,
+              [s.id, facing.stall.id],
+              [facing.band],
+            );
+          }
         }
       }
     }
@@ -404,6 +424,50 @@ export function checkLayout(input: CheckInput): RuleReport {
 }
 
 // ---- geometry -------------------------------------------------------------------------------
+
+const OPPOSITE: Record<StallSide, StallSide> = {
+  top: 'bottom',
+  bottom: 'top',
+  left: 'right',
+  right: 'left',
+};
+
+/**
+ * The nearest stall straight in front of a side of `s` (their spans overlap along that side),
+ * and the band of floor between them; null when nothing stands in front.
+ */
+function facingStall(
+  s: PlanStall,
+  side: StallSide,
+  stalls: PlanStall[],
+): { stall: PlanStall; band: FloorRect } | null {
+  const r = rectOf(s);
+  let best: { stall: PlanStall; band: FloorRect; gap: number } | null = null;
+  for (const o of stalls) {
+    if (o.id === s.id) continue;
+    const q = rectOf(o);
+    const across = side === 'top' || side === 'bottom';
+    const from = across ? Math.max(r.x, q.x) : Math.max(r.y, q.y);
+    const to = across
+      ? Math.min(r.x + r.width, q.x + q.width)
+      : Math.min(r.y + r.height, q.y + q.height);
+    if (to - from <= EPS) continue;
+    const gap =
+      side === 'top'
+        ? r.y - (q.y + q.height)
+        : side === 'bottom'
+          ? q.y - (r.y + r.height)
+          : side === 'left'
+            ? r.x - (q.x + q.width)
+            : q.x - (r.x + r.width);
+    if (gap < -EPS || (best && gap >= best.gap)) continue;
+    const band: FloorRect = across
+      ? { x: from, y: side === 'top' ? r.y - gap : r.y + r.height, width: to - from, height: gap }
+      : { x: side === 'left' ? r.x - gap : r.x + r.width, y: from, width: gap, height: to - from };
+    best = { stall: o, band, gap };
+  }
+  return best && { stall: best.stall, band: best.band };
+}
 
 function rectOf(s: PlanStall): FloorRect {
   return { x: s.x, y: s.y, width: s.width, height: s.depth };

@@ -259,6 +259,13 @@ class PlanContentDto {
 }
 
 /** The whole plan, replacing what is saved. `revision` is the one the planner opened. */
+/** Publishes the saved plan; `revision` is the one the planner shows as saved. */
+export class PublishPlanDto {
+  @IsInt()
+  @Min(1)
+  revision!: number;
+}
+
 export class SavePlanDto extends PlanContentDto {
   @IsInt()
   @Min(0)

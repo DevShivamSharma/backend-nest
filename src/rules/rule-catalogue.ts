@@ -84,7 +84,8 @@ export const RULES: readonly RuleDefinition[] = [
   {
     id: 'openSideAccess',
     label: 'Open-side passage',
-    description: 'The event’s passage width stays clear in front of every open side.',
+    description:
+      'The event’s passage width stays clear in front of every open side, and an open side never faces the closed side of another stall.',
     reference: 'ITPO D1',
     group: 'access',
     available: true,

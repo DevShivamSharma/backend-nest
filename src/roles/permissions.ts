@@ -152,8 +152,8 @@ export const PERMISSION_GROUPS = [
       {
         key: 'layouts.publish',
         label: 'Publish layouts',
-        description: 'Send an approved layout to booking',
-        available: false,
+        description: 'Mark the saved layout as the one that counts',
+        available: true,
       },
     ],
   },

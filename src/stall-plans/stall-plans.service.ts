@@ -20,6 +20,7 @@ import {
   PlanSeatDto,
   PlanStallDto,
   PlanZoneDto,
+  PublishPlanDto,
   SavePlanDto,
 } from './dto/stall-plans.dto';
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
@@ -80,7 +81,71 @@ export class StallPlansService {
       plan: await this.planView(this.dataSource.manager, plan),
       canEdit: !readOnlyReason,
       readOnlyReason,
+      canPublish: !readOnlyReason && access.permissions.includes('layouts.publish'),
     };
+  }
+
+  /**
+   * Publishes the saved plan: that revision becomes the one that counts. Only a plan with no
+   * unsaved changes (the planner's revision is the saved one) that still keeps every rule of
+   * the hall, which may have changed since it was saved.
+   */
+  async publish(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+    dto: PublishPlanDto,
+    actor: Actor,
+  ): Promise<StallPlanView> {
+    const { event, row } = await this.events.eventHallOf(access, id, hallId);
+    this.assertCanEdit(access, event);
+    const hall = await this.events.hall(access, id, hallId);
+    return this.dataSource.transaction(async (em) => {
+      const plans = em.getRepository(StallPlanEntity);
+      const plan = await plans.findOne({
+        where: { eventHallId: row.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!plan || plan.revision === 0) {
+        throw new BadRequestException('Save the plan before publishing it.');
+      }
+      if (plan.revision !== dto.revision) {
+        throw new ConflictException(
+          'The saved plan changed after you opened it. Reload the planner, then publish.',
+        );
+      }
+      const saved = await this.planView(em, plan);
+      const problems = [
+        ...StallPlansService.structure(saved, hall),
+        ...StallPlansService.rules(saved, hall),
+      ];
+      if (problems.length) {
+        throw new BadRequestException(
+          StallPlansService.refusal(problems).replace('was not saved', 'was not published'),
+        );
+      }
+      plan.publishedRevision = plan.revision;
+      plan.publishedAt = new Date();
+      plan.publishedById = actor.id;
+      const published = await plans.save(plan);
+      await this.audit.record(
+        {
+          action: 'plan.published',
+          actor,
+          organisationId: access.organisation.id,
+          targetType: 'event',
+          targetId: event.id,
+          metadata: {
+            name: event.name,
+            hall: hall.hall.name,
+            revision: plan.revision,
+            stalls: saved.stalls.length,
+          },
+        },
+        em,
+      );
+      return { ...saved, published: StallPlansService.published(published) };
+    });
   }
 
   /** The rules the planner's change breaks: those about `changed`, or about the whole plan. */
@@ -332,6 +397,12 @@ export class StallPlansService {
     });
   }
 
+  private static published(plan: StallPlanEntity): StallPlanView['published'] {
+    return plan.publishedRevision && plan.publishedAt
+      ? { revision: plan.publishedRevision, at: plan.publishedAt.toISOString() }
+      : null;
+  }
+
   private static refusal(problems: PlanFinding[]): string {
     const named = problems.slice(0, NAMED).map((p) => p.message);
     const more = problems.length - named.length;
@@ -340,7 +411,15 @@ export class StallPlansService {
 
   private async planView(em: EntityManager, plan: StallPlanEntity | null): Promise<StallPlanView> {
     if (!plan) {
-      return { revision: 0, updatedAt: null, zones: [], stalls: [], seats: [], objects: [] };
+      return {
+        revision: 0,
+        updatedAt: null,
+        published: null,
+        zones: [],
+        stalls: [],
+        seats: [],
+        objects: [],
+      };
     }
     // One after the other: inside a transaction they share one connection.
     const zones = await em
@@ -357,6 +436,7 @@ export class StallPlansService {
     return {
       revision: plan.revision,
       updatedAt: plan.updatedAt.toISOString(),
+      published: StallPlansService.published(plan),
       zones: zones.map(zoneView),
       stalls: stalls.map(stallView),
       seats: seats.map(seatView),
