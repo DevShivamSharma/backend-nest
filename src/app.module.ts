@@ -13,8 +13,10 @@ import { DatabaseModule } from './database/database.module';
 import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { TeamModule } from './team/team.module';
+import { CategoriesModule } from './categories/categories.module';
 import { EventsModule } from './events/events.module';
 import { RulesModule } from './rules/rules.module';
+import { StallPlansModule } from './stall-plans/stall-plans.module';
 import { VenuesModule } from './venues/venues.module';
 
 @Module({
@@ -46,6 +48,8 @@ import { VenuesModule } from './venues/venues.module';
     VenuesModule,
     RulesModule,
     EventsModule,
+    CategoriesModule,
+    StallPlansModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

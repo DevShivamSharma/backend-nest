@@ -109,3 +109,11 @@ export class InviteEventPersonDto {
   @IsUUID('4')
   roleId!: string;
 }
+
+/** The categories an event hall sells, from the organisation's active categories. */
+export class EventHallCategoriesDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  categoryIds!: string[];
+}

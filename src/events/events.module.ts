@@ -12,5 +12,6 @@ import { EventsService } from './events.service';
   imports: [AccessModule, AuditModule, RulesModule, TeamModule],
   controllers: [EventsController],
   providers: [EventsService],
+  exports: [EventsService],
 })
 export class EventsModule {}

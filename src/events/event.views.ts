@@ -1,3 +1,4 @@
+import type { CategoryRef } from '../categories/categories.views';
 import type { EventType, RuleId, RuleValues } from '../rules/rule-catalogue';
 import type { InvitationView, MemberView } from '../team/team.views';
 import type { HallFloor } from '../venues/floor/hall-floor';
@@ -52,6 +53,10 @@ export interface EventHallDetailView {
   hall: EventHallView;
   floor: HallFloor;
   rules: EventHallRulesView;
+  /** The categories this hall sells; the planner offers only these. */
+  categories: CategoryRef[];
+  /** Stalls and seats on the hall's plan, 0 before anything is drawn. */
+  plan: { stalls: number; seats: number; revision: number };
 }
 
 export interface EventPeopleView {

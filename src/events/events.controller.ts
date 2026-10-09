@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 
@@ -24,6 +25,7 @@ import type { CreatedInvitationView } from '../team/team.views';
 import {
   AddEventHallsDto,
   CreateEventDto,
+  EventHallCategoriesDto,
   EventHallRulesDto,
   InviteEventPersonDto,
   UpdateEventDto,
@@ -152,6 +154,18 @@ export class EventsController {
     @Param('hallId', ParseUUIDPipe) hallId: string,
   ): Promise<EventHallDetailView> {
     return this.events.resetHallRules(access, id, hallId, user);
+  }
+
+  @RequirePermissions('events.manage')
+  @Put(':id/halls/:hallId/categories')
+  setHallCategories(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Body() dto: EventHallCategoriesDto,
+  ): Promise<EventHallDetailView> {
+    return this.events.setHallCategories(access, id, hallId, dto.categoryIds, user);
   }
 
   // ---- organisers ---------------------------------------------------------------------------

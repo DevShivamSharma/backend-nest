@@ -2,6 +2,14 @@ import { PlanReaderVersion1791600000000 } from './migrations/1791600000000-PlanR
 import { CsvFloorSource1791700000000 } from './migrations/1791700000000-CsvFloorSource';
 import { Rules1791800000000 } from './migrations/1791800000000-Rules';
 import { Events1791900000000 } from './migrations/1791900000000-Events';
+import { StallPlanning1792000000000 } from './migrations/1792000000000-StallPlanning';
+import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
+import {
+  PlanSeatEntity,
+  PlanStallEntity,
+  PlanZoneEntity,
+  StallPlanEntity,
+} from '../stall-plans/stall-plan.entity';
 import { EventEntity, EventHallEntity } from '../events/event.entity';
 import { OrganisationRulesEntity } from '../rules/rules.entity';
 import { JsonFloorSource1791500000000 } from './migrations/1791500000000-JsonFloorSource';
@@ -53,6 +61,12 @@ export const ENTITIES = [
   OrganisationRulesEntity,
   EventEntity,
   EventHallEntity,
+  StallCategoryEntity,
+  EventHallCategoryEntity,
+  StallPlanEntity,
+  PlanZoneEntity,
+  PlanStallEntity,
+  PlanSeatEntity,
 ];
 
 /**
@@ -76,6 +90,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       CsvFloorSource1791700000000,
       Rules1791800000000,
       Events1791900000000,
+      StallPlanning1792000000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

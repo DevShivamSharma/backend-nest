@@ -9,6 +9,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 
 import { MembershipEntity } from '../access/membership.entity';
+import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
 import { AuditService } from '../audit/audit.service';
 import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { RoleEntity, RoleScopeKind } from '../roles/role.entity';
@@ -19,6 +20,7 @@ import { InvitationEntity } from '../team/invitation.entity';
 import { InvitationsService } from '../team/invitations.service';
 import { TeamService } from '../team/team.service';
 import type { CreatedInvitationView } from '../team/team.views';
+import { PlanSeatEntity, PlanStallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
 import { HallEntity, HallFloorVersionEntity } from '../venues/hall.entity';
 import { VenueEntity } from '../venues/venue.entity';
 import {
@@ -236,7 +238,115 @@ export class EventsService {
       hall: view,
       floor: floor.floor,
       rules: EventsService.rulesView(row),
+      categories: await EventsService.hallCategories(em, row.id),
+      plan: await this.planCounts(em, row.id),
     };
+  }
+
+  /**
+   * Sets the categories a hall of the event sells. New ones must be active; one that a stall
+   * or seat of the hall's plan uses stays until the plan stops using it.
+   */
+  async setHallCategories(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+    categoryIds: string[],
+    actor: Actor,
+  ): Promise<EventHallDetailView> {
+    const organisationId = access.organisation.id;
+    const wanted = [...new Set(categoryIds)];
+    await this.dataSource.transaction(async (em) => {
+      const event = await this.event(em, access, id, true);
+      const row = await this.eventHall(em, event.id, hallId);
+      const links = em.getRepository(EventHallCategoryEntity);
+      const current = (await links.findBy({ eventHallId: row.id })).map((l) => l.categoryId);
+      const categories = wanted.length
+        ? await em.getRepository(StallCategoryEntity).findBy({ id: In(wanted), organisationId })
+        : [];
+      if (categories.length !== wanted.length) {
+        throw new NotFoundException('Some of these categories are not in this organisation.');
+      }
+      const added = categories.filter((c) => !current.includes(c.id));
+      const inactive = added.filter((c) => c.status !== 'active');
+      if (inactive.length) {
+        throw new BadRequestException(
+          `${inactive.map((c) => c.name).join(', ')} ${inactive.length === 1 ? 'is' : 'are'} inactive. Make ${inactive.length === 1 ? 'it' : 'them'} active first.`,
+        );
+      }
+      const removed = current.filter((c) => !wanted.includes(c));
+      if (removed.length) {
+        const used = await this.categoriesInPlan(em, row.id, removed);
+        if (used.length) {
+          const names = await em.getRepository(StallCategoryEntity).findBy({ id: In(used) });
+          throw new ConflictException(
+            `Stalls or seats of this hall's plan use ${names.map((c) => c.name).join(', ')}. Change them in the planner first.`,
+          );
+        }
+        await links.delete({ eventHallId: row.id, categoryId: In(removed) });
+      }
+      if (added.length) {
+        await links.insert(added.map((c) => ({ eventHallId: row.id, categoryId: c.id })));
+      }
+      if (added.length || removed.length) {
+        await this.record(em, 'event.hall_categories_changed', organisationId, event, actor, {
+          hall: row.hall?.name ?? null,
+          added: added.map((c) => c.name),
+          removed: removed.length,
+        });
+      }
+    });
+    return this.hall(access, id, hallId);
+  }
+
+  /** The categories an event hall sells, by name. */
+  static async hallCategories(
+    em: EntityManager,
+    eventHallId: string,
+  ): Promise<EventHallDetailView['categories']> {
+    const rows = await em
+      .getRepository(StallCategoryEntity)
+      .createQueryBuilder('c')
+      .innerJoin(EventHallCategoryEntity, 'ehc', 'ehc.category_id = c.id')
+      .where('ehc.event_hall_id = :eventHallId', { eventHallId })
+      .orderBy('lower(c.name)', 'ASC')
+      .getMany();
+    return rows.map((c) => ({ id: c.id, name: c.name, status: c.status }));
+  }
+
+  /** Which of these categories a stall or seat of the hall's plan uses. */
+  private async categoriesInPlan(
+    em: EntityManager,
+    eventHallId: string,
+    categoryIds: string[],
+  ): Promise<string[]> {
+    const plan = await em.getRepository(StallPlanEntity).findOneBy({ eventHallId });
+    if (!plan) return [];
+    const stalls = await em
+      .getRepository(PlanStallEntity)
+      .createQueryBuilder('s')
+      .select('DISTINCT unnest(s.category_ids)', 'id')
+      .where('s.plan_id = :planId', { planId: plan.id })
+      .getRawMany<{ id: string }>();
+    const seats = await em
+      .getRepository(PlanSeatEntity)
+      .createQueryBuilder('s')
+      .select('DISTINCT s.category_id', 'id')
+      .where('s.plan_id = :planId AND s.category_id IS NOT NULL', { planId: plan.id })
+      .getRawMany<{ id: string }>();
+    const used = new Set([...stalls, ...seats].map((r) => r.id));
+    return categoryIds.filter((c) => used.has(c));
+  }
+
+  private async planCounts(
+    em: EntityManager,
+    eventHallId: string,
+  ): Promise<EventHallDetailView['plan']> {
+    const plan = await em.getRepository(StallPlanEntity).findOneBy({ eventHallId });
+    if (!plan) return { stalls: 0, seats: 0, revision: 0 };
+    const stalls = await em.getRepository(PlanStallEntity).countBy({ planId: plan.id });
+    const seats = await em.getRepository(PlanSeatEntity).countBy({ planId: plan.id });
+    return { stalls, seats, revision: plan.revision };
   }
 
   /** Switches rules on or off for one hall of the event; the values stay as copied. */
@@ -398,6 +508,17 @@ export class EventsService {
         email: invitation.email,
       });
     });
+  }
+
+  /** The event and its hall row, if this member may see the event. For the stall planner. */
+  async eventHallOf(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+  ): Promise<{ event: EventEntity; row: EventHallEntity }> {
+    const em = this.dataSource.manager;
+    const event = await this.event(em, access, id);
+    return { event, row: await this.eventHall(em, event.id, hallId) };
   }
 
   // ---- helpers ------------------------------------------------------------------------------

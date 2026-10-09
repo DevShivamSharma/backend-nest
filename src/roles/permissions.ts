@@ -119,6 +119,12 @@ export const PERMISSION_GROUPS = [
         description: 'Create events, add their halls and rules, invite organisers',
         available: true,
       },
+      {
+        key: 'categories.manage',
+        label: 'Manage stall categories',
+        description: 'Create and import the categories stalls are sold under; switch them off',
+        available: true,
+      },
     ],
   },
   {
@@ -129,13 +135,13 @@ export const PERMISSION_GROUPS = [
         key: 'layouts.view',
         label: 'See layouts',
         description: 'Stall plans and their revisions',
-        available: false,
+        available: true,
       },
       {
         key: 'layouts.edit',
         label: 'Draw layouts',
-        description: 'Draft stalls, import an architect PDF',
-        available: false,
+        description: 'Draw zones, stalls and seats on an event hall',
+        available: true,
       },
       {
         key: 'layouts.approve',
