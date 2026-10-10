@@ -1,4 +1,5 @@
 import { Transform } from 'class-transformer';
+import { ValidateBy } from 'class-validator';
 
 /** Trims surrounding whitespace from a string field before validation. */
 export const Trim = () =>
@@ -28,3 +29,24 @@ export const IMAGE_URL = /^(https:\/\/[^\s"'<>]+|\/[\w\-./]+)$/;
 /** 10–128 characters. Length beats composition rules (NIST SP 800-63B). */
 export const PASSWORD_MIN = 10;
 export const PASSWORD_MAX = 128;
+
+/** Floor metres; halls are at most 2 km a side. */
+export const MAX_COORD = 5000;
+
+/** Every item is a point: two finite numbers within the floor's reach. */
+export function IsPoints(message = 'A zone outline is a list of [x, y] points in metres.') {
+  return ValidateBy({
+    name: 'isPoints',
+    validator: {
+      validate: (value: unknown) =>
+        Array.isArray(value) &&
+        value.every(
+          (p) =>
+            Array.isArray(p) &&
+            p.length === 2 &&
+            p.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_COORD),
+        ),
+      defaultMessage: () => message,
+    },
+  });
+}

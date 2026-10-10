@@ -34,13 +34,21 @@ export interface MailConfig {
   transport: MailTransport;
 }
 
-export interface AiConfig {
+/** One model the assistant may use. */
+export interface AiModelConfig {
   provider: AiProvider;
-  /** Gemini or Groq key; null when not set. */
+  /** Gemini or Groq key; null for Ollama. */
   apiKey: string | null;
   model: string;
   /** Ollama's address, without a trailing slash. */
   baseUrl: string;
+}
+
+export interface AiConfig {
+  /** Tried in this order: when one fails or is rate-limited, the next answers. */
+  chain: AiModelConfig[];
+  /** Providers asked for that cannot be used, e.g. no key; reported at start-up. */
+  skipped: string[];
 }
 
 export interface Configuration {
@@ -53,8 +61,8 @@ export interface Configuration {
 
 /** The model each provider uses when AI_MODEL (or LLM_TEXT_MODEL for Ollama) is not set. */
 const DEFAULT_MODELS: Record<AiProvider, string> = {
-  [AiProvider.Gemini]: 'gemini-2.5-flash',
-  [AiProvider.Groq]: 'llama-3.3-70b-versatile',
+  [AiProvider.Gemini]: 'gemini-3.8-flash',
+  [AiProvider.Groq]: 'openai/gpt-oss-120b',
   [AiProvider.Ollama]: 'qwen3:4b',
 };
 
@@ -110,13 +118,38 @@ export function configuration(): Configuration {
   };
 }
 
+/**
+ * The assistant's models, in the order AI_PROVIDERS gives (e.g. "groq,gemini,ollama"), or just
+ * AI_PROVIDER. Each provider takes its own key and model (GROQ_API_KEY, GEMINI_MODEL…); the first
+ * one asked for may use AI_API_KEY and AI_MODEL instead. A cloud provider without a key is
+ * skipped.
+ */
 function aiConfig(env: NodeJS.ProcessEnv): AiConfig {
-  const provider = (env.AI_PROVIDER as AiProvider) ?? AiProvider.Gemini;
-  const model = provider === AiProvider.Ollama ? env.LLM_TEXT_MODEL : env.AI_MODEL;
-  return {
-    provider,
-    apiKey: env.AI_API_KEY?.trim() || null,
-    model: model?.trim() || DEFAULT_MODELS[provider],
-    baseUrl: (env.LLM_BASE_URL ?? 'http://127.0.0.1:11434').replace(/\/+$/, ''),
-  };
+  const primary = (env.AI_PROVIDER as AiProvider) ?? AiProvider.Gemini;
+  const order = (env.AI_PROVIDERS ?? primary)
+    .split(',')
+    .map((p) => p.trim().toLowerCase() as AiProvider)
+    .filter((p, i, all) => p && all.indexOf(p) === i);
+  const first = order[0];
+  const baseUrl = (env.LLM_BASE_URL ?? 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  const chain: AiModelConfig[] = [];
+  const skipped: string[] = [];
+  for (const provider of order) {
+    if (provider === AiProvider.Ollama) {
+      const model = env.LLM_TEXT_MODEL?.trim() || DEFAULT_MODELS[provider];
+      chain.push({ provider, apiKey: null, model, baseUrl });
+      continue;
+    }
+    const prefix = provider === AiProvider.Groq ? 'GROQ' : 'GEMINI';
+    const own = (name: string) => env[`${prefix}_${name}`]?.trim();
+    const shared = (name: string) => (provider === first ? env[`AI_${name}`]?.trim() : undefined);
+    const apiKey = own('API_KEY') || shared('API_KEY') || null;
+    if (!apiKey) {
+      skipped.push(`${provider} (no ${prefix}_API_KEY)`);
+      continue;
+    }
+    const model = own('MODEL') || shared('MODEL') || DEFAULT_MODELS[provider];
+    chain.push({ provider, apiKey, model, baseUrl });
+  }
+  return { chain, skipped };
 }

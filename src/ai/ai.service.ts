@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 
-import type { AiConfig } from '../config/configuration';
+import type { AiConfig, AiModelConfig } from '../config/configuration';
 import { AiProvider } from '../config/env.validation';
 import type { AssistantRole } from './dto/assistant.dto';
 import type { PlannerTool } from './planner-tools';
@@ -40,58 +40,85 @@ export interface AgentTurn {
 
 /** Longest wait for a model's answer. */
 const TIMEOUT_MS = 60_000;
+/** A rate-limited provider is passed over this long when it does not say how long. */
+const COOL_DOWN_S = 30;
 
 /**
- * One turn of the configured model, with tools: Gemini's or Groq's API, or a local Ollama. The
- * key stays on the server and is never logged; failures are reported without it.
+ * One turn of the assistant's model, with tools: Gemini's or Groq's API, or a local Ollama. The
+ * models are tried in the configured order; when one fails or is rate-limited the next answers,
+ * and a rate-limited one is passed over until its limit resets. Keys stay on the server and are
+ * never logged; failures are reported without them.
  */
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly config: AiConfig;
+  /** When each rate-limited provider may be asked again, ms since the epoch. */
+  private readonly coolUntil = new Map<AiProvider, number>();
 
   constructor(config: ConfigService) {
     this.config = config.getOrThrow<AiConfig>('ai');
+    const { chain, skipped } = this.config;
+    if (skipped.length) this.logger.warn(`AI providers left out: ${skipped.join(', ')}`);
+    if (chain.length) {
+      this.logger.log(
+        `AI models in order: ${chain.map((m) => `${m.provider} ${m.model}`).join(' → ')}`,
+      );
+    }
   }
 
   async turn(system: string, messages: AgentMessage[], tools: PlannerTool[]): Promise<AgentTurn> {
-    const { provider, apiKey } = this.config;
-    if (provider !== AiProvider.Ollama && !apiKey) {
+    const { chain } = this.config;
+    if (!chain.length) {
       throw new ServiceUnavailableException(
-        'The AI assistant is not set up: AI_API_KEY is missing on the server.',
+        'The AI assistant is not set up: no AI provider has a key on the server.',
       );
     }
-    try {
-      const turn =
-        provider === AiProvider.Gemini
-          ? await this.gemini(system, messages, tools)
-          : await this.openAiStyle(system, messages, tools);
-      if (!turn.text.trim() && !turn.calls.length) throw new Error('empty answer');
-      return { text: turn.text.trim(), calls: turn.calls };
-    } catch (error) {
-      this.logger.warn(
-        `${provider} did not answer: ${error instanceof Error ? error.message : 'unknown error'}`,
-      );
-      if (error instanceof ProviderError && error.status === 429) {
-        const wait = error.retryAfter ?? 20;
-        // The planner reads the seconds from this sentence and waits that long by itself.
-        throw new HttpException(
-          `The AI model's free limit is used up for the moment. Try again in about ${wait} seconds.`,
-          HttpStatus.TOO_MANY_REQUESTS,
+    const now = Date.now();
+    // Those resting after a rate limit go last, so they are still tried when nothing else is.
+    const order = [
+      ...chain.filter((m) => (this.coolUntil.get(m.provider) ?? 0) <= now),
+      ...chain.filter((m) => (this.coolUntil.get(m.provider) ?? 0) > now),
+    ];
+    let wait: number | null = null;
+    for (const model of order) {
+      try {
+        const turn =
+          model.provider === AiProvider.Gemini
+            ? await this.gemini(model, system, messages, tools)
+            : await this.openAiStyle(model, system, messages, tools);
+        if (!turn.text.trim() && !turn.calls.length) throw new Error('empty answer');
+        this.coolUntil.delete(model.provider);
+        return { text: turn.text.trim(), calls: turn.calls };
+      } catch (error) {
+        this.logger.warn(
+          `${model.provider} ${model.model} did not answer: ${error instanceof Error ? error.message : 'unknown error'}`,
         );
+        if (error instanceof ProviderError && error.status === 429) {
+          const seconds = error.retryAfter ?? COOL_DOWN_S;
+          this.coolUntil.set(model.provider, Date.now() + seconds * 1000);
+          wait = wait === null ? seconds : Math.min(wait, seconds);
+        }
       }
-      throw new BadGatewayException('The AI assistant could not answer just now. Try again.');
     }
+    if (wait !== null) {
+      // The planner reads the seconds from this sentence and waits that long by itself.
+      throw new HttpException(
+        `The AI model's free limit is used up for the moment. Try again in about ${wait} seconds.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    throw new BadGatewayException('The AI assistant could not answer just now. Try again.');
   }
 
   // ---- Gemini ---------------------------------------------------------------------------------
 
   private async gemini(
+    { model, apiKey }: AiModelConfig,
     system: string,
     messages: AgentMessage[],
     tools: PlannerTool[],
   ): Promise<AgentTurn> {
-    const { model, apiKey } = this.config;
     type Part = Record<string, unknown>;
     const contents: Array<{ role: 'user' | 'model'; parts: Part[] }> = [];
     for (const m of messages) {
@@ -173,11 +200,11 @@ export class AiService {
   // ---- Groq and Ollama (the OpenAI chat format) -----------------------------------------------
 
   private async openAiStyle(
+    { provider, model, apiKey, baseUrl }: AiModelConfig,
     system: string,
     messages: AgentMessage[],
     tools: PlannerTool[],
   ): Promise<AgentTurn> {
-    const { provider, model, apiKey, baseUrl } = this.config;
     const ollama = provider === AiProvider.Ollama;
     const wire = [
       { role: 'system', content: system },

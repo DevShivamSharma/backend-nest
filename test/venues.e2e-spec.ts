@@ -169,6 +169,81 @@ describe('Venues and halls (e2e)', () => {
         .expect(409);
     });
 
+    it('creates a hall of any shape from its outline, and checks stalls against that outline', async () => {
+      // An L: 60 × 40 m with a 20 × 15 m corner cut out at the top right.
+      const outline = [
+        [100, 50],
+        [140, 50],
+        [140, 65],
+        [160, 65],
+        [160, 90],
+        [100, 90],
+      ];
+      const created = await http
+        .post(`/api/orgs/itpo/venues/${venueId}/halls`)
+        .set(auth(owner))
+        .send({ name: 'Hall L', width: 1, depth: 1, outline })
+        .expect(201);
+      // Size and floor come from the outline, moved to the origin.
+      expect(created.body).toMatchObject({ width: 60, depth: 40, floorArea: 2100 });
+      const detail = await http
+        .get(`/api/orgs/itpo/halls/${created.body.id}`)
+        .set(auth(owner))
+        .expect(200);
+      expect(detail.body.floor.geometry.boundary[0][0]).toEqual([
+        [0, 0],
+        [40, 0],
+        [40, 15],
+        [60, 15],
+        [60, 40],
+        [0, 40],
+        [0, 0],
+      ]);
+
+      // A stall in the cut-out corner is outside the hall; one in the L is not.
+      const check = await http
+        .post('/api/orgs/itpo/rules/check')
+        .set(auth(owner))
+        .send({
+          hallId: created.body.id,
+          eventType: 'B2B',
+          stalls: [
+            { id: 'in', x: 10, y: 10, width: 3, depth: 3, openSides: ['bottom'] },
+            { id: 'out', x: 50, y: 5, width: 3, depth: 3, openSides: ['bottom'] },
+          ],
+        })
+        .expect(200);
+      const outside = check.body.violations.filter(
+        (v: { ruleId: string }) => v.ruleId === 'hallBoundary',
+      );
+      expect(outside.flatMap((v: { stallIds: string[] }) => v.stallIds)).toEqual(['out']);
+      await http.delete(`/api/orgs/itpo/halls/${created.body.id}`).set(auth(owner)).expect(204);
+    });
+
+    it('refuses an outline that makes no hall', async () => {
+      const res = await http
+        .post(`/api/orgs/itpo/venues/${venueId}/halls`)
+        .set(auth(owner))
+        .send({
+          name: 'Bow tie',
+          width: 20,
+          depth: 30,
+          outline: [
+            [0, 0],
+            [20, 10],
+            [20, 0],
+            [0, 30],
+          ],
+        })
+        .expect(400);
+      expect(JSON.stringify(res.body)).toContain('crosses itself');
+      await http
+        .post(`/api/orgs/itpo/venues/${venueId}/halls`)
+        .set(auth(owner))
+        .send({ name: 'Not points', width: 20, depth: 30, outline: [[0, 0], [1], 'x'] })
+        .expect(400);
+    });
+
     it('edits the hall’s details without touching its floor', async () => {
       const res = await http
         .patch(`/api/orgs/itpo/halls/${hallId}`)

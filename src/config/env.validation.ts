@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -151,6 +152,36 @@ export class EnvironmentVariables {
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
   @IsOptional()
   AI_PROVIDER: AiProvider = AiProvider.Gemini;
+
+  /**
+   * Providers to try in order when one fails or is rate-limited, e.g. "groq,gemini,ollama".
+   * Without it, only AI_PROVIDER.
+   */
+  @Matches(/^\s*(gemini|groq|ollama)\s*(,\s*(gemini|groq|ollama)\s*)*$/i, {
+    message: 'AI_PROVIDERS must list gemini, groq or ollama, separated by commas',
+  })
+  @IsOptional()
+  AI_PROVIDERS?: string;
+
+  /** Groq's key and model, for AI_PROVIDERS. Never logged. */
+  @IsString()
+  @IsOptional()
+  GROQ_API_KEY?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  GROQ_MODEL?: string;
+
+  /** Gemini's key and model, for AI_PROVIDERS. Never logged. */
+  @IsString()
+  @IsOptional()
+  GEMINI_API_KEY?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  GEMINI_MODEL?: string;
 
   /** Gemini or Groq API key. Without it the assistant says it is not set up. Never logged. */
   @IsString()

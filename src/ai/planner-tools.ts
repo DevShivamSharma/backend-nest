@@ -52,6 +52,33 @@ const NONE = { type: 'object' as const, properties: {} };
 const num = (description: string): JsonSchema => ({ type: 'number', description });
 const str = (description: string): JsonSchema => ({ type: 'string', description });
 
+/** How booths are laid out, for plan_hall and auto_booths; everything is optional. */
+const BRIEF: Record<string, JsonSchema> = {
+  width: num('Booth width in metres, along its line; default 3.'),
+  depth: num('Booth depth in metres; default 3.'),
+  aisle: num("Aisle between islands, metres; default the hall's passage width."),
+  wall_lines: {
+    type: 'string',
+    enum: ['auto', 'yes', 'no'],
+    description: 'A line of booths along the side walls; auto tries both. Default auto.',
+  },
+  corners: { type: 'boolean', description: 'Line ends open on two sides. Default true.' },
+  numbering: {
+    type: 'string',
+    enum: ['line', 'island', 'numbers', 'letters'],
+    description:
+      'line: A1, A2… per line; island: 1-A, 1-B… per island; numbers: 1, 2, 3; letters: A, B, C. ' +
+      'Default line.',
+  },
+  prefix: str('Before every booth number, e.g. "H6-".'),
+  categories: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Category names every new booth gets, from those the hall sells.',
+  },
+  count: { type: 'integer', description: 'At most this many booths; default as many as fit.' },
+};
+
 export const PLANNER_TOOLS: PlannerTool[] = [
   // ---- seeing ----------------------------------------------------------------------------------
   {
@@ -68,7 +95,10 @@ export const PLANNER_TOOLS: PlannerTool[] = [
     description: 'Lists booths that match, with label, zone, size, position and flags.',
     parameters: {
       type: 'object',
-      properties: { booths: BOOTHS, limit: { type: 'integer', description: 'At most; default 30.' } },
+      properties: {
+        booths: BOOTHS,
+        limit: { type: 'integer', description: 'At most; default 30.' },
+      },
       required: ['booths'],
     },
   },
@@ -87,7 +117,12 @@ export const PLANNER_TOOLS: PlannerTool[] = [
       properties: { angle: num('Degrees round the hall, 0 = from the front. Optional.') },
     },
   },
-  { name: 'show_2d', access: 'read', description: 'Back to the plan from above.', parameters: NONE },
+  {
+    name: 'show_2d',
+    access: 'read',
+    description: 'Back to the plan from above.',
+    parameters: NONE,
+  },
   {
     name: 'focus',
     access: 'read',
@@ -112,7 +147,9 @@ export const PLANNER_TOOLS: PlannerTool[] = [
       'has no zones yet.',
     parameters: {
       type: 'object',
-      properties: { aisle: num("Aisle between zones in metres; default the hall's passage width.") },
+      properties: {
+        aisle: num("Aisle between zones in metres; default the hall's passage width."),
+      },
     },
   },
   {
@@ -154,19 +191,39 @@ export const PLANNER_TOOLS: PlannerTool[] = [
   },
   // ---- booths ----------------------------------------------------------------------------------
   {
+    name: 'plan_hall',
+    access: 'edit',
+    description:
+      'Lays out the whole hall or one zone with booths, the way halls are cut (rows back to ' +
+      'back, cross-aisles, corner booths, clear of exits and utilities). The person sees a few ' +
+      'complete layouts and picks one before this tool returns: when it returns ok, the booths ' +
+      'are already on the plan (not saved), so never ask them to choose again. Use this ' +
+      'whenever many booths are wanted; never place them one by one. Give only what the person ' +
+      'said; the rest keeps sensible defaults.',
+    parameters: {
+      type: 'object',
+      properties: {
+        zone: str('Zone name, or "hall" for the whole hall. Default: the whole hall.'),
+        ...BRIEF,
+        replace: {
+          type: 'boolean',
+          description: 'Replace the booths standing there now ("start afresh"). Default false.',
+        },
+      },
+    },
+  },
+  {
     name: 'auto_booths',
     access: 'edit',
     description:
-      'Fills a zone (or every zone, or the whole hall) with booths in rows with aisles, as ' +
-      'Auto-booths does. Booths that break a rule are left out.',
+      'Fills a zone (or every zone, or the whole hall) with booths straight away, without ' +
+      'asking which layout: the best one is used. Prefer plan_hall unless the person wants it ' +
+      'done without choosing. Booths that break a rule are left out.',
     parameters: {
       type: 'object',
       properties: {
         zone: str('Zone name, "all zones", or "hall" for the whole hall. Default: all zones.'),
-        width: num('Booth width in metres; default 3.'),
-        depth: num('Booth depth in metres; default 3.'),
-        aisle: num("Aisle in metres; default the hall's passage width."),
-        count: { type: 'integer', description: 'At most this many booths per zone.' },
+        ...BRIEF,
       },
     },
   },
@@ -198,7 +255,11 @@ export const PLANNER_TOOLS: PlannerTool[] = [
         blocked: { type: 'boolean', description: 'Blocked: not for sale.' },
         active: { type: 'boolean' },
         fnb: { type: 'boolean', description: 'Food and beverage.' },
-        scheme: { type: 'string', enum: ['shell', 'raw'], description: 'Shell scheme or raw space.' },
+        scheme: {
+          type: 'string',
+          enum: ['shell', 'raw'],
+          description: 'Shell scheme or raw space.',
+        },
         category: str('Category name to sell, or "none" to clear.'),
         open_sides: {
           type: 'array',
@@ -276,7 +337,11 @@ export const PLANNER_TOOLS: PlannerTool[] = [
       type: 'object',
       properties: {
         zone: str('Zone name, or "hall".'),
-        front: { type: 'string', enum: ['top', 'bottom', 'left', 'right'], description: 'Default top.' },
+        front: {
+          type: 'string',
+          enum: ['top', 'bottom', 'left', 'right'],
+          description: 'Default top.',
+        },
         count: { type: 'integer', description: 'At most this many seats.' },
         category: str('Category name for the seats.'),
       },
@@ -306,25 +371,30 @@ export const PLANNER_TOOLS: PlannerTool[] = [
     name: 'undo',
     access: 'edit',
     description: 'Undoes the last changes.',
-    parameters: { type: 'object', properties: { steps: { type: 'integer', description: 'Default 1.' } } },
+    parameters: {
+      type: 'object',
+      properties: { steps: { type: 'integer', description: 'Default 1.' } },
+    },
   },
   {
     name: 'redo',
     access: 'edit',
     description: 'Redoes undone changes.',
-    parameters: { type: 'object', properties: { steps: { type: 'integer', description: 'Default 1.' } } },
+    parameters: {
+      type: 'object',
+      properties: { steps: { type: 'integer', description: 'Default 1.' } },
+    },
   },
-  { name: 'save', access: 'edit', description: 'Saves the plan as a new version.', parameters: NONE },
+  {
+    name: 'save',
+    access: 'edit',
+    description: 'Saves the plan as a new version.',
+    parameters: NONE,
+  },
   {
     name: 'export_plan',
     access: 'read',
     description: 'Downloads the plan as a file.',
-    parameters: NONE,
-  },
-  {
-    name: 'run_full_demo',
-    access: 'edit',
-    description: 'Opens the setup of the full demo (a new hall, drawn step by step to 3D).',
     parameters: NONE,
   },
   {
@@ -340,6 +410,8 @@ export const PLANNER_TOOLS: PlannerTool[] = [
 export function toolsFor(canEdit: boolean, canPublish: boolean): PlannerTool[] {
   return PLANNER_TOOLS.filter(
     (t) =>
-      t.access === 'read' || (t.access === 'edit' && canEdit) || (t.access === 'publish' && canPublish),
+      t.access === 'read' ||
+      (t.access === 'edit' && canEdit) ||
+      (t.access === 'publish' && canPublish),
   );
 }

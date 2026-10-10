@@ -178,6 +178,43 @@ export function blankFloor(width: number, depth: number): HallFloor {
   };
 }
 
+/**
+ * An empty hall of any shape: its outline's corners in metres, as drawn by size (an L, a fan, a
+ * round...). Moved to the origin and closed; the outline is the hall's boundary and its floor.
+ * Throws with the reason when the corners make no hall.
+ */
+export function outlineFloor(corners: Array<[number, number]>): HallFloor {
+  if (corners.length < 3) throw new Error('A hall outline needs at least three corners.');
+  const minX = Math.min(...corners.map((p) => p[0]));
+  const minY = Math.min(...corners.map((p) => p[1]));
+  const ring: Array<[number, number]> = corners.map(([x, y]) => [mm(x - minX), mm(y - minY)]);
+  const [first, last] = [ring[0], ring[ring.length - 1]];
+  if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
+  const width = Math.max(...ring.map((p) => p[0]));
+  const depth = Math.max(...ring.map((p) => p[1]));
+  if (width < 1 || depth < 1) throw new Error('A hall is at least 1 m each way.');
+  if (width > MAX_HALL_SIDE || depth > MAX_HALL_SIDE) {
+    throw new Error(`A hall is at most ${MAX_HALL_SIDE} m a side.`);
+  }
+  const boundary = [[ring]];
+  const problem = geometryProblems(boundary)[0];
+  if (problem) throw new Error(problem);
+  return {
+    ...blankFloor(width, depth),
+    geometry: {
+      schema: 'geometry/1',
+      unit: 'm',
+      boundary,
+      hallBoundary: boundary,
+      grid: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+      objects: [],
+      zones: [],
+      source: { documentId: 'manual', page: 1, regionId: 'hall', origin: [0, 0], metresPerUnit: 1 },
+      review: { revision: 1, checks: [], acknowledgements: [] },
+    },
+  };
+}
+
 /** Rounds to the millimetre, so values read from pixels or text compare and store cleanly. */
 export function mm(value: number): number {
   return Math.round(value * 1000) / 1000;

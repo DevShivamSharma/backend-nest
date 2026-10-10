@@ -34,10 +34,16 @@ POST …/assistant {messages + results} ► … until the model asks for no more
 
 | Variable | |
 |---|---|
-| `AI_PROVIDER` | `gemini`, `groq` or `ollama` |
-| `AI_API_KEY` | Gemini (aistudio.google.com) or Groq (console.groq.com) key; free tiers work |
-| `AI_MODEL` | optional; defaults `gemini-2.5-flash`, `llama-3.3-70b-versatile` |
-| `LLM_BASE_URL`, `LLM_TEXT_MODEL` | Ollama only, e.g. `http://127.0.0.1:11434`, `qwen3:4b` |
+| `AI_PROVIDERS` | the order to try, e.g. `groq,gemini,ollama`; when one fails or is rate-limited the next answers |
+| `GROQ_API_KEY`, `GROQ_MODEL` | Groq (console.groq.com); model default `openai/gpt-oss-120b` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini (aistudio.google.com); model default `gemini-3.8-flash` |
+| `LLM_BASE_URL`, `LLM_TEXT_MODEL` | Ollama, e.g. `http://127.0.0.1:11434`, `qwen3:4b` |
+| `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | one provider alone, as before; with `AI_PROVIDERS`, the first one may use these |
+
+A cloud provider without a key is left out (the server logs which at start-up). A provider that
+answers 429 is passed over until its limit resets (its Retry-After, or 30 s), so the next one
+answers straight away; only when every model is rate-limited does the planner hear "try again in
+N seconds".
 
 Small local models (Ollama, 4B) follow multi-step commands poorly; use Gemini or Groq to demo.
 

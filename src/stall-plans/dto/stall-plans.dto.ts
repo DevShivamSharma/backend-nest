@@ -15,11 +15,10 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateBy,
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, Trim } from '../../common/validation';
+import { EmptyToNull, IsPoints, MAX_COORD, Trim } from '../../common/validation';
 import { STALL_SIDES, StallSide } from '../../rules/rule-engine';
 import {
   PLAN_OBJECT_KINDS,
@@ -32,30 +31,9 @@ export const MAX_ZONES = 200;
 export const MAX_STALLS = 3000;
 export const MAX_SEATS = 20000;
 export const MAX_OBJECTS = 2000;
-/** Floor metres; halls are at most 2 km a side. */
-const MAX_COORD = 5000;
-
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 
 const FINITE = { allowNaN: false, allowInfinity: false };
-
-/** Every item is a point: two finite numbers within the floor's reach. */
-function IsPoints(message = 'A zone outline is a list of [x, y] points in metres.') {
-  return ValidateBy({
-    name: 'isPoints',
-    validator: {
-      validate: (value: unknown) =>
-        Array.isArray(value) &&
-        value.every(
-          (p) =>
-            Array.isArray(p) &&
-            p.length === 2 &&
-            p.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_COORD),
-        ),
-      defaultMessage: () => message,
-    },
-  });
-}
 
 export class PlanZoneDto {
   @IsUUID('4')

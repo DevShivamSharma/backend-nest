@@ -18,7 +18,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, Trim } from '../../common/validation';
+import { EmptyToNull, IsPoints, Trim } from '../../common/validation';
 import { MAX_HALL_SIDE } from '../floor/hall-floor';
 import { HallAnnotationsDto } from './hall-annotations.dto';
 
@@ -114,6 +114,17 @@ export class CreateHallDto extends HallDetailsDto {
   @Min(1)
   @Max(MAX_HALL_SIDE)
   depth!: number;
+
+  /**
+   * The hall's outline when it is not a rectangle: its corners in metres, in order. The hall's
+   * width and depth then come from the outline.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(3)
+  @ArrayMaxSize(400)
+  @IsPoints('A hall outline is a list of [x, y] corners in metres.')
+  outline?: Array<[number, number]>;
 
   @IsOptional()
   @ValidateNested()

@@ -12,7 +12,14 @@ import type { Actor } from '../common/http/authenticated-request';
 import { EventHallEntity } from '../events/event.entity';
 import { ExternalRefEntity } from '../integrations/external-ref.entity';
 import { CreateHallDto, UpdateHallDto } from './dto/venue.dto';
-import { blankFloor, floorArea, floorProblems, HallFloor, sameFloor } from './floor/hall-floor';
+import {
+  blankFloor,
+  floorArea,
+  floorProblems,
+  HallFloor,
+  outlineFloor,
+  sameFloor,
+} from './floor/hall-floor';
 import { withAnnotations } from './floor/hall-annotations';
 import { FloorSource, HallEntity, HallFloorVersionEntity, HallUses } from './hall.entity';
 import { VenueEntity } from './venue.entity';
@@ -89,6 +96,12 @@ export class HallsService {
     dto: CreateHallDto,
     actor: Actor,
   ): Promise<HallView> {
+    let blank: HallFloor;
+    try {
+      blank = dto.outline ? outlineFloor(dto.outline) : blankFloor(dto.width, dto.depth);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
     const hall = await this.dataSource.transaction(async (em) => {
       await this.getVenue(em, organisationId, venueId);
       const created = await this.insertHall(
@@ -102,9 +115,7 @@ export class HallsService {
           uses: dto.uses,
         },
         {
-          floor: dto.annotations
-            ? withAnnotations(blankFloor(dto.width, dto.depth), dto.annotations)
-            : blankFloor(dto.width, dto.depth),
+          floor: dto.annotations ? withAnnotations(blank, dto.annotations) : blank,
           source: 'blank',
         },
         actor,
@@ -116,7 +127,12 @@ export class HallsService {
           organisationId,
           targetType: 'hall',
           targetId: created.id,
-          metadata: { name: created.name, width: dto.width, depth: dto.depth },
+          metadata: {
+            name: created.name,
+            width: blank.width,
+            depth: blank.depth,
+            ...(dto.outline ? { corners: dto.outline.length } : {}),
+          },
         },
         em,
       );
