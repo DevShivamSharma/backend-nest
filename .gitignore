@@ -9,6 +9,7 @@
 # the Docker build generates it inside the image.
 /public
 .env
+.env.gemini
 # Node
 /node_modules
 npm-debug.log*
