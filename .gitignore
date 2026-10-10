@@ -1,7 +1,4 @@
-# Secrets — NEVER commit. .env holds the database password.
-.env
-.env.*
-!.env.example
+
 
 # Compiled output
 /dist
