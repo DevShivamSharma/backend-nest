@@ -1,5 +1,4 @@
 
-.env
 
 # Compiled output
 /dist
@@ -49,4 +48,4 @@ Thumbs.db
 # API test runner output
 /test-results/
 /playwright-report/
-/.env
+.env*
