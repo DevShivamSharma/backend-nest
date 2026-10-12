@@ -213,8 +213,8 @@ export const PERMISSION_GROUPS = [
       {
         key: 'reports.view',
         label: 'See reports',
-        description: 'Occupancy, revenue and safety dashboards',
-        available: false,
+        description: 'Event settlements: money taken, refunds, fees and payout',
+        available: true,
       },
     ],
   },

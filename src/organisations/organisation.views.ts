@@ -23,6 +23,7 @@ export interface OrganisationView {
   status: OrganisationStatus;
   suspendedReason: string | null;
   bookingMode: BookingMode;
+  platformFeePercent: number;
   features: OrganisationFeatures;
   limits: OrganisationLimits;
   config: OrganisationConfig;
@@ -59,6 +60,7 @@ export function toOrganisationView(org: OrganisationEntity): OrganisationView {
     status: org.status,
     suspendedReason: org.suspendedReason,
     bookingMode: org.bookingMode,
+    platformFeePercent: org.platformFeePercent,
     features: org.features,
     limits: org.limits,
     config: org.config,

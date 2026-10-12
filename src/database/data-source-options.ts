@@ -11,6 +11,8 @@ import { EventStatus1792500000000 } from './migrations/1792500000000-EventStatus
 import { PublishedStalls1792600000000 } from './migrations/1792600000000-PublishedStalls';
 import { ExhibitorsAndBookings1792700000000 } from './migrations/1792700000000-ExhibitorsAndBookings';
 import { Payments1792800000000 } from './migrations/1792800000000-Payments';
+import { Settlements1792900000000 } from './migrations/1792900000000-Settlements';
+import { SettlementEntity } from '../settlements/settlement.entity';
 import { BookingEntity } from '../bookings/booking.entity';
 import { PaymentEntity, PaymentEventEntity, RefundEntity } from '../payments/payment.entity';
 import { EventExhibitorEntity, ExhibitorEntity } from '../exhibitors/exhibitor.entity';
@@ -91,6 +93,7 @@ export const ENTITIES = [
   PaymentEntity,
   PaymentEventEntity,
   RefundEntity,
+  SettlementEntity,
 ];
 
 /**
@@ -123,6 +126,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       PublishedStalls1792600000000,
       ExhibitorsAndBookings1792700000000,
       Payments1792800000000,
+      Settlements1792900000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

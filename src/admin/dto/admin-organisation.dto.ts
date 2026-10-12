@@ -3,12 +3,15 @@ import {
   IsEmail,
   IsEnum,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -41,6 +44,13 @@ export class CreateOrganisationDto {
   @IsOptional()
   bookingMode?: BookingMode;
 
+  /** Percent of what an event keeps after refunds; two decimals at most. */
+  @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  platformFeePercent?: number;
+
   @ValidateNested()
   @Type(() => FeaturesDto)
   @IsOptional()
@@ -71,6 +81,13 @@ export class UpdateOrganisationDto {
   @IsEnum(BookingMode)
   @IsOptional()
   bookingMode?: BookingMode;
+
+  /** Percent of what an event keeps after refunds; two decimals at most. */
+  @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  platformFeePercent?: number;
 
   @ValidateNested()
   @Type(() => FeaturesDto)

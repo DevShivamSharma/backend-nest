@@ -18,6 +18,12 @@ export enum OrganisationStatus {
   Suspended = 'suspended',
 }
 
+/** Postgres numeric comes back as text; a percent is used as a number. */
+export const percent = {
+  to: (v: number | null) => v,
+  from: (v: string | null) => (v === null ? null : Number(v)),
+};
+
 /** A tenant: one exhibition-centre operator (ITPO, Yashobhoomi, Jio World Convention Centre). */
 @Entity({ name: 'organisations' })
 export class OrganisationEntity {
@@ -39,6 +45,17 @@ export class OrganisationEntity {
 
   @Column({ name: 'booking_mode', type: 'varchar', length: 16, default: BookingMode.OwnPortal })
   bookingMode!: BookingMode;
+
+  /** The platform's fee on what an event kept after refunds, set by the Super Admin (docs/15 Q9). */
+  @Column({
+    name: 'platform_fee_percent',
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
+    default: 0,
+    transformer: percent,
+  })
+  platformFeePercent!: number;
 
   @Column({ type: 'jsonb' })
   features!: OrganisationFeatures;

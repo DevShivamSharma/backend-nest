@@ -30,6 +30,7 @@ export interface NewOrganisation {
   name: string;
   slug: string;
   bookingMode?: BookingMode;
+  platformFeePercent?: number;
   features?: FeaturesDto;
   limits?: LimitsDto;
   primaryColor?: string;
@@ -38,6 +39,7 @@ export interface NewOrganisation {
 export interface PlatformSettingsChange {
   name?: string;
   bookingMode?: BookingMode;
+  platformFeePercent?: number;
   features?: FeaturesDto;
   limits?: LimitsDto;
 }
@@ -141,6 +143,7 @@ export class OrganisationsService {
         name: input.name,
         status: OrganisationStatus.Active,
         bookingMode: input.bookingMode ?? BookingMode.OwnPortal,
+        platformFeePercent: input.platformFeePercent ?? 0,
         features: { ...DEFAULT_FEATURES, ...input.features },
         limits: { ...DEFAULT_LIMITS, ...input.limits },
         config,
@@ -273,12 +276,16 @@ export class OrganisationsService {
       const before = {
         name: organisation.name,
         bookingMode: organisation.bookingMode,
+        platformFeePercent: organisation.platformFeePercent,
         features: organisation.features,
         limits: organisation.limits,
       };
 
       if (change.name !== undefined) organisation.name = change.name;
       if (change.bookingMode !== undefined) organisation.bookingMode = change.bookingMode;
+      if (change.platformFeePercent !== undefined) {
+        organisation.platformFeePercent = change.platformFeePercent;
+      }
       if (change.features !== undefined) organisation.features = { ...change.features };
       if (change.limits !== undefined) organisation.limits = { ...change.limits };
 
@@ -295,6 +302,7 @@ export class OrganisationsService {
             after: {
               name: saved.name,
               bookingMode: saved.bookingMode,
+              platformFeePercent: saved.platformFeePercent,
               features: saved.features,
               limits: saved.limits,
             },
