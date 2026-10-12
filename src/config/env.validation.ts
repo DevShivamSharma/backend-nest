@@ -38,6 +38,12 @@ export enum MailTransport {
   Smtp = 'smtp',
 }
 
+/** Where payments go: nowhere real (fake orders; a dev route marks them paid), or Razorpay. */
+export enum PaymentsTransport {
+  Log = 'log',
+  Razorpay = 'razorpay',
+}
+
 export class EnvironmentVariables {
   @IsEnum(Environment, {
     message: 'NODE_ENV must be one of: development, production, test',
@@ -197,6 +203,28 @@ export class EnvironmentVariables {
   @Max(10_080)
   @IsOptional()
   BOOKING_HOLD_MINUTES: number = 60;
+
+  @IsEnum(PaymentsTransport, { message: 'PAYMENTS_TRANSPORT must be one of: log, razorpay' })
+  @IsOptional()
+  PAYMENTS_TRANSPORT: PaymentsTransport = PaymentsTransport.Log;
+
+  /** Razorpay key id (rzp_test_… or rzp_live_…), with PAYMENTS_TRANSPORT=razorpay. */
+  @ValidateIf((env: EnvironmentVariables) => env.PAYMENTS_TRANSPORT === PaymentsTransport.Razorpay)
+  @Matches(/^rzp_(test|live)_\w+$/, {
+    message: 'RAZORPAY_KEY_ID must look like rzp_test_… or rzp_live_…',
+  })
+  RAZORPAY_KEY_ID?: string;
+
+  /** Never logged or echoed. */
+  @ValidateIf((env: EnvironmentVariables) => env.PAYMENTS_TRANSPORT === PaymentsTransport.Razorpay)
+  @IsString()
+  @IsNotEmpty({ message: 'RAZORPAY_KEY_SECRET is required when PAYMENTS_TRANSPORT=razorpay' })
+  RAZORPAY_KEY_SECRET?: string;
+
+  /** The webhook's secret from the Razorpay dashboard. Unset: the webhook route answers 404. */
+  @IsString()
+  @IsOptional()
+  RAZORPAY_WEBHOOK_SECRET?: string;
 
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
   @IsOptional()

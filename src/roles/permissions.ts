@@ -198,6 +198,12 @@ export const PERMISSION_GROUPS = [
         description: 'Confirm, move or cancel bookings',
         available: true,
       },
+      {
+        key: 'payments.manage',
+        label: 'Refund payments',
+        description: 'Refund what exhibitors paid, in full or in part',
+        available: true,
+      },
     ],
   },
   {

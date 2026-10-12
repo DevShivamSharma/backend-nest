@@ -15,10 +15,10 @@ export const BOOKING_STATUSES = ['held', 'confirmed', 'cancelled', 'expired'] as
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 export const ACTIVE_BOOKING_STATUSES: readonly BookingStatus[] = ['held', 'confirmed'];
 
-/** Postgres bigint may come back as text; paise are used as numbers. */
-const paise = {
-  to: (v: number) => v,
-  from: (v: string | number) => Number(v),
+/** Postgres bigint may come back as text; paise are used as numbers. A null stays null. */
+export const paise = {
+  to: (v: number | null) => v,
+  from: (v: string | number | null) => (v === null ? null : Number(v)),
 };
 
 /** A stall of an event's published plan, held or booked for an exhibitor. */

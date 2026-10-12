@@ -1,4 +1,4 @@
-import { AiProvider, Environment, MailTransport } from './env.validation';
+import { AiProvider, Environment, MailTransport, PaymentsTransport } from './env.validation';
 
 export interface AppConfig {
   env: Environment;
@@ -49,6 +49,14 @@ export interface BookingsConfig {
   holdMinutes: number;
 }
 
+export interface PaymentsConfig {
+  transport: PaymentsTransport;
+  /** Set only with the razorpay transport. Never logged. */
+  razorpay: { keyId: string; keySecret: string } | null;
+  /** Verifies the webhook's signature; null leaves the webhook route off. */
+  webhookSecret: string | null;
+}
+
 /** One model the assistant may use. */
 export interface AiModelConfig {
   provider: AiProvider;
@@ -72,6 +80,7 @@ export interface Configuration {
   auth: AuthConfig;
   mail: MailConfig;
   bookings: BookingsConfig;
+  payments: PaymentsConfig;
   ai: AiConfig;
 }
 
@@ -149,6 +158,17 @@ export function configuration(): Configuration {
               .filter(Boolean),
     },
     bookings: { holdMinutes: Number(env.BOOKING_HOLD_MINUTES ?? 60) },
+    payments: {
+      transport: (env.PAYMENTS_TRANSPORT as PaymentsTransport) ?? PaymentsTransport.Log,
+      razorpay:
+        env.PAYMENTS_TRANSPORT === PaymentsTransport.Razorpay
+          ? {
+              keyId: env.RAZORPAY_KEY_ID as string,
+              keySecret: env.RAZORPAY_KEY_SECRET as string,
+            }
+          : null,
+      webhookSecret: env.RAZORPAY_WEBHOOK_SECRET?.trim() || null,
+    },
     ai: aiConfig(env),
   };
 }
