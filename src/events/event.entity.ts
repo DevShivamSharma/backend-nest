@@ -15,6 +15,13 @@ import { HallEntity } from '../venues/hall.entity';
 export const EVENT_KINDS = ['internal', 'external'] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
+/**
+ * `draft` → `scheduled` (stalls may be sold) → `completed`; `draft` or `scheduled` → `cancelled`;
+ * `scheduled` → `draft` to take it off sale. Nothing else.
+ */
+export const EVENT_STATUSES = ['draft', 'scheduled', 'completed', 'cancelled'] as const;
+export type EventStatus = (typeof EVENT_STATUSES)[number];
+
 /** An event of the organisation, on some of its halls, for some dates. Dates are `YYYY-MM-DD`. */
 @Entity({ name: 'events' })
 export class EventEntity {
@@ -26,6 +33,9 @@ export class EventEntity {
 
   @Column({ type: 'varchar', length: 16 })
   kind!: EventKind;
+
+  @Column({ type: 'varchar', length: 16, default: 'draft' })
+  status!: EventStatus;
 
   @Column({ type: 'varchar', length: 160 })
   name!: string;
@@ -55,6 +65,16 @@ export class EventEntity {
   /** Dismantling ends; on or after the end. */
   @Column({ name: 'dismantle_on', type: 'date', nullable: true })
   dismantleOn!: string | null;
+
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt!: Date | null;
+
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
+  cancelledAt!: Date | null;
+
+  /** Why it was cancelled, when the venue said. */
+  @Column({ name: 'cancel_reason', type: 'varchar', length: 500, nullable: true })
+  cancelReason!: string | null;
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdById!: string | null;
