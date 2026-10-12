@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AccessModule } from './access/access.module';
@@ -41,6 +42,8 @@ import { VenuesModule } from './venues/venues.module';
         skipIf: () => config.getOrThrow<AppConfig>('app').env === Environment.Test,
       }),
     }),
+    // Registers every `@Interval` once per process (the booking hold-expiry worker).
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     OrganisationsModule,

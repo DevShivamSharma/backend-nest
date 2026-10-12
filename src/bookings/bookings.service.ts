@@ -300,6 +300,50 @@ export class BookingsService {
     return this.get(access, bookingId);
   }
 
+  /**
+   * Marks held bookings whose time ran out as expired, and audits each (no actor: the platform
+   * did it). One UPDATE whose WHERE names the state it leaves, so it is safe on several API
+   * instances at once without a lock of our own: when two run together, Postgres makes the second
+   * wait on the rows the first changed, then re-checks them, finds them no longer `held` and
+   * skips them; each hold expires once and is audited once. A staff confirm racing it takes the
+   * same row lock; whichever commits first wins, and the other sees the result.
+   */
+  async expireHolds(): Promise<number> {
+    return this.dataSource.transaction(async (em) => {
+      const { raw } = await em
+        .createQueryBuilder()
+        .update(BookingEntity)
+        .set({ status: 'expired' })
+        .where(`status = 'held' AND hold_expires_at < now()`)
+        .returning('id, organisation_id, stall_label, hold_expires_at')
+        .execute();
+      const rows = raw as Array<{
+        id: string;
+        organisation_id: string;
+        stall_label: string;
+        hold_expires_at: Date;
+      }>;
+      for (const b of rows) {
+        await this.audit.record(
+          {
+            action: 'booking.expired',
+            actor: null,
+            organisationId: b.organisation_id,
+            targetType: 'booking',
+            targetId: b.id,
+            metadata: {
+              stall: b.stall_label,
+              from: 'held',
+              to: 'expired',
+              holdExpiredAt: b.hold_expires_at,
+            },
+          },
+          em,
+        );
+      }
+      return rows.length;
+    });
+  }
   static stallView(s: PublishedStallEntity): PublishedStallView {
     return {
       id: s.stallId,
