@@ -16,6 +16,7 @@ import { OrganisationsModule } from './organisations/organisations.module';
 import { TeamModule } from './team/team.module';
 import { CategoriesModule } from './categories/categories.module';
 import { EventsModule } from './events/events.module';
+import { ExhibitorsModule } from './exhibitors/exhibitors.module';
 import { RulesModule } from './rules/rules.module';
 import { StallPlansModule } from './stall-plans/stall-plans.module';
 import { VenuesModule } from './venues/venues.module';
@@ -51,6 +52,7 @@ import { VenuesModule } from './venues/venues.module';
     EventsModule,
     CategoriesModule,
     StallPlansModule,
+    ExhibitorsModule,
     AiModule,
   ],
   controllers: [HealthController],

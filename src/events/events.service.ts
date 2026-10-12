@@ -614,6 +614,23 @@ export class EventsService {
     return access.membership.role?.scopeKind === RoleScopeKind.Event;
   }
 
+  /** The event, if this member may see it, for other modules; locked when asked. */
+  eventFor(
+    em: EntityManager,
+    access: OrgAccessContext,
+    id: string,
+    lock = false,
+  ): Promise<EventEntity> {
+    return this.event(em, access, id, lock);
+  }
+
+  /** Completed and cancelled events are kept as they ended: nothing about them changes. */
+  static assertOpen(event: EventEntity): void {
+    if (event.status === 'completed' || event.status === 'cancelled') {
+      throw new ConflictException(`${event.name} is ${event.status}; it no longer changes.`);
+    }
+  }
+
   /** The event, if this member may see it. Not found either way, so ids reveal nothing. */
   private async event(
     em: EntityManager,
