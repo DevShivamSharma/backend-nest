@@ -148,6 +148,7 @@ export class StallPlansService {
   ): Promise<StallPlanView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanEdit(access, event);
+    EventsService.assertOpen(event);
     // The organiser publishes an external event's plan, once the venue approved that revision.
     // assertCanEdit already keeps the venue's team off external events.
     const hall = await this.events.hall(access, id, hallId);
@@ -271,6 +272,7 @@ export class StallPlansService {
   ): Promise<StallPlanView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanEdit(access, event);
+    EventsService.assertOpen(event);
     const hall = await this.events.hall(access, id, hallId);
     const problems = [
       ...StallPlansService.structure(dto, hall),
@@ -399,6 +401,7 @@ export class StallPlansService {
   ): Promise<StallPlanView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanEdit(access, event);
+    EventsService.assertOpen(event);
     if (event.kind !== 'external') {
       throw new BadRequestException(
         'Plans of internal events are published, not sent for approval.',

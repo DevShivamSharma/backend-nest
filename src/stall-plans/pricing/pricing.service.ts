@@ -68,6 +68,7 @@ export class PricingService {
   ): Promise<PlanPricingView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanManage(access, event);
+    EventsService.assertOpen(event);
     return this.dataSource.transaction(async (em) => {
       const cards = em.getRepository(StallPriceCardEntity);
       await cards.delete({ eventHallId: row.id });
@@ -103,6 +104,7 @@ export class PricingService {
   ): Promise<PlanPricingView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanManage(access, event);
+    EventsService.assertOpen(event);
     return this.dataSource.transaction(async (em) => {
       const prices = em.getRepository(StallPriceEntity);
       const off = dto.prices.filter((p) => p.price === null || p.price === undefined);

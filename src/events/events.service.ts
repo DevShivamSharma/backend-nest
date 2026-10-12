@@ -11,6 +11,7 @@ import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 import { MembershipEntity } from '../access/membership.entity';
 import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
 import { AuditService } from '../audit/audit.service';
+import { ACTIVE_BOOKING_STATUSES, BookingEntity } from '../bookings/booking.entity';
 import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { RoleEntity, RoleScopeKind } from '../roles/role.entity';
 import { RolesService } from '../roles/roles.service';
@@ -61,6 +62,9 @@ const PAST: Record<EventTransition, string> = {
   cancel: 'cancelled',
   reopen: 'reopened',
 };
+
+/** Why the bookings of a cancelled event were cancelled. */
+const EVENT_CANCELLED = 'Event cancelled';
 
 /**
  * Events (Module D): the organisation's events, the halls each uses and the rules for each
@@ -174,6 +178,13 @@ export class EventsService {
     const organisationId = access.organisation.id;
     await this.dataSource.transaction(async (em) => {
       const event = await this.event(em, access, id, true);
+      EventsService.assertOpen(event);
+      // Bookings are the record of who took which stall; they keep their event.
+      if (await em.getRepository(BookingEntity).countBy({ eventId: event.id })) {
+        throw new ConflictException(
+          `${event.name} has bookings, so it stays for the record. Cancel the event instead.`,
+        );
+      }
       const people = await this.peopleOf(em, organisationId, event.id);
       for (const member of people.members) await this.dropFromMembership(em, member, event.id);
       for (const invitation of people.invitations) {
@@ -212,6 +223,16 @@ export class EventsService {
           `${event.name} is ${event.status}; it cannot be ${PAST[step]} from there.`,
         );
       }
+      if (step === 'reopen') {
+        const active = await em
+          .getRepository(BookingEntity)
+          .countBy({ eventId: event.id, status: In([...ACTIVE_BOOKING_STATUSES]) });
+        if (active) {
+          throw new ConflictException(
+            `${event.name} has ${active} active ${active === 1 ? 'booking' : 'bookings'}. Cancel ${active === 1 ? 'it' : 'them'} before taking the event back to draft.`,
+          );
+        }
+      }
       const previous = event.status;
       const now = new Date();
       Object.assign(event, {
@@ -221,10 +242,12 @@ export class EventsService {
         cancelReason: to === 'cancelled' ? reason : null,
       });
       const saved = await em.getRepository(EventEntity).save(event);
+      const bookingsCancelled = step === 'cancel' ? await this.cancelBookings(em, saved, actor) : 0;
       await this.record(em, action, organisationId, saved, actor, {
         from: previous,
         to,
         ...(reason ? { reason } : {}),
+        ...(step === 'cancel' ? { bookingsCancelled } : {}),
       });
       return saved;
     });
@@ -291,7 +314,13 @@ export class EventsService {
     const organisationId = access.organisation.id;
     await this.dataSource.transaction(async (em) => {
       const event = await this.event(em, access, id, true);
+      EventsService.assertOpen(event);
       const row = await this.eventHall(em, event.id, hallId);
+      if (await em.getRepository(BookingEntity).countBy({ eventHallId: row.id })) {
+        throw new ConflictException(
+          `${row.hall?.name ?? 'This hall'} has bookings at ${event.name}, so it stays.`,
+        );
+      }
       await em.getRepository(EventHallEntity).delete({ id: row.id });
       await this.record(em, 'event.hall_removed', organisationId, event, actor, {
         hall: row.hall?.name ?? null,
@@ -850,6 +879,48 @@ export class EventsService {
         { id: invitation.id },
         eventIds.length ? { scope: { ...invitation.scope, eventIds } } : { revokedAt: new Date() },
       );
+  }
+
+  /**
+   * A cancelled event's active bookings are cancelled with it, each audited. Paid bookings are
+   * refunded with payments (M6); nothing is paid through the platform yet. One UPDATE under the
+   * event's lock, which every booking change takes first (shared), so none slips in meanwhile.
+   */
+  private async cancelBookings(
+    em: EntityManager,
+    event: EventEntity,
+    actor: Actor,
+  ): Promise<number> {
+    const { raw } = await em
+      .createQueryBuilder()
+      .update(BookingEntity)
+      .set({
+        status: 'cancelled',
+        cancelledAt: () => 'now()',
+        cancelledById: actor.id,
+        cancelReason: EVENT_CANCELLED,
+      })
+      .where('event_id = :eventId AND status IN (:...active)', {
+        eventId: event.id,
+        active: [...ACTIVE_BOOKING_STATUSES],
+      })
+      .returning('id, stall_label')
+      .execute();
+    const rows = raw as Array<{ id: string; stall_label: string }>;
+    for (const b of rows) {
+      await this.audit.record(
+        {
+          action: 'booking.cancelled',
+          actor,
+          organisationId: event.organisationId,
+          targetType: 'booking',
+          targetId: b.id,
+          metadata: { event: event.name, stall: b.stall_label, reason: EVENT_CANCELLED },
+        },
+        em,
+      );
+    }
+    return rows.length;
   }
 
   private async assertVenueEventIdFree(

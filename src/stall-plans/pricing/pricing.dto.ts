@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsDefined,
   IsNumber,
   IsOptional,
   IsString,
@@ -58,6 +59,8 @@ export class PriceRatesDto {
 
 /** The whole rate card: General, and Premium and Marquee when they are priced apart. */
 export class PriceCardDto {
+  /** Every card has General rates; Premium and Marquee are optional. */
+  @IsDefined({ message: 'The rate card needs General rates.' })
   @ValidateNested()
   @Type(() => PriceRatesDto)
   general!: PriceRatesDto;
