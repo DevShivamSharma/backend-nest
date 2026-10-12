@@ -159,7 +159,8 @@ export const RULES: readonly RuleDefinition[] = [
   {
     id: 'PILLAR',
     label: 'Pillars',
-    description: 'No stall stands on a pillar, nor within the set clearance of one.',
+    description:
+      'No stall stands on a pillar; stalls may stand right next to one, unless a clearance is set.',
     reference: 'Planning meeting, October 2026',
     group: 'floor',
     available: true,
@@ -216,7 +217,7 @@ export interface RuleValues {
   facilityClearance: number;
   /** Kept free around partitions. */
   partitionClearance: number;
-  /** Kept free around pillars. */
+  /** Kept free around pillars; 0: only the pillar itself stays clear. */
   pillarClearance: number;
   /** Free depth in front of an emergency exit. */
   emergencyExitClearance: number;
@@ -236,7 +237,7 @@ export const DEFAULT_RULE_VALUES: RuleValues = {
   curtainClearance: 1,
   facilityClearance: 1,
   partitionClearance: 1,
-  pillarClearance: 1,
+  pillarClearance: 0,
   emergencyExitClearance: 3,
   sizeStep: 1,
   maxUtilization: 0.7,
