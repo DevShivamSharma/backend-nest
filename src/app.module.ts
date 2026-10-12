@@ -15,6 +15,7 @@ import { Environment, validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PortalModule } from './portal/portal.module';
 import { TeamModule } from './team/team.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -59,6 +60,7 @@ import { VenuesModule } from './venues/venues.module';
     StallPlansModule,
     ExhibitorsModule,
     BookingsModule,
+    PaymentsModule,
     PortalModule,
     AiModule,
   ],

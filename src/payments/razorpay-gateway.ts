@@ -25,6 +25,8 @@ export interface RazorpayRefundEntity {
   payment_id: string;
   amount: number;
   status: string;
+  /** What we sent with it; `refundId` is our row's id. */
+  notes?: Record<string, string> | null;
 }
 
 export interface RazorpayWebhook {
