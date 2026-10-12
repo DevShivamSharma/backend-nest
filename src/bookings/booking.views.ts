@@ -1,8 +1,24 @@
 import type { EventStatus } from '../events/event.entity';
+import type { PaymentProvider, PaymentStatus } from '../payments/payment.entity';
 import type { StallSide } from '../rules/rule-engine';
 import type { StallScheme } from '../stall-plans/stall-plan.entity';
 import type { HallFloor } from '../venues/floor/hall-floor';
 import type { BookingChannel, BookingStatus } from './booking.entity';
+
+/** What a booking's payment shows: the paid one, else the newest order. */
+export interface BookingPaymentView {
+  status: PaymentStatus;
+  provider: PaymentProvider;
+  orderId: string;
+  paymentId: string | null;
+  method: string | null;
+  amountPaise: number;
+  paidAt: string | null;
+  /** Refunds that went through. */
+  refundedPaise: number;
+  /** Refunds asked for or being sent, not through yet. */
+  refundPendingPaise: number;
+}
 
 export interface BookingView {
   id: string;
@@ -22,6 +38,8 @@ export interface BookingView {
   priceReckoning: string;
   note: string | null;
   cancelReason: string | null;
+  /** Null while no order was made (a stall priced 0, or a booking made by staff). */
+  payment: BookingPaymentView | null;
   createdAt: string;
   confirmedAt: string | null;
   cancelledAt: string | null;

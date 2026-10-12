@@ -9,6 +9,8 @@ import type { BookingsConfig } from '../config/configuration';
 import { EventEntity, EventHallEntity, EventStatus } from '../events/event.entity';
 import { EventsService } from '../events/events.service';
 import { ExhibitorsService } from '../exhibitors/exhibitors.service';
+import { expireOpenPayments } from '../payments/booking-payments';
+import type { PaymentProvider, PaymentStatus } from '../payments/payment.entity';
 import { stallLabel } from '../stall-plans/published-stalls';
 import { PublishedStallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
 import {
@@ -52,6 +54,15 @@ interface BookingRow {
   confirmed_at: Date | null;
   cancelled_at: Date | null;
   updated_at: Date;
+  pay_status: PaymentStatus | null;
+  pay_provider: PaymentProvider | null;
+  pay_order_id: string | null;
+  pay_payment_id: string | null;
+  pay_method: string | null;
+  pay_amount_paise: string | null;
+  pay_paid_at: Date | null;
+  pay_refunded_paise: string | null;
+  pay_refund_pending_paise: string | null;
 }
 
 interface BookingFilter {
@@ -73,7 +84,8 @@ interface Change {
  * for an exhibitor registered for the event, confirm a hold, move a booking to another stall and
  * cancel it. A stall is bookable when the event is scheduled and the stall is on the published
  * plan, for sale, priced and without an active booking; its price is copied onto the booking.
- * Nothing here takes a payment (M6).
+ * Nothing here takes a payment (`PaymentsService` does); a booking that leaves `held` or moves
+ * only expires its open order.
  *
  * Locks are always taken in this order, so nothing waits in a circle: the event row (shared), the
  * booking row, the plan row (shared), the published stall row. A status change of the event takes
@@ -228,7 +240,7 @@ export class BookingsService {
 
   /** A hold becomes a booking, while the event is on sale and the hold has not run out. */
   async confirm(access: OrgAccessContext, bookingId: string, actor: Actor): Promise<BookingView> {
-    await this.change(access, bookingId, actor, (booking, event) => {
+    await this.change(access, bookingId, actor, async (booking, event, em) => {
       if (booking.status !== 'held') {
         throw new ConflictException(
           `Only a held booking is confirmed; this one is ${booking.status}.`,
@@ -246,6 +258,8 @@ export class BookingsService {
         confirmedById: actor.id,
         holdExpiresAt: null,
       });
+      // Confirmed by staff: an open order can no longer confirm it again (ruling 5).
+      await expireOpenPayments(em, [booking.id]);
       return { action: 'booking.confirmed' };
     });
     return this.get(access, bookingId);
@@ -258,7 +272,7 @@ export class BookingsService {
     reason: string,
     actor: Actor,
   ): Promise<BookingView> {
-    await this.change(access, bookingId, actor, (booking, event) => {
+    await this.change(access, bookingId, actor, async (booking, event, em) => {
       if (!isActive(booking.status)) {
         throw new ConflictException(`The booking is already ${booking.status}.`);
       }
@@ -269,6 +283,8 @@ export class BookingsService {
         cancelledById: actor.id,
         cancelReason: reason,
       });
+      // A paid booking stays paid: staff refund it separately (docs/15 §6.2).
+      await expireOpenPayments(em, [booking.id]);
       return { action: 'booking.cancelled', metadata: { reason } };
     });
     return this.get(access, bookingId);
@@ -285,7 +301,7 @@ export class BookingsService {
     reason: string | null,
     actor: Actor,
   ): Promise<BookingView> {
-    await this.change(access, bookingId, actor, (booking, event) => {
+    await this.change(access, bookingId, actor, async (booking, event, em) => {
       if (booking.exhibitorId !== exhibitorId) {
         throw new NotFoundException('There is no such booking.');
       }
@@ -301,6 +317,7 @@ export class BookingsService {
         cancelledById: actor.id,
         cancelReason: reason ?? 'Let go by the exhibitor',
       });
+      await expireOpenPayments(em, [booking.id]);
       return { action: 'booking.cancelled', metadata: { reason, by: 'exhibitor' } };
     });
     return this.get(access, bookingId);
@@ -339,6 +356,8 @@ export class BookingsService {
         currency: to.currency!,
         priceReckoning: to.priceReckoning!,
       });
+      // The open order is for the old stall and price (ruling 5).
+      await expireOpenPayments(em, [booking.id]);
       return {
         action: 'booking.moved',
         metadata: {
@@ -374,6 +393,10 @@ export class BookingsService {
         stall_label: string;
         hold_expires_at: Date;
       }>;
+      await expireOpenPayments(
+        em,
+        rows.map((b) => b.id),
+      );
       for (const b of rows) {
         await this.audit.record(
           {
@@ -523,12 +546,28 @@ export class BookingsService {
               h.id AS hall_id, h.name AS hall_name, b.stall_id, b.stall_label,
               b.exhibitor_id, x.name AS exhibitor_name, b.channel, b.status, b.hold_expires_at,
               b.amount_paise, b.currency, b.price_reckoning, b.note, b.cancel_reason,
-              b.created_at, b.confirmed_at, b.cancelled_at, b.updated_at
+              b.created_at, b.confirmed_at, b.cancelled_at, b.updated_at,
+              pay.status AS pay_status, pay.provider AS pay_provider,
+              pay.provider_order_id AS pay_order_id, pay.provider_payment_id AS pay_payment_id,
+              pay.method AS pay_method, pay.amount_paise AS pay_amount_paise,
+              pay.paid_at AS pay_paid_at, pay.refunded_paise AS pay_refunded_paise,
+              pay.refund_pending_paise AS pay_refund_pending_paise
          FROM bookings b
          JOIN events e ON e.id = b.event_id
          JOIN event_halls eh ON eh.id = b.event_hall_id
          JOIN halls h ON h.id = eh.hall_id
          JOIN exhibitors x ON x.id = b.exhibitor_id
+         LEFT JOIN LATERAL (
+           SELECT p.status, p.provider, p.provider_order_id, p.provider_payment_id, p.method,
+                  p.amount_paise, p.paid_at,
+                  COALESCE((SELECT sum(r.amount_paise) FROM refunds r
+                             WHERE r.payment_id = p.id AND r.status = 'processed'), 0) AS refunded_paise,
+                  COALESCE((SELECT sum(r.amount_paise) FROM refunds r
+                             WHERE r.payment_id = p.id AND r.status IN ('requested', 'sending')), 0) AS refund_pending_paise
+             FROM payments p
+            WHERE p.booking_id = b.id
+            ORDER BY (p.paid_at IS NULL), p.created_at DESC
+            LIMIT 1) pay ON true
         WHERE ${where.join(' AND ')}
         ORDER BY b.created_at DESC, b.id`,
       params,
@@ -551,6 +590,20 @@ export class BookingsService {
       priceReckoning: r.price_reckoning,
       note: r.note,
       cancelReason: r.cancel_reason,
+      payment:
+        r.pay_status && r.pay_provider && r.pay_order_id
+          ? {
+              status: r.pay_status,
+              provider: r.pay_provider,
+              orderId: r.pay_order_id,
+              paymentId: r.pay_payment_id,
+              method: r.pay_method,
+              amountPaise: Number(r.pay_amount_paise),
+              paidAt: r.pay_paid_at?.toISOString() ?? null,
+              refundedPaise: Number(r.pay_refunded_paise),
+              refundPendingPaise: Number(r.pay_refund_pending_paise),
+            }
+          : null,
       createdAt: r.created_at.toISOString(),
       confirmedAt: r.confirmed_at?.toISOString() ?? null,
       cancelledAt: r.cancelled_at?.toISOString() ?? null,

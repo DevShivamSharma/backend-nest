@@ -23,7 +23,8 @@ export async function refundPaidInFull(
   reason: string,
   actorId: string | null,
 ): Promise<
-  Array<{ id: string; organisation_id: string; payment_id: string; amount_paise: number }>
+  // `amount_paise` is a bigint column: the driver gives it as a string.
+  Array<{ id: string; organisation_id: string; payment_id: string; amount_paise: string }>
 > {
   if (!bookingIds.length) return [];
   return em.query(

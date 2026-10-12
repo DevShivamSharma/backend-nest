@@ -25,8 +25,11 @@ export function configureApp(app: INestApplication): AppConfig {
           imgSrc: ["'self'", 'data:', 'https:'],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
           fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
-          scriptSrc: ["'self'"],
-          connectSrc: ["'self'"],
+          // Razorpay Checkout.js (docs/15 §6.1) loads from its host, opens its payment page in a
+          // frame and reports to its logging host; nothing else is allowed through.
+          scriptSrc: ["'self'", 'https://checkout.razorpay.com'],
+          frameSrc: ['https://api.razorpay.com', 'https://checkout.razorpay.com'],
+          connectSrc: ["'self'", 'https://lumberjack.razorpay.com'],
           frameAncestors: ["'none'"],
         },
       },

@@ -13,13 +13,15 @@ import { AllowEventRoles, CurrentAccess, OrgAccess } from '../access/org-access.
 import type { BookingView, StallMapView } from '../bookings/booking.views';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
+import { VerifyPaymentDto } from '../payments/dto/payment.dto';
 import { PortalCancelDto, PortalHoldDto } from './dto/portal.dto';
 import { PortalService } from './portal.service';
-import type { PortalHoldView, PortalView } from './portal.views';
+import type { CheckoutView, PaymentResultView, PortalHoldView, PortalView } from './portal.views';
 
 /**
  * The exhibitor portal (external booking): an exhibitor's own users, holding `stalls.book`, see
- * their events and stall maps, hold free stalls for their company and let go of their holds.
+ * their events and stall maps, hold free stalls for their company, pay for them and let go of
+ * their holds.
  * The exhibitor comes from the membership's scope, never from the request. The exhibitor role is
  * event-scoped, so the routes allow event roles.
  */
@@ -66,5 +68,26 @@ export class PortalController {
     @Body() dto: PortalCancelDto,
   ): Promise<BookingView> {
     return this.portal.cancel(access, bookingId, dto, user);
+  }
+
+  @Post('bookings/:bookingId/payment')
+  @HttpCode(HttpStatus.OK)
+  pay(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+  ): Promise<CheckoutView | null> {
+    return this.portal.pay(access, bookingId, user);
+  }
+
+  @Post('bookings/:bookingId/payment/verify')
+  @HttpCode(HttpStatus.OK)
+  verify(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() dto: VerifyPaymentDto,
+  ): Promise<PaymentResultView> {
+    return this.portal.verify(access, bookingId, dto, user);
   }
 }

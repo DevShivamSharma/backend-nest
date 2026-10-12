@@ -44,6 +44,7 @@ import {
 } from './payment.entity';
 import {
   type RazorpayPaymentEntity,
+  type RazorpayRefundEntity,
   type RazorpayWebhook,
   toGatewayPayment,
 } from './razorpay-gateway';
@@ -531,23 +532,17 @@ export class PaymentsService {
         return `payment.${(await this.markPaid(em, toGatewayPayment(payment), null, after)).outcome}`;
       case 'payment.failed':
         return payment ? this.markFailed(em, payment) : 'malformed';
-      case 'refund.processed': {
+      case 'refund.processed':
+      case 'refund.failed': {
         if (!refund) return 'malformed';
-        const repo = em.getRepository(RefundEntity);
-        let row = await repo.findOne({
-          where: { providerRefundId: refund.id },
-          lock: { mode: 'pessimistic_write' },
-        });
-        // Sent, but its id not yet stored (the call's answer was lost, or this webhook won the
-        // race): our row's id travels in the refund's notes.
-        const ours = refund.notes?.refundId;
-        if (!row && typeof ours === 'string' && UUID.test(ours)) {
-          row = await this.adoptRefund(em, ours, refund.id, refund.payment_id);
-        }
+        const row = await this.refundOfWebhook(em, refund);
         // A refund made in the Razorpay dashboard, not here: kept in payment_events only.
         if (!row) return 'unknown_refund';
-        await this.refundProcessed(em, row);
-        return 'refund.processed';
+        if (body.event === 'refund.processed') await this.refundProcessed(em, row);
+        else if (row.status === 'requested' || row.status === 'sending') {
+          await this.refundFailed(em, row, 'Razorpay reported the refund as failed.');
+        }
+        return body.event;
       }
       default:
         return 'ignored';
@@ -857,6 +852,25 @@ export class PaymentsService {
     if (payment.providerPaymentId !== providerPaymentId) return null;
     row.providerRefundId = providerRefundId;
     return repo.save(row);
+  }
+
+  /** Our refund row a refund webhook is about, locked: by its gateway id, else by the id in its notes. */
+  private async refundOfWebhook(
+    em: EntityManager,
+    refund: RazorpayRefundEntity,
+  ): Promise<RefundEntity | null> {
+    const row = await em.getRepository(RefundEntity).findOne({
+      where: { providerRefundId: refund.id },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (row) return row;
+    // Sent, but its id not yet stored (the call's answer was lost, or this webhook won the
+    // race): our row's id travels in the refund's notes.
+    const ours = refund.notes?.refundId;
+    if (typeof ours === 'string' && UUID.test(ours)) {
+      return this.adoptRefund(em, ours, refund.id, refund.payment_id);
+    }
+    return null;
   }
 
   /** Per payment, what is refunded or on its way back (a failed refund gives nothing back). */

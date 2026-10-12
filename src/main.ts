@@ -36,7 +36,7 @@ function serveAngularBuild(app: Express): void {
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const appConfig = configureApp(app);
 

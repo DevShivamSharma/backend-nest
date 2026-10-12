@@ -14,6 +14,7 @@ import { AuditService } from '../audit/audit.service';
 import { ACTIVE_BOOKING_STATUSES, BookingEntity } from '../bookings/booking.entity';
 import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { ExhibitorEntity } from '../exhibitors/exhibitor.entity';
+import { expireOpenPayments, refundPaidInFull } from '../payments/booking-payments';
 import { RoleEntity, RoleScopeKind } from '../roles/role.entity';
 import { RolesService } from '../roles/roles.service';
 import { effectiveValues, RULE_IDS, RuleId, RULES, RuleSwitches } from '../rules/rule-catalogue';
@@ -234,6 +235,20 @@ export class EventsService {
           );
         }
       }
+      if (step === 'cancel') {
+        const [{ pending }]: Array<{ pending: number }> = await em.query(
+          `SELECT count(*)::int AS pending
+             FROM refunds r JOIN payments p ON p.id = r.payment_id
+             JOIN bookings b ON b.id = p.booking_id
+            WHERE b.event_id = $1 AND r.status = 'requested'`,
+          [event.id],
+        );
+        if (pending) {
+          throw new ConflictException(
+            `${event.name} has ${pending} ${pending === 1 ? 'refund' : 'refunds'} still on the way. Cancel it once they are through (a few minutes).`,
+          );
+        }
+      }
       const previous = event.status;
       const now = new Date();
       Object.assign(event, {
@@ -243,12 +258,17 @@ export class EventsService {
         cancelReason: to === 'cancelled' ? reason : null,
       });
       const saved = await em.getRepository(EventEntity).save(event);
-      const bookingsCancelled = step === 'cancel' ? await this.cancelBookings(em, saved, actor) : 0;
+      const cancelled =
+        step === 'cancel'
+          ? await this.cancelBookings(em, saved, actor)
+          : { cancelled: 0, refunds: 0 };
       await this.record(em, action, organisationId, saved, actor, {
         from: previous,
         to,
         ...(reason ? { reason } : {}),
-        ...(step === 'cancel' ? { bookingsCancelled } : {}),
+        ...(step === 'cancel'
+          ? { bookingsCancelled: cancelled.cancelled, refundsRequested: cancelled.refunds }
+          : {}),
       });
       return saved;
     });
@@ -916,15 +936,16 @@ export class EventsService {
   }
 
   /**
-   * A cancelled event's active bookings are cancelled with it, each audited. Paid bookings are
-   * refunded with payments (M6); nothing is paid through the platform yet. One UPDATE under the
-   * event's lock, which every booking change takes first (shared), so none slips in meanwhile.
+   * A cancelled event's active bookings are cancelled with it, each audited; their open orders
+   * expire and what was paid for them is requested back in full (the `RefundWorker` sends the
+   * refunds within a minute). One UPDATE under the event's lock, which every booking change takes
+   * first (shared), so none slips in meanwhile.
    */
   private async cancelBookings(
     em: EntityManager,
     event: EventEntity,
     actor: Actor,
-  ): Promise<number> {
+  ): Promise<{ cancelled: number; refunds: number }> {
     const { raw } = await em
       .createQueryBuilder()
       .update(BookingEntity)
@@ -954,7 +975,29 @@ export class EventsService {
         em,
       );
     }
-    return rows.length;
+    const ids = rows.map((b) => b.id);
+    await expireOpenPayments(em, ids);
+    const refunds = await refundPaidInFull(em, ids, EVENT_CANCELLED, actor.id);
+    for (const refund of refunds) {
+      await this.audit.record(
+        {
+          action: 'refund.requested',
+          actor,
+          organisationId: event.organisationId,
+          targetType: 'refund',
+          targetId: refund.id,
+          metadata: {
+            event: event.name,
+            paymentId: refund.payment_id,
+            // bigint comes back from the driver as a string.
+            amountPaise: Number(refund.amount_paise),
+            reason: EVENT_CANCELLED,
+          },
+        },
+        em,
+      );
+    }
+    return { cancelled: rows.length, refunds: refunds.length };
   }
 
   private async assertVenueEventIdFree(

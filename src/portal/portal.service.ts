@@ -1,17 +1,31 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { portalClosedReason } from '../bookings/booking-rules';
 import type { BookingView, StallMapView } from '../bookings/booking.views';
 import { BookingsService } from '../bookings/bookings.service';
-import type { Actor, OrgAccessContext } from '../common/http/authenticated-request';
+import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { EventEntity } from '../events/event.entity';
 import { EventsService } from '../events/events.service';
 import { EventExhibitorEntity } from '../exhibitors/exhibitor.entity';
 import { ExhibitorsService } from '../exhibitors/exhibitors.service';
+import { VerifyPaymentDto } from '../payments/dto/payment.dto';
+import { PaymentsService } from '../payments/payments.service';
 import { PortalCancelDto, PortalHoldDto } from './dto/portal.dto';
-import type { PortalEventView, PortalHoldView, PortalView } from './portal.views';
+import type {
+  CheckoutView,
+  PaymentResultView,
+  PortalEventView,
+  PortalHoldView,
+  PortalView,
+} from './portal.views';
 
 /** A registered event hall with what the portal shows of it. */
 interface HallRow {
@@ -30,11 +44,14 @@ interface HallRow {
  */
 @Injectable()
 export class PortalService {
+  private readonly logger = new Logger(PortalService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly events: EventsService,
     private readonly exhibitors: ExhibitorsService,
     private readonly bookingsService: BookingsService,
+    private readonly payments: PaymentsService,
   ) {}
 
   /** The exhibitor this member acts for. */
@@ -143,16 +160,63 @@ export class PortalService {
     return this.bookingsService.list(access, { exhibitorId: PortalService.exhibitorOf(access) });
   }
 
-  /** Holds a free stall for the exhibitor; paying for it comes with M6. */
-  async hold(access: OrgAccessContext, dto: PortalHoldDto, actor: Actor): Promise<PortalHoldView> {
+  /**
+   * Holds a free stall for the exhibitor and opens its payment. The hold stands even when the
+   * order could not be made: `paymentError` says so and `pay` tries again.
+   */
+  async hold(
+    access: OrgAccessContext,
+    dto: PortalHoldDto,
+    user: AuthUser,
+  ): Promise<PortalHoldView> {
     const exhibitorId = PortalService.exhibitorOf(access);
     const booking = await this.bookingsService.create(
       access,
       { ...dto, exhibitorId, confirm: false },
-      actor,
+      user,
       'external',
     );
-    return { booking, checkout: null, paymentError: null };
+    let checkout: CheckoutView | null = null;
+    let paymentError: string | null = null;
+    try {
+      checkout = await this.payments.openOrder(access.organisation, booking.id, user);
+    } catch (error) {
+      paymentError =
+        error instanceof HttpException ? error.message : 'The payment could not be started.';
+      this.logger.warn(
+        `Order for booking ${booking.id} not made: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+    return { booking: await this.bookingsService.get(access, booking.id), checkout, paymentError };
+  }
+
+  /** Checkout's options for the exhibitor's own held booking (a retry); null for a free stall. */
+  async pay(
+    access: OrgAccessContext,
+    bookingId: string,
+    user: AuthUser,
+  ): Promise<CheckoutView | null> {
+    await this.ownBooking(access, bookingId);
+    return this.payments.openOrder(access.organisation, bookingId, user);
+  }
+
+  /** Checkout's success handler: verifies the payment and settles the booking. */
+  async verify(
+    access: OrgAccessContext,
+    bookingId: string,
+    dto: VerifyPaymentDto,
+    user: AuthUser,
+  ): Promise<PaymentResultView> {
+    const exhibitorId = PortalService.exhibitorOf(access);
+    await this.ownBooking(access, bookingId);
+    const outcome = await this.payments.verify(
+      access.organisation,
+      bookingId,
+      exhibitorId,
+      dto,
+      user,
+    );
+    return { booking: await this.bookingsService.get(access, bookingId), outcome };
   }
 
   /** The exhibitor lets go of its own hold. */
@@ -169,5 +233,14 @@ export class PortalService {
       dto.reason ?? null,
       actor,
     );
+  }
+
+  /** The exhibitor's own booking; another exhibitor's is not found, so ids reveal nothing. */
+  private async ownBooking(access: OrgAccessContext, bookingId: string): Promise<BookingView> {
+    const booking = await this.bookingsService.get(access, bookingId);
+    if (booking.exhibitor.id !== PortalService.exhibitorOf(access)) {
+      throw new NotFoundException('There is no such booking.');
+    }
+    return booking;
   }
 }
