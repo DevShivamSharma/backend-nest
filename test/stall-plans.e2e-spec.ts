@@ -327,7 +327,8 @@ describe('Stall planning (e2e)', () => {
       .expect(201);
     const lead = await accept(invited.body.invitation.inviteUrl, 'Expo Lead', 'expo-lead-pass-1');
 
-    // The organiser cannot publish an external event's plan; they send it for approval.
+    // The organiser cannot publish an external event's plan before the venue approves it; they
+    // send it for approval.
     const opened = await http.get(plan(expo)).set(auth(lead)).expect(200);
     expect(opened.body).toMatchObject({
       canPublish: false,
@@ -335,11 +336,12 @@ describe('Stall planning (e2e)', () => {
       canSubmit: true,
       canApprove: false,
     });
-    await http
+    const early = await http
       .post(`${plan(expo)}/publish`)
       .set(auth(lead))
       .send({ revision: 1 })
-      .expect(403);
+      .expect(400);
+    expect(early.body.message).toBe('Version 1 is not approved. Send it for approval first.');
     // Every stall for sale needs a price before the plan goes.
     const unpriced = await http
       .post(`${plan(expo)}/submit`)
@@ -412,7 +414,7 @@ describe('Stall planning (e2e)', () => {
     expect(sent[1].subject).toBe('Stall plan sent back: Expo, Hall 5');
     expect(sent[1].text).toContain('Leave 3 m in front of the fire exit.');
 
-    // Changed, sent again, approved: approval publishes it.
+    // Changed, sent again, approved: approval lets the organiser publish; nothing is published yet.
     await http
       .put(plan(expo))
       .set(auth(lead))
@@ -434,16 +436,34 @@ describe('Stall planning (e2e)', () => {
       .send({ revision: 2 })
       .expect(200);
     expect(approved.body.review).toMatchObject({ status: 'approved', revision: 2 });
-    expect(approved.body.published).toMatchObject({ revision: 2 });
+    expect(approved.body.published).toBeNull();
     expect(sent.map((m) => m.subject).slice(2)).toEqual([
       'Stall plan for approval: Expo, Hall 5',
       'Stall plan approved: Expo, Hall 5',
     ]);
+    expect(sent[3].text).toContain('Publish it from the planner when you are ready');
+    // Approved and unchanged: nothing to send; the organiser publishes, the venue does not.
     await http
       .post(`${plan(expo)}/submit`)
       .set(auth(lead))
       .send({ revision: 2 })
       .expect(400);
+    const ready = await http.get(plan(expo)).set(auth(lead)).expect(200);
+    expect(ready.body).toMatchObject({ canPublish: true, canSubmit: false, canEdit: true });
+    expect((await http.get(plan(expo)).set(auth(owner))).body.canPublish).toBe(false);
+    await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(owner))
+      .send({ revision: 2 })
+      .expect(403);
+    const published = await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(lead))
+      .send({ revision: 2 })
+      .expect(200);
+    expect(published.body.published).toMatchObject({ revision: 2 });
+    expect(published.body.review).toMatchObject({ status: 'approved', revision: 2 });
+    expect((await http.get(plan(expo)).set(auth(lead))).body.canPublish).toBe(false);
 
     // A plan sent by mistake is withdrawn, and can be changed again.
     await http
@@ -463,6 +483,19 @@ describe('Stall planning (e2e)', () => {
     expect(back.body.review).toBeNull();
     expect(back.body.published).toMatchObject({ revision: 2 });
     expect((await http.get(plan(expo)).set(auth(lead))).body.canEdit).toBe(true);
+    // Saved again (revision 3): version 3 is not approved, so Publish is refused and Send is offered.
+    const unapproved = await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(lead))
+      .send({ revision: 3 })
+      .expect(400);
+    expect(unapproved.body.message).toBe(
+      'Version 3 is not approved. Send it for approval first.',
+    );
+    expect((await http.get(plan(expo)).set(auth(lead))).body).toMatchObject({
+      canPublish: false,
+      canSubmit: true,
+    });
     // Internal events are published, not sent.
     await http
       .post(`${plan(fair)}/submit`)

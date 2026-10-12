@@ -54,6 +54,7 @@ export class StallPlansController {
     return this.plans.check(access, id, hallId, dto);
   }
 
+  /** Internal events: the venue's team. External: the organiser, once the saved revision is approved. */
   @RequirePermissions('events.view', 'layouts.publish')
   @Post('publish')
   @HttpCode(HttpStatus.OK)
@@ -94,7 +95,7 @@ export class StallPlansController {
     return this.plans.withdraw(access, id, hallId, user);
   }
 
-  /** The venue approves the plan that waits, which publishes it. */
+  /** The venue approves the plan that waits; the organiser then publishes it. */
   @RequirePermissions('events.view', 'layouts.approve')
   @Post('approve')
   @HttpCode(HttpStatus.OK)

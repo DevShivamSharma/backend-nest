@@ -73,10 +73,10 @@ type PlanContent = {
  * venue invited to it. Both need `layouts.edit`; everyone else with `layouts.view` reads.
  *
  * Who publishes: on an internal event the venue's team (`layouts.publish`). On an external one
- * the organiser (`layouts.publish`) sends the saved plan for approval, and the venue's team
- * (`layouts.approve`) approves it, which publishes it, or sends it back with a note. Each step
- * is emailed to the other side. While a plan waits, the organiser cannot change it, only
- * withdraw it.
+ * the organiser (`layouts.publish`) sends the saved plan for approval; the venue's team
+ * (`layouts.approve`) approves it or sends it back with a note; once approved, the organiser
+ * publishes that revision. Each step is emailed to the other side. While a plan waits, the
+ * organiser cannot change it, only withdraw it.
  */
 @Injectable()
 export class StallPlansService {
@@ -107,6 +107,12 @@ export class StallPlansService {
       event.kind === 'external' && venueTeam && saved.revision > 0
         ? [...StallPlansService.structure(saved, hall), ...StallPlansService.rules(saved, hall)]
         : null;
+    // External: the saved revision is the approved one, and not published yet.
+    const approved =
+      !!plan &&
+      plan.reviewStatus === 'approved' &&
+      plan.reviewRevision === plan.revision &&
+      plan.publishedRevision !== plan.revision;
     return {
       hall,
       plan: saved,
@@ -114,9 +120,13 @@ export class StallPlansService {
       pricing: await this.pricing.view(access, event, row.id),
       canEdit: !readOnlyReason,
       readOnlyReason,
-      canPublish: publisher && event.kind === 'internal',
+      canPublish: publisher && (event.kind === 'internal' || approved),
       needsApproval: event.kind === 'external',
-      canSubmit: publisher && event.kind === 'external' && !waiting,
+      canSubmit:
+        publisher &&
+        event.kind === 'external' &&
+        !waiting &&
+        !(plan?.reviewStatus === 'approved' && plan.reviewRevision === plan.revision),
       canWithdraw: !drawer && waiting,
       canApprove: waiting && venueTeam && access.permissions.includes('layouts.approve'),
     };
@@ -136,11 +146,8 @@ export class StallPlansService {
   ): Promise<StallPlanView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanEdit(access, event);
-    if (event.kind === 'external') {
-      throw new ForbiddenException(
-        `${access.organisation.name} publishes the plans of external events: send it for approval.`,
-      );
-    }
+    // The organiser publishes an external event's plan, once the venue approved that revision.
+    // assertCanEdit already keeps the venue's team off external events.
     const hall = await this.events.hall(access, id, hallId);
     return this.dataSource.transaction(async (em) => {
       const plans = em.getRepository(StallPlanEntity);
@@ -155,6 +162,15 @@ export class StallPlansService {
         throw new ConflictException(
           'The saved plan changed after you opened it. Reload the planner, then publish.',
         );
+      }
+      if (event.kind === 'external') {
+        const approved =
+          plan.reviewStatus === 'approved' && plan.reviewRevision === plan.revision;
+        if (!approved) {
+          throw new BadRequestException(
+            `Version ${plan.revision} is not approved. Send it for approval first.`,
+          );
+        }
       }
       const saved = await this.planView(em, plan);
       const problems = [
@@ -368,6 +384,10 @@ export class StallPlansService {
       if (plan.publishedRevision === plan.revision) {
         throw new BadRequestException('This plan is approved and published as it is.');
       }
+      // Approval is not lost by sending again; the organiser publishes the approved revision.
+      if (plan.reviewStatus === 'approved' && plan.reviewRevision === plan.revision) {
+        throw new BadRequestException('This plan is approved. Publish it.');
+      }
       const saved = await this.planView(em, plan);
       const problems = [
         ...StallPlansService.structure(saved, hall),
@@ -455,9 +475,9 @@ export class StallPlansService {
   }
 
   /**
-   * The venue approves the plan that waits, which publishes it, or sends it back with a note.
-   * Either way the organiser is emailed. Approval checks the rules again: they may have
-   * changed since the plan was sent.
+   * The venue approves the plan that waits, or sends it back with a note. Approving does not
+   * publish it: the organiser does that, once the revision is approved. Either way the organiser
+   * is emailed. Approval checks the rules again: they may have changed since the plan was sent.
    */
   async review(
     access: OrgAccessContext,
@@ -504,11 +524,6 @@ export class StallPlansService {
             ),
           );
         }
-        Object.assign(plan, {
-          publishedRevision: plan.revision,
-          publishedAt: now,
-          publishedById: actor.id,
-        });
       }
       Object.assign(plan, {
         reviewStatus: approve ? 'approved' : 'rejected',

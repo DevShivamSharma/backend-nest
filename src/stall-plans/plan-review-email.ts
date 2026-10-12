@@ -34,14 +34,16 @@ export function planSubmittedEmail(mail: PlanReviewMail): MailMessage {
   return message(mail, `Stall plan for approval: ${mail.eventName}, ${mail.hallName}`, [
     `${mail.byName} (${organiser}) sent the stall plan of ${mail.hallName} for ${mail.eventName} for approval (revision ${mail.revision}).`,
     '',
-    'Open it in the planner to approve it, which publishes it, or to send it back with what should change.',
+    'Open it in the planner to approve it or to send it back with what should change.',
   ]);
 }
 
-/** To the organiser: the venue approved the plan, so it is published. */
+/** To the organiser: the venue approved the plan; they publish it when ready. */
 export function planApprovedEmail(mail: PlanReviewMail): MailMessage {
   return message(mail, `Stall plan approved: ${mail.eventName}, ${mail.hallName}`, [
-    `${mail.byName} of ${mail.organisation.name} approved the stall plan of ${mail.hallName} for ${mail.eventName} (revision ${mail.revision}). It is now published.`,
+    `${mail.byName} of ${mail.organisation.name} approved the stall plan of ${mail.hallName} for ${mail.eventName} (revision ${mail.revision}).`,
+    '',
+    'Publish it from the planner when you are ready.',
   ]);
 }
 
