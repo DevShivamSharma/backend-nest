@@ -7,6 +7,7 @@ import { AccessModule } from './access/access.module';
 import { AdminModule } from './admin/admin.module';
 import { AiModule } from './ai/ai.module';
 import { AuthModule } from './auth/auth.module';
+import { BookingsModule } from './bookings/bookings.module';
 import { HealthController } from './common/health/health.controller';
 import { AppConfig, configuration } from './config/configuration';
 import { Environment, validateEnv } from './config/env.validation';
@@ -53,6 +54,7 @@ import { VenuesModule } from './venues/venues.module';
     CategoriesModule,
     StallPlansModule,
     ExhibitorsModule,
+    BookingsModule,
     AiModule,
   ],
   controllers: [HealthController],
