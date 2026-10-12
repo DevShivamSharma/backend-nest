@@ -456,6 +456,22 @@ describe('Stall planning (e2e)', () => {
       .set(auth(owner))
       .send({ revision: 2 })
       .expect(403);
+    // Approval does not waive the prices: a card taken away after approval stops the publish,
+    // and putting it back lets it through.
+    await http.put(`${plan(expo)}/pricing/card`).set(auth(lead)).send({}).expect(200);
+    const unpricedAtPublish = await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(lead))
+      .send({ revision: 2 })
+      .expect(400);
+    expect(unpricedAtPublish.body.message).toBe(
+      'The plan was not published: 1 stall for sale has no price: B-1. Price it first.',
+    );
+    await http
+      .put(`${plan(expo)}/pricing/card`)
+      .set(auth(lead))
+      .send({ general: rates() })
+      .expect(200);
     const published = await http
       .post(`${plan(expo)}/publish`)
       .set(auth(lead))
@@ -471,6 +487,20 @@ describe('Stall planning (e2e)', () => {
       .set(auth(lead))
       .send({ revision: 2, zones: [], stalls: [stall('1', 18, 10)], seats: [], objects: [] })
       .expect(200);
+    // Saved as version 3, which nobody approved: the organiser may not publish it, and is
+    // offered to send it instead, though version 2 was approved and published.
+    const unapproved = await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(lead))
+      .send({ revision: 3 })
+      .expect(400);
+    expect(unapproved.body.message).toBe(
+      'Version 3 is not approved. Send it for approval first.',
+    );
+    expect((await http.get(plan(expo)).set(auth(lead))).body).toMatchObject({
+      canPublish: false,
+      canSubmit: true,
+    });
     await http
       .post(`${plan(expo)}/submit`)
       .set(auth(lead))
@@ -483,15 +513,7 @@ describe('Stall planning (e2e)', () => {
     expect(back.body.review).toBeNull();
     expect(back.body.published).toMatchObject({ revision: 2 });
     expect((await http.get(plan(expo)).set(auth(lead))).body.canEdit).toBe(true);
-    // Saved again (revision 3): version 3 is not approved, so Publish is refused and Send is offered.
-    const unapproved = await http
-      .post(`${plan(expo)}/publish`)
-      .set(auth(lead))
-      .send({ revision: 3 })
-      .expect(400);
-    expect(unapproved.body.message).toBe(
-      'Version 3 is not approved. Send it for approval first.',
-    );
+    // Withdrawn, version 3 is still not approved: Publish stays off and Send is offered again.
     expect((await http.get(plan(expo)).set(auth(lead))).body).toMatchObject({
       canPublish: false,
       canSubmit: true,

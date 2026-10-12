@@ -79,6 +79,7 @@ describe('Events (e2e)', () => {
     expect(internal.body).toMatchObject({
       kind: 'internal',
       organiserName: null,
+      cancelReason: null,
       startsOn: '2026-11-14',
       buildUpOn: '2026-11-08',
       hallCount: 0,

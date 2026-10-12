@@ -171,6 +171,14 @@ export class StallPlansService {
             `Version ${plan.revision} is not approved. Send it for approval first.`,
           );
         }
+        // Prices are not the venue's to approve and can change after it approves, so the same
+        // check that stops a plan being sent stops it being published.
+        const unpriced = await this.pricing.unpriced(em, plan);
+        if (unpriced.length) {
+          throw new BadRequestException(
+            `The plan was not published: ${PricingService.unpricedMessage(unpriced)}`,
+          );
+        }
       }
       const saved = await this.planView(em, plan);
       const problems = [

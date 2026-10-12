@@ -933,7 +933,7 @@ export class EventsService {
       dismantleOn: event.dismantleOn,
       completedAt: event.completedAt?.toISOString() ?? null,
       cancelledAt: event.cancelledAt?.toISOString() ?? null,
-      cancelReason: event.cancelReason,
+      cancelReason: event.cancelReason ?? null,
       hallCount,
       updatedAt: event.updatedAt.toISOString(),
     };
