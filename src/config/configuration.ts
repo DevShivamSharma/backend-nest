@@ -44,6 +44,11 @@ export interface MailConfig {
   redirectTo: string[];
 }
 
+export interface BookingsConfig {
+  /** Minutes a hold lasts before it expires, unless confirmed. */
+  holdMinutes: number;
+}
+
 /** One model the assistant may use. */
 export interface AiModelConfig {
   provider: AiProvider;
@@ -66,6 +71,7 @@ export interface Configuration {
   database: DatabaseConfig;
   auth: AuthConfig;
   mail: MailConfig;
+  bookings: BookingsConfig;
   ai: AiConfig;
 }
 
@@ -142,6 +148,7 @@ export function configuration(): Configuration {
               .map((a) => a.trim())
               .filter(Boolean),
     },
+    bookings: { holdMinutes: Number(env.BOOKING_HOLD_MINUTES ?? 60) },
     ai: aiConfig(env),
   };
 }

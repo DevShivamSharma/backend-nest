@@ -22,6 +22,13 @@ export type EventKind = (typeof EVENT_KINDS)[number];
 export const EVENT_STATUSES = ['draft', 'scheduled', 'completed', 'cancelled'] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 
+/**
+ * Where an event's stalls are sold (docs/15 §2 decision 3): the venue's own booking system, or
+ * this platform's portal. Payment follows the channel.
+ */
+export const EVENT_BOOKING_CHANNELS = ['venue_system', 'platform_portal'] as const;
+export type EventBookingChannel = (typeof EVENT_BOOKING_CHANNELS)[number];
+
 /** An event of the organisation, on some of its halls, for some dates. Dates are `YYYY-MM-DD`. */
 @Entity({ name: 'events' })
 export class EventEntity {
@@ -36,6 +43,9 @@ export class EventEntity {
 
   @Column({ type: 'varchar', length: 16, default: 'draft' })
   status!: EventStatus;
+
+  @Column({ name: 'booking_channel', type: 'varchar', length: 16, default: 'platform_portal' })
+  bookingChannel!: EventBookingChannel;
 
   @Column({ type: 'varchar', length: 160 })
   name!: string;

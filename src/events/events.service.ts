@@ -114,7 +114,16 @@ export class EventsService {
       await this.assertVenueEventIdFree(em, organisationId, fields.venueEventId);
       const repo = em.getRepository(EventEntity);
       const saved = await repo.save(
-        repo.create({ organisationId, ...fields, status: 'draft', createdById: actor.id }),
+        repo.create({
+          organisationId,
+          ...fields,
+          status: 'draft',
+          // docs/15 §2 decision 3: an internal event sells through the venue's system once the
+          // organisation has an enabled integration (M1). None exists yet, so every event starts
+          // on the platform's portal. Set here because save() does not read column defaults back.
+          bookingChannel: 'platform_portal',
+          createdById: actor.id,
+        }),
       );
       await this.record(em, 'event.created', organisationId, saved, actor, {
         kind: saved.kind,
@@ -923,6 +932,7 @@ export class EventsService {
       id: event.id,
       kind: event.kind,
       status: event.status,
+      bookingChannel: event.bookingChannel,
       name: event.name,
       venueEventId: event.venueEventId,
       organiserName: event.organiserName,

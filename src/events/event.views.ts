@@ -2,12 +2,13 @@ import type { CategoryRef } from '../categories/categories.views';
 import type { EventType, RuleId, RuleValues } from '../rules/rule-catalogue';
 import type { InvitationView, MemberView } from '../team/team.views';
 import type { HallFloor } from '../venues/floor/hall-floor';
-import type { EventKind, EventStatus } from './event.entity';
+import type { EventBookingChannel, EventKind, EventStatus } from './event.entity';
 
 export interface EventView {
   id: string;
   kind: EventKind;
   status: EventStatus;
+  bookingChannel: EventBookingChannel;
   name: string;
   venueEventId: string | null;
   organiserName: string | null;

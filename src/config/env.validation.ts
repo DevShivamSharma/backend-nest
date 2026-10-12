@@ -188,6 +188,16 @@ export class EnvironmentVariables {
   @IsOptional()
   MAIL_REDIRECT_TO?: string;
 
+  /**
+   * Minutes a held stall stays held unless confirmed (docs/15 §9 Q11, SelfCare's 60). At most a
+   * week, so a forgotten hold cannot keep a stall off sale for the whole event.
+   */
+  @IsInt()
+  @Min(1)
+  @Max(10_080)
+  @IsOptional()
+  BOOKING_HOLD_MINUTES: number = 60;
+
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
   @IsOptional()
   AI_PROVIDER: AiProvider = AiProvider.Gemini;

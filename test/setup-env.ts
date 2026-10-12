@@ -18,6 +18,8 @@ process.env.DATABASE_NAME = 'venue_platform_test';
 process.env.CORS_ORIGINS = 'http://localhost:4200';
 process.env.APP_PUBLIC_URL = 'http://localhost:4200';
 process.env.MAIL_TRANSPORT = 'log';
+// The bookings suite reads the hold length off a booking; a developer's .env must not move it.
+process.env.BOOKING_HOLD_MINUTES = '60';
 process.env.JWT_ACCESS_SECRET ??= 'e2e-secret-e2e-secret-e2e-secret-e2e';
 
 // URL mode takes precedence over DATABASE_NAME: never allow tests onto a managed database.
