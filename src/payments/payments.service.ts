@@ -629,13 +629,6 @@ export class PaymentsService {
         throw new NotFoundException('There is no such booking.');
       }
       const event = await this.lockEvent(em, found.eventId);
-      // Closed figures are frozen: a refund now would make them wrong (M7 ruling 5).
-      const [closed] = await em.query(`SELECT 1 FROM settlements WHERE event_id = $1`, [event.id]);
-      if (closed) {
-        throw new ConflictException(
-          `The settlement of ${event.name} is closed; it can no longer be refunded here.`,
-        );
-      }
       const booking = await repo.findOneOrFail({
         where: { id: bookingId },
         lock: { mode: 'pessimistic_write' },
@@ -657,6 +650,17 @@ export class PaymentsService {
       if (!payment) {
         throw new ConflictException(
           'Everything paid for this booking is already refunded or on its way back.',
+        );
+      }
+      // Closed figures are frozen: a refund of a payment inside them would make them wrong
+      // (M7 ruling 5). A payment captured after the close, or one whose automatic refund
+      // failed, is outside them and can still be refunded.
+      const [closed] = await em.query(`SELECT closed_at FROM settlements WHERE event_id = $1`, [
+        event.id,
+      ]);
+      if (closed && payment.paidAt && payment.paidAt <= new Date(closed.closed_at)) {
+        throw new ConflictException(
+          `The settlement of ${event.name} is closed; it can no longer be refunded here.`,
         );
       }
       const left = leftOf(payment);

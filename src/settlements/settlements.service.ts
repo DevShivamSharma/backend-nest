@@ -78,7 +78,12 @@ export class SettlementsService {
       const lines = await this.lines(em, event);
       const refusal = SettlementsService.closeRefusal(event, lines, null);
       if (refusal) throw new ConflictException(refusal);
-      const figures = settlementFigures(lines, access.organisation.platformFeePercent);
+      // Read under the event lock, so a fee change cannot land between the read and the freeze.
+      const [{ platform_fee_percent: feePercent }] = await em.query(
+        `SELECT platform_fee_percent FROM organisations WHERE id = $1`,
+        [event.organisationId],
+      );
+      const figures = settlementFigures(lines, Number(feePercent));
       const now = new Date();
       const nothingToPay = figures.netPayablePaise <= 0;
       await repo.save(

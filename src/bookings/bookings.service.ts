@@ -572,8 +572,11 @@ export class BookingsService {
             LIMIT 1) pay ON true
          -- The payment a staff refund takes from, picked as PaymentsService.refundBooking picks
          -- it: the latest paid one with something left (a failed refund gives nothing back).
+         -- One inside a closed settlement's frozen figures shows 0: that refund would be refused.
          LEFT JOIN LATERAL (
-           SELECT l.left_paise
+           SELECT CASE WHEN EXISTS (SELECT 1 FROM settlements s
+                                     WHERE s.event_id = b.event_id AND l.paid_at <= s.closed_at)
+                       THEN 0 ELSE l.left_paise END AS left_paise
              FROM (SELECT p.paid_at,
                           p.amount_paise - COALESCE((SELECT sum(r.amount_paise) FROM refunds r
                                                       WHERE r.payment_id = p.id AND r.status <> 'failed'), 0) AS left_paise
