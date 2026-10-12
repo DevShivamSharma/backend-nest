@@ -33,6 +33,9 @@ export function configureApp(app: INestApplication): AppConfig {
           frameAncestors: ["'none'"],
         },
       },
+      // Checkout opens netbanking and wallet pages in a popup and reads its result back; the
+      // default `same-origin` would cut that link and leave the payment hanging.
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     }),
   );
 

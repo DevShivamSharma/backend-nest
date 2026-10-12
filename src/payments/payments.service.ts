@@ -13,8 +13,9 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, In, IsNull, QueryFailedError } from 'typeorm';
 
+import { MembershipsService } from '../access/memberships.service';
 import { AuditService } from '../audit/audit.service';
-import { eventClosedReason, isActive } from '../bookings/booking-rules';
+import { eventClosedReason, isActive, portalClosedReason } from '../bookings/booking-rules';
 import { BookingEntity } from '../bookings/booking.entity';
 import { BookingsService } from '../bookings/bookings.service';
 import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
@@ -25,6 +26,8 @@ import { ExhibitorEntity } from '../exhibitors/exhibitor.entity';
 import { MailMessage, MailService } from '../mail/mail.service';
 import { OrganisationEntity } from '../organisations/organisation.entity';
 import type { CheckoutView, PaymentResultView } from '../portal/portal.views';
+import { RoleScopeKind } from '../roles/role.entity';
+import { RolesService } from '../roles/roles.service';
 import { expireOpenPayments } from './booking-payments';
 import { RefundDto, VerifyPaymentDto } from './dto/payment.dto';
 import { paymentReceiptEmail, paymentRefundedEmail } from './payment-email';
@@ -39,6 +42,7 @@ import { checkoutSignatureValid } from './payment-signature';
 import {
   OPEN_PAYMENT_STATUSES,
   PaymentEntity,
+  type PaymentStatus,
   RefundEntity,
   SETTLED_PAYMENT_STATUSES,
 } from './payment.entity';
@@ -59,19 +63,22 @@ export type PaidOutcome =
 
 /** How many requested refunds one worker tick sends. */
 const REFUND_BATCH = 20;
+/** How many orders, and how many refunds, one reconcile pass asks the gateway about. */
+const RECONCILE_BATCH = 10;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Payments for portal holds on the platform's Razorpay account (docs/15 §6). An order is made for
- * a held booking; Checkout's verify, Razorpay's webhook and the development route all settle a
- * captured payment through `markPaid`, which confirms the booking or, when it no longer can be,
- * requests a full refund. Refunds are rows first: each is marked `sending` and committed before
- * the gateway is called, outside any lock, and settled in a transaction of its own afterwards, so
- * a crash mid-call leaves a `sending` row for staff instead of a second refund.
+ * a held booking; Checkout's verify, Razorpay's webhook, the reconcile pass (for a webhook that
+ * never came) and the development route all settle a captured payment through `markPaid`, which
+ * confirms the booking or, when it no longer can be, requests a full refund. Refunds are rows
+ * first: each is marked `sending` and committed before the gateway is called, outside any lock,
+ * and settled in a transaction of its own afterwards, so a crash mid-call leaves a `sending` row
+ * for staff instead of a second refund.
  *
  * Lock order extends `BookingsService`'s: the event row (shared), the booking row, the payment
  * row, the plan row (shared), the published stall row. Refund rows are locked alone (worker,
- * webhook), then their payment.
+ * webhook, reconcile pass), then their payment.
  */
 @Injectable()
 export class PaymentsService {
@@ -84,6 +91,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly memberships: MembershipsService,
   ) {}
 
   // ---- orders -------------------------------------------------------------------------------
@@ -194,9 +202,10 @@ export class PaymentsService {
 
   /**
    * Settles a captured payment: marks it paid and confirms its booking, or, when the booking can
-   * no longer be confirmed, records a full refund for after the commit. Verify, the webhook and
-   * the dev route all come here, inside their own transaction (docs/15 §8 risk 5). Idempotent:
-   * the second caller waits on the booking lock, then finds the payment settled and stops.
+   * no longer be confirmed, records a full refund for after the commit. Verify, the webhook, the
+   * reconcile pass and the dev route all come here, inside their own transaction (docs/15 §8
+   * risk 5). Idempotent: the second caller waits on the booking lock, then finds the payment
+   * settled and stops.
    */
   async markPaid(
     em: EntityManager,
@@ -204,6 +213,9 @@ export class PaymentsService {
     actor: Actor | null,
     after: AfterCommit,
   ): Promise<{ outcome: PaidOutcome; bookingId: string | null }> {
+    // A payment made without an order (a payment link, another integration) has none. TypeORM
+    // drops an undefined or null where-value, so the lookup below would match any payment.
+    if (!paid.orderId) return { outcome: 'unknown_order', bookingId: null };
     const known = await em
       .getRepository(PaymentEntity)
       .findOneBy({ providerOrderId: paid.orderId });
@@ -249,7 +261,14 @@ export class PaymentsService {
         });
         this.logger.warn(`A second payment ${paid.paymentId} on paid order ${paid.orderId}.`);
       }
-      return { outcome: 'already_paid', bookingId: booking.id };
+      // Settled before (the webhook, or an earlier verify). It bought the stall only if the
+      // booking is confirmed and none of the payment is going back; otherwise the money was
+      // refunded or is on its way, and the payer must hear that, not see a receipt.
+      const back = (await this.refundedOrOnTheWay(em, [payment.id])).get(payment.id) ?? 0;
+      return {
+        outcome: booking.status === 'confirmed' && back === 0 ? 'already_paid' : 'refunding',
+        bookingId: booking.id,
+      };
     }
     if (paid.amountPaise !== payment.amountPaise || paid.currency !== payment.currency) {
       // An order fixes its amount, so this means a gateway fault: keep it for staff, touch nothing.
@@ -317,6 +336,15 @@ export class PaymentsService {
     const closed = eventClosedReason(event);
     if (closed) return closed;
     if (booking.status === 'expired') {
+      if (booking.channel === 'external') {
+        // A revival is a new hold in all but name, so a portal booking needs what a portal hold
+        // needs: the organisation's portal on and the event selling on the platform.
+        const organisation = await em
+          .getRepository(OrganisationEntity)
+          .findOneByOrFail({ id: booking.organisationId });
+        const portalClosed = portalClosedReason(organisation, event);
+        if (portalClosed) return portalClosed;
+      }
       const row = await em.getRepository(EventHallEntity).findOneOrFail({
         where: { id: booking.eventHallId },
         relations: { hall: true },
@@ -364,6 +392,8 @@ export class PaymentsService {
 
   /** Razorpay reported a failed attempt. The booking stays held; the exhibitor may try again. */
   private async markFailed(em: EntityManager, p: RazorpayPaymentEntity): Promise<string> {
+    // No order id: not one of ours, and an undefined where-value would match any payment.
+    if (!p.order_id) return 'unknown_order';
     const payment = await em.getRepository(PaymentEntity).findOne({
       where: { providerOrderId: p.order_id },
       lock: { mode: 'pessimistic_write' },
@@ -461,13 +491,22 @@ export class PaymentsService {
     return outcome;
   }
 
-  /** The log transport's stand-in for Checkout: pays an order in full (development and e2e). */
+  /**
+   * The log transport's stand-in for Checkout: pays an order in full (development and e2e). Only
+   * someone who could pay it for real may: the exhibitor the booking is for, or staff who manage
+   * its bookings. Anyone else is told there is no such order, so order ids reveal nothing.
+   */
   async devPay(orderId: string, actor: Actor): Promise<PaidOutcome> {
     if (this.gateway.provider !== 'log') throw new NotFoundException();
     const row = await this.dataSource
       .getRepository(PaymentEntity)
       .findOneBy({ providerOrderId: orderId });
-    if (!row) throw new NotFoundException('There is no such order.');
+    const booking = row
+      ? await this.dataSource.getRepository(BookingEntity).findOneBy({ id: row.bookingId })
+      : null;
+    if (!row || !booking || !(await this.mayPayFor(actor, booking))) {
+      throw new NotFoundException('There is no such order.');
+    }
     const after: AfterCommit = { refundIds: [], mails: [] };
     const { outcome } = await this.dataSource.transaction((em) =>
       this.markPaid(
@@ -487,6 +526,25 @@ export class PaymentsService {
     );
     await this.afterCommit(after);
     return outcome;
+  }
+
+  /**
+   * Whether the user may pay for the booking: a member of its organisation who acts for its
+   * exhibitor, or who holds `bookings.manage` (an organiser only for its own events, as on the
+   * bookings routes).
+   */
+  private async mayPayFor(actor: Actor, booking: BookingEntity): Promise<boolean> {
+    const membership = await this.memberships.findWithRole(actor.id, booking.organisationId);
+    if (!membership?.role) return false;
+    const scope = membership.scope ?? {};
+    if (scope.exhibitorId && scope.exhibitorId === booking.exhibitorId) return true;
+    if (!RolesService.effectivePermissions(membership.role).includes('bookings.manage')) {
+      return false;
+    }
+    return (
+      membership.role.scopeKind !== RoleScopeKind.Event ||
+      (scope.eventIds ?? []).includes(booking.eventId)
+    );
   }
 
   // ---- webhook --------------------------------------------------------------------------------
@@ -683,6 +741,19 @@ export class PaymentsService {
         this.logger.warn(`Refund ${refundId}: Razorpay is rate-limiting; it is sent again later.`);
         return;
       }
+      if (error instanceof GatewayError && (error.status === 401 || error.status === 403)) {
+        // Razorpay turned our keys away, so it made nothing; the refund itself is not at fault.
+        // Back to `requested`: the worker sends it once the keys are put right.
+        await this.dataSource.query(
+          `UPDATE refunds SET status = 'requested', updated_at = now()
+            WHERE id = $1 AND status = 'sending' AND provider_refund_id IS NULL`,
+          [refundId],
+        );
+        this.logger.warn(
+          `Refund ${refundId}: Razorpay did not accept the API keys (HTTP ${error.status}); check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET. It is sent again later.`,
+        );
+        return;
+      }
       if (error instanceof GatewayError && error.refused) {
         // Razorpay refused it (e.g. more than is left): nothing was made, so it failed.
         await this.dataSource.transaction(async (em) => {
@@ -740,6 +811,132 @@ export class PaymentsService {
       }
     }
     return due.length;
+  }
+
+  // ---- reconciling with the gateway -----------------------------------------------------------
+
+  /**
+   * Catches up on webhooks that never came. Razorpay is asked about recent unpaid orders and about
+   * refunds it has taken but not reported settled, and what it reports is settled through the same
+   * paths its webhooks use (`markPaid`, `refundProcessed`, `refundFailed`). Each row is checked on
+   * its own and no lock is held while Razorpay answers. A `sending` refund without Razorpay's id
+   * is never touched: it may not have reached Razorpay, and sending it again could refund twice.
+   * Returns how many payments and refunds it settled.
+   */
+  async reconcile(): Promise<number> {
+    // The log transport's orders are paid only by the development route: nothing to catch up on.
+    if (this.gateway.provider === 'log') return 0;
+    return (await this.reconcileOrders()) + (await this.reconcileRefunds());
+  }
+
+  /**
+   * Unpaid orders of the last day, the longest unchecked first. Each one's payments are fetched,
+   * and a captured one is settled. `updated_at` doubles as "last checked": touching it sends the
+   * order to the back of the queue, so a busy day's orders are all looked at in turn, at most
+   * RECONCILE_BATCH a pass. Five minutes' grace leaves a fresh order to Checkout and the webhook.
+   */
+  private async reconcileOrders(): Promise<number> {
+    const due: Array<{ id: string; provider_order_id: string; status: PaymentStatus }> =
+      await this.dataSource.query(
+        `SELECT id, provider_order_id, status FROM payments
+          WHERE provider = $1 AND status IN ('created', 'failed', 'expired')
+            AND created_at > now() - interval '24 hours'
+            AND updated_at < now() - interval '5 minutes'
+          ORDER BY updated_at
+          LIMIT $2`,
+        [this.gateway.provider, RECONCILE_BATCH],
+      );
+    let settled = 0;
+    for (const row of due) {
+      // Refunds and receipts of what was settled, sent even if a later payment fails to settle.
+      const after: AfterCommit = { refundIds: [], mails: [] };
+      try {
+        const captured = (await this.gateway.fetchOrderPayments(row.provider_order_id)).filter(
+          (p) => p.status === 'captured' && p.orderId === row.provider_order_id,
+        );
+        for (const p of captured) {
+          const { outcome } = await this.dataSource.transaction((em) =>
+            this.markPaid(em, p, null, after),
+          );
+          settled++;
+          this.logger.warn(
+            `Order ${row.provider_order_id}: captured payment ${p.paymentId} was never reported; settled as ${outcome}.`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof GatewayError && error.status === 429) {
+          this.logger.warn('Razorpay is rate-limiting; the reconcile pass stops until next time.');
+          return settled;
+        }
+        this.logger.error(
+          `Could not reconcile order ${row.provider_order_id}: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+      await this.afterCommit(after);
+      // Checked (or failed to be): to the back of the queue, unless it was settled just now.
+      await this.dataSource.query(
+        `UPDATE payments SET updated_at = now() WHERE id = $1 AND status = $2`,
+        [row.id, row.status],
+      );
+    }
+    return settled;
+  }
+
+  /**
+   * Refunds Razorpay has taken (we hold its id) but whose result never arrived: each one is
+   * fetched and, once processed or failed, settled as its webhook would. Still pending at Razorpay
+   * (refunds can take days): to the back of the queue, as with orders.
+   */
+  private async reconcileRefunds(): Promise<number> {
+    const due: Array<{ id: string; provider_refund_id: string }> = await this.dataSource.query(
+      `SELECT r.id, r.provider_refund_id
+         FROM refunds r JOIN payments p ON p.id = r.payment_id
+        WHERE r.status = 'sending' AND r.provider_refund_id IS NOT NULL AND p.provider = $1
+          AND r.updated_at < now() - interval '5 minutes'
+        ORDER BY r.updated_at
+        LIMIT $2`,
+      [this.gateway.provider, RECONCILE_BATCH],
+    );
+    let settled = 0;
+    for (const row of due) {
+      try {
+        const found = await this.gateway.fetchRefund(row.provider_refund_id);
+        const done = await this.dataSource.transaction(async (em) => {
+          const refund = await em.getRepository(RefundEntity).findOne({
+            where: { id: row.id },
+            lock: { mode: 'pessimistic_write' },
+          });
+          // Settled meanwhile, by its webhook or another instance.
+          if (refund?.status !== 'sending') return false;
+          if (found.status === 'processed') {
+            await this.refundProcessed(em, refund);
+            return true;
+          }
+          if (found.status === 'failed') {
+            await this.refundFailed(em, refund, 'Razorpay reported the refund as failed.');
+            return true;
+          }
+          await em.query(`UPDATE refunds SET updated_at = now() WHERE id = $1`, [refund.id]);
+          return false;
+        });
+        if (done) settled++;
+      } catch (error) {
+        if (error instanceof GatewayError && error.status === 429) {
+          this.logger.warn('Razorpay is rate-limiting; the reconcile pass stops until next time.');
+          return settled;
+        }
+        this.logger.error(
+          `Could not reconcile refund ${row.id}: ${error instanceof Error ? error.message : error}`,
+        );
+        // Not lost: it stays `sending` with Razorpay's id, and goes to the back of the queue.
+        await this.dataSource.query(`UPDATE refunds SET updated_at = now() WHERE id = $1`, [
+          row.id,
+        ]);
+      }
+    }
+    return settled;
   }
 
   /** Records a refund to send after the commit; audited with the transaction. */
@@ -859,6 +1056,8 @@ export class PaymentsService {
     em: EntityManager,
     refund: RazorpayRefundEntity,
   ): Promise<RefundEntity | null> {
+    // Without an id the lookup below would match any refund (TypeORM drops undefined values).
+    if (!refund.id) return null;
     const row = await em.getRepository(RefundEntity).findOne({
       where: { providerRefundId: refund.id },
       lock: { mode: 'pessimistic_write' },

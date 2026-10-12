@@ -18,6 +18,11 @@ export interface BookingPaymentView {
   refundedPaise: number;
   /** Refunds asked for or being sent, not through yet. */
   refundPendingPaise: number;
+  /**
+   * What a staff refund can still take, from the payment `PaymentsService.refundBooking` would
+   * refund (the latest paid one with something left), which need not be the one shown here.
+   */
+  refundablePaise: number;
 }
 
 export interface BookingView {

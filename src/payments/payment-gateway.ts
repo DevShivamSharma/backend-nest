@@ -34,6 +34,8 @@ export interface PaymentGateway {
     notes: Record<string, string>;
   }): Promise<{ orderId: string }>;
   fetchPayment(paymentId: string): Promise<GatewayPayment>;
+  /** Every attempt made against an order, whatever its status; the reconcile pass reads these. */
+  fetchOrderPayments(orderId: string): Promise<GatewayPayment[]>;
   refund(input: {
     paymentId: string;
     amountPaise: number;

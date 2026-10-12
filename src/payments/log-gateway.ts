@@ -35,6 +35,11 @@ export class LogGateway implements PaymentGateway {
     );
   }
 
+  /** Nothing is ever paid behind the server's back: only the development route pays an order. */
+  async fetchOrderPayments(): Promise<GatewayPayment[]> {
+    return [];
+  }
+
   async refund(): Promise<GatewayRefund> {
     const refundId = `rfnd_log_${randomUUID().replace(/-/g, '').slice(0, 14)}`;
     return { refundId, status: 'processed' };

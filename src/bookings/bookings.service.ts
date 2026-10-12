@@ -63,6 +63,7 @@ interface BookingRow {
   pay_paid_at: Date | null;
   pay_refunded_paise: string | null;
   pay_refund_pending_paise: string | null;
+  refundable_paise: string | null;
 }
 
 interface BookingFilter {
@@ -551,7 +552,8 @@ export class BookingsService {
               pay.provider_order_id AS pay_order_id, pay.provider_payment_id AS pay_payment_id,
               pay.method AS pay_method, pay.amount_paise AS pay_amount_paise,
               pay.paid_at AS pay_paid_at, pay.refunded_paise AS pay_refunded_paise,
-              pay.refund_pending_paise AS pay_refund_pending_paise
+              pay.refund_pending_paise AS pay_refund_pending_paise,
+              refundable.left_paise AS refundable_paise
          FROM bookings b
          JOIN events e ON e.id = b.event_id
          JOIN event_halls eh ON eh.id = b.event_hall_id
@@ -568,6 +570,18 @@ export class BookingsService {
             WHERE p.booking_id = b.id
             ORDER BY (p.paid_at IS NULL), p.created_at DESC
             LIMIT 1) pay ON true
+         -- The payment a staff refund takes from, picked as PaymentsService.refundBooking picks
+         -- it: the latest paid one with something left (a failed refund gives nothing back).
+         LEFT JOIN LATERAL (
+           SELECT l.left_paise
+             FROM (SELECT p.paid_at,
+                          p.amount_paise - COALESCE((SELECT sum(r.amount_paise) FROM refunds r
+                                                      WHERE r.payment_id = p.id AND r.status <> 'failed'), 0) AS left_paise
+                     FROM payments p
+                    WHERE p.booking_id = b.id AND p.status IN ('paid', 'partially_refunded')) l
+            WHERE l.left_paise > 0
+            ORDER BY l.paid_at DESC
+            LIMIT 1) refundable ON true
         WHERE ${where.join(' AND ')}
         ORDER BY b.created_at DESC, b.id`,
       params,
@@ -602,6 +616,7 @@ export class BookingsService {
               paidAt: r.pay_paid_at?.toISOString() ?? null,
               refundedPaise: Number(r.pay_refunded_paise),
               refundPendingPaise: Number(r.pay_refund_pending_paise),
+              refundablePaise: Number(r.refundable_paise ?? 0),
             }
           : null,
       createdAt: r.created_at.toISOString(),

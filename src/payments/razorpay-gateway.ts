@@ -86,6 +86,15 @@ export class RazorpayGateway implements PaymentGateway {
     return toGatewayPayment(body);
   }
 
+  async fetchOrderPayments(orderId: string): Promise<GatewayPayment[]> {
+    // Razorpay answers with a collection: `{ entity: 'collection', count, items }`.
+    const body = await this.call<{ items?: RazorpayPaymentEntity[] }>(
+      'GET',
+      `/orders/${encodeURIComponent(orderId)}/payments`,
+    );
+    return (body.items ?? []).map(toGatewayPayment);
+  }
+
   async refund(input: {
     paymentId: string;
     amountPaise: number;

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../common/decorators/public.decorator';
@@ -21,8 +22,11 @@ import type { RazorpayWebhook } from './razorpay-gateway';
 /**
  * Razorpay's webhook (docs/15 §6.3). Public: Razorpay signs the raw body with the webhook
  * secret, and that signature is the only authentication. Absent (404) until the secret is set.
+ * Not throttled: Razorpay sends bursts from a few addresses, and a 429 would only delay a
+ * payment's settlement (or, after enough of them, get the webhook disabled at Razorpay).
  */
 @Public()
+@SkipThrottle()
 @Controller('integrations/razorpay')
 export class RazorpayWebhookController {
   private readonly secret: string | null;

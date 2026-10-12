@@ -236,11 +236,13 @@ export class EventsService {
         }
       }
       if (step === 'cancel') {
+        // A refund not yet through may still fail, and the cancellation's own refunds leave out
+        // what it covers. One being sent counts too: Razorpay has not answered for it yet.
         const [{ pending }]: Array<{ pending: number }> = await em.query(
           `SELECT count(*)::int AS pending
              FROM refunds r JOIN payments p ON p.id = r.payment_id
              JOIN bookings b ON b.id = p.booking_id
-            WHERE b.event_id = $1 AND r.status = 'requested'`,
+            WHERE b.event_id = $1 AND r.status IN ('requested', 'sending')`,
           [event.id],
         );
         if (pending) {

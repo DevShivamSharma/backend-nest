@@ -11,8 +11,10 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateBy,
   ValidateIf,
   validateSync,
+  type ValidationArguments,
 } from 'class-validator';
 
 /**
@@ -42,6 +44,25 @@ export enum MailTransport {
 export enum PaymentsTransport {
   Log = 'log',
   Razorpay = 'razorpay',
+}
+
+/**
+ * Refuses the log transport in production. Its development route marks any order paid without
+ * money changing hands, so a production server left on the default would give stalls away.
+ */
+function NotLogInProduction() {
+  return ValidateBy({
+    name: 'notLogInProduction',
+    validator: {
+      validate: (value: unknown, args?: ValidationArguments) =>
+        !(
+          (args?.object as EnvironmentVariables | undefined)?.NODE_ENV ===
+            Environment.Production && value === PaymentsTransport.Log
+        ),
+      defaultMessage: () =>
+        'PAYMENTS_TRANSPORT must be razorpay when NODE_ENV=production; the log transport takes no real payments',
+    },
+  });
 }
 
 export class EnvironmentVariables {
@@ -204,7 +225,9 @@ export class EnvironmentVariables {
   @IsOptional()
   BOOKING_HOLD_MINUTES: number = 60;
 
+  /** `log` (the default) is for development only; production must set `razorpay`. */
   @IsEnum(PaymentsTransport, { message: 'PAYMENTS_TRANSPORT must be one of: log, razorpay' })
+  @NotLogInProduction()
   @IsOptional()
   PAYMENTS_TRANSPORT: PaymentsTransport = PaymentsTransport.Log;
 
@@ -221,9 +244,21 @@ export class EnvironmentVariables {
   @IsNotEmpty({ message: 'RAZORPAY_KEY_SECRET is required when PAYMENTS_TRANSPORT=razorpay' })
   RAZORPAY_KEY_SECRET?: string;
 
-  /** The webhook's secret from the Razorpay dashboard. Unset: the webhook route answers 404. */
+  /**
+   * The webhook's secret from the Razorpay dashboard. Unset: the webhook route answers 404.
+   * Required for real money in production, where a missed payment must not wait on the
+   * reconcile pass alone; optional elsewhere, so a development setup boots without a webhook.
+   */
+  @ValidateIf(
+    (env: EnvironmentVariables) =>
+      env.PAYMENTS_TRANSPORT === PaymentsTransport.Razorpay &&
+      env.NODE_ENV === Environment.Production,
+  )
   @IsString()
-  @IsOptional()
+  @IsNotEmpty({
+    message:
+      'RAZORPAY_WEBHOOK_SECRET is required when PAYMENTS_TRANSPORT=razorpay and NODE_ENV=production',
+  })
   RAZORPAY_WEBHOOK_SECRET?: string;
 
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
