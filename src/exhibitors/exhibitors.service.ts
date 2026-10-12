@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, IsNull } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
 
 import { MembershipEntity } from '../access/membership.entity';
 import { AuditService } from '../audit/audit.service';
@@ -83,7 +83,13 @@ export class ExhibitorsService {
     const exhibitor = await this.dataSource.transaction(async (em) => {
       const event = dto.eventId ? await this.events.eventFor(em, access, dto.eventId, true) : null;
       if (event) EventsService.assertOpen(event);
-      await this.assertNameFree(em, organisationId, dto.name);
+      await this.assertNameFree(
+        em,
+        organisationId,
+        dto.name,
+        undefined,
+        EventsService.isOrganiser(access) ? access.organisation.name : undefined,
+      );
       const repo = em.getRepository(ExhibitorEntity);
       const exhibitor = await repo.save(
         repo.create({
@@ -126,6 +132,19 @@ export class ExhibitorsService {
     const organisationId = access.organisation.id;
     await this.dataSource.transaction(async (em) => {
       const exhibitor = await this.getVisible(em, access, exhibitorId, true);
+      // An exhibitor is the organisation's, shared by its events: an organiser changes it only
+      // while it takes part in none but their own, or they would rewrite another event's record.
+      const visible = EventsService.visibleIds(access);
+      if (
+        visible &&
+        (await em
+          .getRepository(EventExhibitorEntity)
+          .existsBy({ exhibitorId, eventId: Not(In(visible)) }))
+      ) {
+        throw new ForbiddenException(
+          `${exhibitor.name} also takes part in other events, so only ${access.organisation.name}’s team changes its details.`,
+        );
+      }
       const changed: string[] = [];
       if (dto.name !== undefined && dto.name !== exhibitor.name) {
         await this.assertNameFree(em, organisationId, dto.name, exhibitor.id);
@@ -203,7 +222,9 @@ export class ExhibitorsService {
     await this.dataSource.transaction(async (em) => {
       const event = await this.events.eventFor(em, access, eventId, true);
       EventsService.assertOpen(event);
-      const exhibitor = await this.getOwn(em, access.organisation.id, exhibitorId);
+      // Visible, not just the organisation's: an organiser registers what they already see (or
+      // created, which registered it for their event), never an exhibitor of other events.
+      const exhibitor = await this.getVisible(em, access, exhibitorId);
       const links = em.getRepository(EventExhibitorEntity);
       if (await links.existsBy({ eventId, exhibitorId })) return;
       await links.insert({ eventId, exhibitorId });
@@ -232,7 +253,7 @@ export class ExhibitorsService {
   ): Promise<void> {
     await this.dataSource.transaction(async (em) => {
       const event = await this.events.eventFor(em, access, eventId, true);
-      const exhibitor = await this.getOwn(em, access.organisation.id, exhibitorId);
+      const exhibitor = await this.getVisible(em, access, exhibitorId);
       const link = await em.getRepository(EventExhibitorEntity).findOneBy({ eventId, exhibitorId });
       if (!link) throw new NotFoundException(`${exhibitor.name} is not registered for this event.`);
       const [{ count }]: Array<{ count: number }> = await em.query(
@@ -434,6 +455,23 @@ export class ExhibitorsService {
           AND accepted_at IS NULL AND revoked_at IS NULL ${only}`,
       [organisationId, eventId, exhibitorId],
     );
+    if (add) return;
+    // Like the event's own people: someone left with no event leaves the organisation (an event
+    // role sees nothing without one), and an invitation left with none is revoked.
+    await em.query(
+      `DELETE FROM memberships
+        WHERE organisation_id = $1 AND scope ->> 'exhibitorId' = $2
+          AND jsonb_array_length(COALESCE(scope -> 'eventIds', '[]'::jsonb)) = 0
+          AND role_id IN (SELECT id FROM roles WHERE scope_kind = 'event')`,
+      [organisationId, exhibitorId],
+    );
+    await em.query(
+      `UPDATE invitations SET revoked_at = now()
+        WHERE organisation_id = $1 AND scope ->> 'exhibitorId' = $2
+          AND accepted_at IS NULL AND revoked_at IS NULL
+          AND jsonb_array_length(COALESCE(scope -> 'eventIds', '[]'::jsonb)) = 0`,
+      [organisationId, exhibitorId],
+    );
   }
 
   private async assertNameFree(
@@ -441,6 +479,7 @@ export class ExhibitorsService {
     organisationId: string,
     name: string,
     exceptId?: string,
+    organiserOf?: string,
   ): Promise<void> {
     const clash = await em
       .getRepository(ExhibitorEntity)
@@ -450,6 +489,13 @@ export class ExhibitorsService {
       .andWhere(exceptId ? 'exhibitor.id <> :exceptId' : 'true', { exceptId })
       .getOne();
     if (clash) {
+      // An organiser may not see the exhibitor, so the refusal says what to do without saying
+      // which events it takes part in. `organiserOf` is the organisation's name, set for them.
+      if (organiserOf) {
+        throw new ConflictException(
+          `An exhibitor of that name already exists at ${organiserOf}. Ask the venue team to register it for your event.`,
+        );
+      }
       throw new ConflictException(`There is already an exhibitor called "${clash.name}".`);
     }
   }

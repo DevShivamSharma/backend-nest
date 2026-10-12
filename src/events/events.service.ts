@@ -13,6 +13,7 @@ import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/cate
 import { AuditService } from '../audit/audit.service';
 import { ACTIVE_BOOKING_STATUSES, BookingEntity } from '../bookings/booking.entity';
 import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
+import { ExhibitorEntity } from '../exhibitors/exhibitor.entity';
 import { RoleEntity, RoleScopeKind } from '../roles/role.entity';
 import { RolesService } from '../roles/roles.service';
 import { effectiveValues, RULE_IDS, RuleId, RULES, RuleSwitches } from '../rules/rule-catalogue';
@@ -185,7 +186,7 @@ export class EventsService {
           `${event.name} has bookings, so it stays for the record. Cancel the event instead.`,
         );
       }
-      const people = await this.peopleOf(em, organisationId, event.id);
+      const people = await this.peopleOf(em, organisationId, event.id, true);
       for (const member of people.members) await this.dropFromMembership(em, member, event.id);
       for (const invitation of people.invitations) {
         await this.dropFromInvitation(em, invitation, event.id);
@@ -572,13 +573,28 @@ export class EventsService {
       return { added: true, invitation: null };
     }
 
-    // An open invitation for other events keeps them: this event joins its scope.
+    // An open invitation for other events keeps them: this event joins its scope. Only when it is
+    // the same organiser role, though: a new invitation replaces the open one, so merging an
+    // exhibitor's invitation would hand its events to an organiser and drop the exhibitor.
     const open = await em.getRepository(InvitationEntity).findOneBy({
       organisationId: organisation.id,
       email: dto.email,
       acceptedAt: IsNull(),
       revokedAt: IsNull(),
     });
+    if (open?.scope.exhibitorId) {
+      const exhibitor = await em
+        .getRepository(ExhibitorEntity)
+        .findOneBy({ id: open.scope.exhibitorId, organisationId: organisation.id });
+      throw new ConflictException(
+        `${dto.email} has an open invitation as Exhibitor of ${exhibitor?.name ?? 'an exhibitor'}; revoke it first.`,
+      );
+    }
+    if (open && open.roleId !== role.id) {
+      throw new ConflictException(
+        `${dto.email} has an open invitation with a different role for other events here; revoke it first.`,
+      );
+    }
     const eventIds = [...new Set([...(open?.scope.eventIds ?? []), event.id])];
     const { view } = await this.invitations.invite(
       organisation,
@@ -598,9 +614,14 @@ export class EventsService {
     const organisationId = access.organisation.id;
     await this.dataSource.transaction(async (em) => {
       const event = await this.event(em, access, id);
-      const { members } = await this.peopleOf(em, organisationId, event.id);
+      const { members } = await this.peopleOf(em, organisationId, event.id, true);
       const member = members.find((m) => m.id === membershipId);
       if (!member) throw new NotFoundException('This person has no access to this event.');
+      if (member.scope.exhibitorId) {
+        throw new ConflictException(
+          `${member.user!.email} books for an exhibitor. Remove them on the Team page.`,
+        );
+      }
       const left = await this.dropFromMembership(em, member, event.id);
       await this.record(em, 'event.person_removed', organisationId, event, actor, {
         email: member.user!.email,
@@ -618,9 +639,14 @@ export class EventsService {
     const organisationId = access.organisation.id;
     await this.dataSource.transaction(async (em) => {
       const event = await this.event(em, access, id);
-      const { invitations } = await this.peopleOf(em, organisationId, event.id);
+      const { invitations } = await this.peopleOf(em, organisationId, event.id, true);
       const invitation = invitations.find((i) => i.id === invitationId);
       if (!invitation) throw new NotFoundException('There is no such invitation to this event.');
+      if (invitation.scope.exhibitorId) {
+        throw new ConflictException(
+          `${invitation.email}’s invitation is for an exhibitor. Revoke it on the Team page.`,
+        );
+      }
       await this.dropFromInvitation(em, invitation, event.id);
       await this.record(em, 'event.invitation_revoked', organisationId, event, actor, {
         email: invitation.email,
@@ -790,32 +816,40 @@ export class EventsService {
     return out;
   }
 
-  /** Members with an event role on this event, and open invitations to it. */
+  /**
+   * Members with an event role on this event, and open invitations to it. The people who book for
+   * an exhibitor are managed from the exhibitor, so they are left out unless asked for: deleting
+   * the event takes it away from them too, and the people routes need them only to refuse.
+   */
   private async peopleOf(
     em: EntityManager,
     organisationId: string,
     eventId: string,
+    withExhibitorPeople = false,
   ): Promise<{ members: MembershipEntity[]; invitations: InvitationEntity[] }> {
-    const members = await em
+    const members = em
       .getRepository(MembershipEntity)
       .createQueryBuilder('m')
       .innerJoinAndSelect('m.user', 'u')
       .innerJoinAndSelect('m.role', 'r')
       .where('m.organisationId = :organisationId', { organisationId })
-      .andWhere(`m.scope->'eventIds' ? :eventId`, { eventId })
-      .orderBy('u.name', 'ASC')
-      .getMany();
-    const invitations = await em
+      .andWhere(`m.scope->'eventIds' ? :eventId`, { eventId });
+    const invitations = em
       .getRepository(InvitationEntity)
       .createQueryBuilder('i')
       .innerJoinAndSelect('i.role', 'r')
       .leftJoinAndSelect('i.invitedBy', 'by')
       .where('i.organisationId = :organisationId', { organisationId })
       .andWhere('i.acceptedAt IS NULL AND i.revokedAt IS NULL')
-      .andWhere(`i.scope->'eventIds' ? :eventId`, { eventId })
-      .orderBy('i.createdAt', 'DESC')
-      .getMany();
-    return { members, invitations };
+      .andWhere(`i.scope->'eventIds' ? :eventId`, { eventId });
+    if (!withExhibitorPeople) {
+      members.andWhere(`m.scope ->> 'exhibitorId' IS NULL`);
+      invitations.andWhere(`i.scope ->> 'exhibitorId' IS NULL`);
+    }
+    return {
+      members: await members.orderBy('u.name', 'ASC').getMany(),
+      invitations: await invitations.orderBy('i.createdAt', 'DESC').getMany(),
+    };
   }
 
   private async addToMembership(
