@@ -29,7 +29,7 @@ import {
   InviteEventPersonDto,
   UpdateEventDto,
 } from './dto/events.dto';
-import { EventEntity, EventHallEntity, EventKind } from './event.entity';
+import { EventEntity, EventHallEntity, EventKind, EventStatus } from './event.entity';
 import type {
   EventDetailView,
   EventHallDetailView,
@@ -40,6 +40,27 @@ import type {
 
 /** Most halls one event may use. */
 const MAX_EVENT_HALLS = 100;
+
+export type EventTransition = 'schedule' | 'complete' | 'cancel' | 'reopen';
+
+/** Each step: the statuses it leaves, the one it reaches, and its audit action. */
+const TRANSITIONS: Record<
+  EventTransition,
+  { from: readonly EventStatus[]; to: EventStatus; action: string }
+> = {
+  schedule: { from: ['draft'], to: 'scheduled', action: 'event.scheduled' },
+  complete: { from: ['scheduled'], to: 'completed', action: 'event.completed' },
+  cancel: { from: ['draft', 'scheduled'], to: 'cancelled', action: 'event.cancelled' },
+  reopen: { from: ['scheduled'], to: 'draft', action: 'event.reopened' },
+};
+
+/** The step as a past participle, for the refusal. */
+const PAST: Record<EventTransition, string> = {
+  schedule: 'scheduled',
+  complete: 'completed',
+  cancel: 'cancelled',
+  reopen: 'reopened',
+};
 
 /**
  * Events (Module D): the organisation's events, the halls each uses and the rules for each
@@ -93,7 +114,7 @@ export class EventsService {
       await this.assertVenueEventIdFree(em, organisationId, fields.venueEventId);
       const repo = em.getRepository(EventEntity);
       const saved = await repo.save(
-        repo.create({ organisationId, ...fields, createdById: actor.id }),
+        repo.create({ organisationId, ...fields, status: 'draft', createdById: actor.id }),
       );
       await this.record(em, 'event.created', organisationId, saved, actor, {
         kind: saved.kind,
@@ -154,6 +175,51 @@ export class EventsService {
         organisersRemoved: people.members.length,
       });
     });
+  }
+
+  // ---- lifecycle ----------------------------------------------------------------------------
+
+  /**
+   * One step of the event's life. `draft → scheduled → completed`; `draft | scheduled →
+   * cancelled`; `scheduled → draft` (reopen). The venue's own team does this: an organiser
+   * neither schedules nor cancels the venue's halls.
+   */
+  async transition(
+    access: OrgAccessContext,
+    id: string,
+    step: EventTransition,
+    actor: Actor,
+    reason: string | null = null,
+  ): Promise<EventView> {
+    if (EventsService.isOrganiser(access)) {
+      throw new ForbiddenException(`${access.organisation.name}’s team schedules its events.`);
+    }
+    const organisationId = access.organisation.id;
+    const event = await this.dataSource.transaction(async (em) => {
+      const event = await this.event(em, access, id, true);
+      const { from, to, action } = TRANSITIONS[step];
+      if (!from.includes(event.status)) {
+        throw new ConflictException(
+          `${event.name} is ${event.status}; it cannot be ${PAST[step]} from there.`,
+        );
+      }
+      const previous = event.status;
+      const now = new Date();
+      Object.assign(event, {
+        status: to,
+        completedAt: to === 'completed' ? now : null,
+        cancelledAt: to === 'cancelled' ? now : null,
+        cancelReason: to === 'cancelled' ? reason : null,
+      });
+      const saved = await em.getRepository(EventEntity).save(event);
+      await this.record(em, action, organisationId, saved, actor, {
+        from: previous,
+        to,
+        ...(reason ? { reason } : {}),
+      });
+      return saved;
+    });
+    return EventsService.view(event, (await this.hallCounts([event.id])).get(event.id) ?? 0);
   }
 
   // ---- halls --------------------------------------------------------------------------------
@@ -238,6 +304,7 @@ export class EventsService {
         id: event.id,
         name: event.name,
         kind: event.kind,
+        status: event.status,
         audience: event.audience,
         organiserName: event.organiserName,
       },
@@ -855,6 +922,7 @@ export class EventsService {
     return {
       id: event.id,
       kind: event.kind,
+      status: event.status,
       name: event.name,
       venueEventId: event.venueEventId,
       organiserName: event.organiserName,
@@ -863,6 +931,9 @@ export class EventsService {
       endsOn: event.endsOn,
       buildUpOn: event.buildUpOn,
       dismantleOn: event.dismantleOn,
+      completedAt: event.completedAt?.toISOString() ?? null,
+      cancelledAt: event.cancelledAt?.toISOString() ?? null,
+      cancelReason: event.cancelReason,
       hallCount,
       updatedAt: event.updatedAt.toISOString(),
     };

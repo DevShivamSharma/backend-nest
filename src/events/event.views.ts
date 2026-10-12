@@ -2,11 +2,12 @@ import type { CategoryRef } from '../categories/categories.views';
 import type { EventType, RuleId, RuleValues } from '../rules/rule-catalogue';
 import type { InvitationView, MemberView } from '../team/team.views';
 import type { HallFloor } from '../venues/floor/hall-floor';
-import type { EventKind } from './event.entity';
+import type { EventKind, EventStatus } from './event.entity';
 
 export interface EventView {
   id: string;
   kind: EventKind;
+  status: EventStatus;
   name: string;
   venueEventId: string | null;
   organiserName: string | null;
@@ -15,6 +16,9 @@ export interface EventView {
   endsOn: string;
   buildUpOn: string | null;
   dismantleOn: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
   hallCount: number;
   updatedAt: string;
 }
@@ -54,6 +58,7 @@ export interface EventHallDetailView {
     id: string;
     name: string;
     kind: EventKind;
+    status: EventStatus;
     audience: EventType;
     organiserName: string | null;
   };

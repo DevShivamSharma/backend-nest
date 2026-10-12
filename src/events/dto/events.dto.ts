@@ -110,6 +110,16 @@ export class InviteEventPersonDto {
   roleId!: string;
 }
 
+/** Cancelling an event; the reason is for the record. */
+export class CancelEventDto {
+  @IsOptional()
+  @EmptyToNull()
+  @Trim()
+  @IsString()
+  @MaxLength(500)
+  reason?: string | null;
+}
+
 /** The categories an event hall sells, from the organisation's active categories. */
 export class EventHallCategoriesDto {
   @IsArray()

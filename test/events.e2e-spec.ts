@@ -122,6 +122,45 @@ describe('Events (e2e)', () => {
     expect(list.body.map((e: { name: string }) => e.name)).toEqual(['Footwear Expo']);
   });
 
+  it('moves an event through its lifecycle, refusing steps out of order', async () => {
+    const step = (id: string, name: string, body: Record<string, unknown> = {}) =>
+      http.post(`${base}/events/${id}/${name}`).set(auth(owner)).send(body);
+
+    // New events are drafts; a draft is scheduled, not completed or reopened.
+    expect((await http.get(`${base}/events/${fair}`).set(auth(owner))).body.status).toBe('draft');
+    expect((await step(fair, 'complete')).status).toBe(409);
+    expect((await step(fair, 'reopen')).status).toBe(409);
+    const scheduled = await step(fair, 'schedule').expect(200);
+    expect(scheduled.body).toMatchObject({ status: 'scheduled', completedAt: null });
+    expect((await step(fair, 'schedule')).status).toBe(409);
+
+    // Scheduled goes back to draft, or on to completed.
+    expect((await step(fair, 'reopen').expect(200)).body.status).toBe('draft');
+    await step(fair, 'schedule').expect(200);
+    const completed = await step(fair, 'complete').expect(200);
+    expect(completed.body.status).toBe('completed');
+    expect(completed.body.completedAt).toEqual(expect.any(String));
+    // Completed is final.
+    expect((await step(fair, 'cancel')).status).toBe(409);
+    expect((await step(fair, 'reopen')).status).toBe(409);
+
+    // A draft or scheduled event is cancelled, with or without a reason; cancelled is final.
+    expect((await step(expo, 'cancel', { reason: 'x'.repeat(501) })).status).toBe(400);
+    const cancelled = await step(expo, 'cancel', { reason: 'Organiser pulled out.' }).expect(200);
+    expect(cancelled.body).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'Organiser pulled out.',
+    });
+    expect(cancelled.body.cancelledAt).toEqual(expect.any(String));
+    expect((await step(expo, 'schedule')).status).toBe(409);
+
+    const audit = await http.get(`${base}/audit?pageSize=50`).set(auth(owner)).expect(200);
+    const actions = audit.body.items.map((a: { action: string }) => a.action);
+    for (const a of ['event.scheduled', 'event.reopened', 'event.completed', 'event.cancelled']) {
+      expect(actions).toContain(a);
+    }
+  });
+
   it('adds halls on their current floor with the rules of the day, and shows overlaps', async () => {
     await http
       .patch(`${base}/rules`)

@@ -24,6 +24,7 @@ import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-re
 import type { CreatedInvitationView } from '../team/team.views';
 import {
   AddEventHallsDto,
+  CancelEventDto,
   CreateEventDto,
   EventHallCategoriesDto,
   EventHallRulesDto,
@@ -96,6 +97,54 @@ export class EventsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.events.remove(access, id, user);
+  }
+
+  // ---- lifecycle ----------------------------------------------------------------------------
+
+  @RequirePermissions('events.manage')
+  @Post(':id/schedule')
+  @HttpCode(HttpStatus.OK)
+  schedule(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<EventView> {
+    return this.events.transition(access, id, 'schedule', user);
+  }
+
+  @RequirePermissions('events.manage')
+  @Post(':id/complete')
+  @HttpCode(HttpStatus.OK)
+  complete(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<EventView> {
+    return this.events.transition(access, id, 'complete', user);
+  }
+
+  @RequirePermissions('events.manage')
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelEventDto,
+  ): Promise<EventView> {
+    return this.events.transition(access, id, 'cancel', user, dto.reason ?? null);
+  }
+
+  /** Scheduled back to draft: off sale, to change it. */
+  @RequirePermissions('events.manage')
+  @Post(':id/reopen')
+  @HttpCode(HttpStatus.OK)
+  reopen(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<EventView> {
+    return this.events.transition(access, id, 'reopen', user);
   }
 
   // ---- halls --------------------------------------------------------------------------------
