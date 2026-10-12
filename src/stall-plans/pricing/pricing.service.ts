@@ -154,6 +154,20 @@ export class PricingService {
     await query.execute();
   }
 
+  /** What `stallPrice()` needs for an event hall: its rate card and the prices set on stalls. */
+  async priceInputs(
+    em: EntityManager,
+    eventHallId: string,
+  ): Promise<{ card: PriceCard | null; own: Map<string, StallPriceOverride> }> {
+    const card = await this.card(em, eventHallId);
+    const own = new Map(
+      (await em.getRepository(StallPriceEntity).findBy({ eventHallId })).map(
+        (p) => [p.stallId, { price: p.price, note: p.note }] as const,
+      ),
+    );
+    return { card, own };
+  }
+
   /**
    * The saved plan's stalls that are for sale and have no price; empty when every one has one.
    * Their numbers, as ITPO writes them.

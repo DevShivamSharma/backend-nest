@@ -234,3 +234,99 @@ export class PlanObjectEntity {
   @Column({ name: 'sort_order', type: 'integer' })
   sortOrder!: number;
 }
+
+/** Postgres bigint may come back as text; paise are used as numbers. */
+const paise = {
+  to: (v: number | null) => v,
+  from: (v: string | number | null) => (v === null ? null : Number(v)),
+};
+
+/**
+ * A stall of an event hall's published plan, as it was when published, with its price then
+ * (docs/15 §9 Q19, option a). Publishing replaces the hall's rows; saving the plan never touches
+ * them, so bookings and the stall map keep reading what was published. Keyed by the planner's
+ * stall id, which a save keeps.
+ */
+@Entity({ name: 'published_stalls' })
+export class PublishedStallEntity {
+  @PrimaryColumn({ name: 'event_hall_id', type: 'uuid' })
+  eventHallId!: string;
+
+  @PrimaryColumn({ name: 'stall_id', type: 'uuid' })
+  stallId!: string;
+
+  /** The plan revision these rows were copied from. */
+  @Column({ name: 'published_revision', type: 'integer' })
+  publishedRevision!: number;
+
+  @Column({ name: 'zone_id', type: 'uuid', nullable: true })
+  zoneId!: string | null;
+
+  @Column({ name: 'island_number', type: 'varchar', length: 40, nullable: true })
+  islandNumber!: string | null;
+
+  @Column({ name: 'stall_number', type: 'varchar', length: 20 })
+  stallNumber!: string;
+
+  @Column({ type: 'double precision' })
+  x!: number;
+
+  @Column({ type: 'double precision' })
+  y!: number;
+
+  @Column({ type: 'double precision' })
+  width!: number;
+
+  @Column({ type: 'double precision' })
+  depth!: number;
+
+  @Column({ name: 'open_sides', type: 'text', array: true })
+  openSides!: StallSide[];
+
+  @Column({ type: 'varchar', length: 8 })
+  scheme!: StallScheme;
+
+  @Column({ name: 'category_ids', type: 'uuid', array: true })
+  categoryIds!: string[];
+
+  @Column({ name: 'is_premium', type: 'boolean' })
+  isPremium!: boolean;
+
+  @Column({ name: 'is_blocked', type: 'boolean' })
+  isBlocked!: boolean;
+
+  @Column({ name: 'is_fnb', type: 'boolean' })
+  isFnb!: boolean;
+
+  @Column({ name: 'is_branding', type: 'boolean' })
+  isBranding!: boolean;
+
+  @Column({ name: 'is_horseshoe', type: 'boolean' })
+  isHorseshoe!: boolean;
+
+  @Column({ name: 'is_marquee_available', type: 'boolean' })
+  isMarqueeAvailable!: boolean;
+
+  @Column({ name: 'is_restricted_for_overseas', type: 'boolean' })
+  isRestrictedForOverseas!: boolean;
+
+  @Column({ name: 'is_active', type: 'boolean' })
+  isActive!: boolean;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  location!: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  description!: string | null;
+
+  /** `stallPrice()` at publish × 100, before GST; null when not for sale or unpriced. */
+  @Column({ name: 'price_paise', type: 'bigint', nullable: true, transformer: paise })
+  pricePaise!: number | null;
+
+  @Column({ type: 'char', length: 3, nullable: true })
+  currency!: string | null;
+
+  /** How the price was worked out, in words, for the booking and its receipt. */
+  @Column({ name: 'price_reckoning', type: 'varchar', length: 400, nullable: true })
+  priceReckoning!: string | null;
+}

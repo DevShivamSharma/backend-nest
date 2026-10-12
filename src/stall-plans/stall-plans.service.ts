@@ -27,6 +27,7 @@ import {
   SavePlanDto,
 } from './dto/stall-plans.dto';
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
+import { publishedStallRows } from './published-stalls';
 import { PricingService } from './pricing/pricing.service';
 import {
   planApprovedEmail,
@@ -39,6 +40,7 @@ import {
   PlanSeatEntity,
   PlanStallEntity,
   PlanZoneEntity,
+  PublishedStallEntity,
   StallPlanEntity,
 } from './stall-plan.entity';
 import type {
@@ -190,6 +192,11 @@ export class StallPlansService {
           StallPlansService.refusal(problems).replace('was not saved', 'was not published'),
         );
       }
+      // What is published is stored (docs/15 §9 Q19), so bookings and the stall map never see a
+      // later save. A re-publish replaces it whole, in this transaction.
+      const { card, own } = await this.pricing.priceInputs(em, row.id);
+      const rows = publishedStallRows(row.id, plan.revision, saved.stalls, card, own);
+      await this.replaceSnapshot(em, row.id, rows);
       plan.publishedRevision = plan.revision;
       plan.publishedAt = new Date();
       plan.publishedById = actor.id;
@@ -661,6 +668,16 @@ export class StallPlansService {
   private assertCanEdit(access: OrgAccessContext, event: EventEntity): void {
     const reason = StallPlansService.readOnlyReason(access, event);
     if (reason) throw new ForbiddenException(reason);
+  }
+
+  /** The hall's published stalls become `rows`. */
+  private async replaceSnapshot(
+    em: EntityManager,
+    eventHallId: string,
+    rows: PublishedStallEntity[],
+  ): Promise<void> {
+    await em.getRepository(PublishedStallEntity).delete({ eventHallId });
+    await insertAll(em, PublishedStallEntity, rows);
   }
 
   /** What makes the plan unsound before any rule: ids, numbers, zones, categories and drawings. */
