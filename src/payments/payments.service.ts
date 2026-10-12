@@ -629,6 +629,13 @@ export class PaymentsService {
         throw new NotFoundException('There is no such booking.');
       }
       const event = await this.lockEvent(em, found.eventId);
+      // Closed figures are frozen: a refund now would make them wrong (M7 ruling 5).
+      const [closed] = await em.query(`SELECT 1 FROM settlements WHERE event_id = $1`, [event.id]);
+      if (closed) {
+        throw new ConflictException(
+          `The settlement of ${event.name} is closed; it can no longer be refunded here.`,
+        );
+      }
       const booking = await repo.findOneOrFail({
         where: { id: bookingId },
         lock: { mode: 'pessimistic_write' },

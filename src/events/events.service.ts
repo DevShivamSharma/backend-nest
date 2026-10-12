@@ -225,6 +225,14 @@ export class EventsService {
           `${event.name} is ${event.status}; it cannot be ${PAST[step]} from there.`,
         );
       }
+      if (step === 'complete') {
+        const today = EventsService.today(access.organisation.config.locale.timezone);
+        if (today < event.endsOn) {
+          throw new ConflictException(
+            `${event.name} runs until ${event.endsOn}; it can be completed from that day on.`,
+          );
+        }
+      }
       if (step === 'reopen') {
         const active = await em
           .getRepository(BookingEntity)
@@ -692,6 +700,16 @@ export class EventsService {
   /** Event ids an organiser may see; null for members who see every event. */
   static visibleIds(access: OrgAccessContext): string[] | null {
     return EventsService.isOrganiser(access) ? (access.membership.scope.eventIds ?? []) : null;
+  }
+
+  /** Today's date where the organisation is, as `YYYY-MM-DD` (en-CA writes dates so), like `ends_on`. */
+  static today(timeZone: string, now = new Date()): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
   }
 
   static isOrganiser(access: OrgAccessContext): boolean {
