@@ -27,7 +27,7 @@ import {
   SavePlanDto,
 } from './dto/stall-plans.dto';
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
-import { publishedStallRows } from './published-stalls';
+import { bookedStallChanges, publishedStallRows } from './published-stalls';
 import { PricingService } from './pricing/pricing.service';
 import {
   planApprovedEmail,
@@ -193,9 +193,35 @@ export class StallPlansService {
         );
       }
       // What is published is stored (docs/15 §9 Q19), so bookings and the stall map never see a
-      // later save. A re-publish replaces it whole, in this transaction.
+      // later save. A re-publish replaces it whole, in this transaction, unless it would change a
+      // stall someone has booked. Holds share-lock this plan row before they read a stall and
+      // this transaction holds it for update, so every booking made before now is seen here and
+      // none is made while the snapshot is replaced.
       const { card, own } = await this.pricing.priceInputs(em, row.id);
       const rows = publishedStallRows(row.id, plan.revision, saved.stalls, card, own);
+      const booked: Array<{ stall_id: string; status: 'held' | 'confirmed'; exhibitor: string }> =
+        await em.query(
+          `SELECT b.stall_id, b.status, x.name AS exhibitor
+             FROM bookings b JOIN exhibitors x ON x.id = b.exhibitor_id
+            WHERE b.event_hall_id = $1 AND b.status IN ('held', 'confirmed')
+            ORDER BY b.stall_label`,
+          [row.id],
+        );
+      const changes = bookedStallChanges(
+        await em.getRepository(PublishedStallEntity).findBy({ eventHallId: row.id }),
+        rows,
+        booked.map((b) => ({ stallId: b.stall_id, status: b.status, exhibitor: b.exhibitor })),
+      );
+      if (changes.length) {
+        const n = new Set(changes.map((c) => c.stallId)).size;
+        const lead =
+          `The plan was not published: ${n} booked ${n === 1 ? 'stall' : 'stalls'} would change. ` +
+          `Put ${n === 1 ? 'it' : 'them'} back as published, or move or cancel ` +
+          `${n === 1 ? 'its booking' : 'their bookings'} first.`;
+        // AllExceptionsFilter turns a list into `message` (its first line) and `details` (every
+        // line), which the planner shows whole.
+        throw new ConflictException({ message: [lead, ...changes.map((c) => c.message)] });
+      }
       await this.replaceSnapshot(em, row.id, rows);
       plan.publishedRevision = plan.revision;
       plan.publishedAt = new Date();
