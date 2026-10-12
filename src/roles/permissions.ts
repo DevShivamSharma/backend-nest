@@ -146,8 +146,9 @@ export const PERMISSION_GROUPS = [
       {
         key: 'layouts.approve',
         label: 'Approve layouts',
-        description: 'Review and approve a revision',
-        available: false,
+        description:
+          'Approve or send back the plan an external event’s organiser sends for approval',
+        available: true,
       },
       {
         key: 'layouts.publish',
@@ -164,14 +165,14 @@ export const PERMISSION_GROUPS = [
       {
         key: 'pricing.view',
         label: 'See prices',
-        description: 'Rate cards and stall prices',
-        available: false,
+        description: 'The rate card and the price of each stall',
+        available: true,
       },
       {
         key: 'pricing.manage',
         label: 'Manage prices',
-        description: 'Edit rate cards and stall prices',
-        available: false,
+        description: 'Set the rate card and the price of each stall',
+        available: true,
       },
     ],
   },

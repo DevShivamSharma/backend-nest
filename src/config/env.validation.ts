@@ -32,9 +32,10 @@ export enum AiProvider {
   Ollama = 'ollama',
 }
 
-/** Where outgoing mail goes. Only `log` exists today: links are written to the server log. */
+/** Where outgoing mail goes: the server log (links for a developer), or an SMTP server. */
 export enum MailTransport {
   Log = 'log',
+  Smtp = 'smtp',
 }
 
 export class EnvironmentVariables {
@@ -148,6 +149,44 @@ export class EnvironmentVariables {
   @IsEnum(MailTransport)
   @IsOptional()
   MAIL_TRANSPORT: MailTransport = MailTransport.Log;
+
+  /** The SMTP server, with MAIL_TRANSPORT=smtp; the same names ITPO's admin service uses. */
+  @ValidateIf((env: EnvironmentVariables) => env.MAIL_TRANSPORT === MailTransport.Smtp)
+  @IsString()
+  @IsNotEmpty({ message: 'SMTP_HOST_NAME is required when MAIL_TRANSPORT=smtp' })
+  SMTP_HOST_NAME?: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  @IsOptional()
+  SMTP_PORT: number = 465;
+
+  /** TLS from the start (port 465); false for STARTTLS on 587. Defaults to true. */
+  @IsBoolean()
+  @IsOptional()
+  SMTP_SECURE?: boolean;
+
+  @IsString()
+  @IsOptional()
+  SMTP_AUTH_USER?: string;
+
+  @IsString()
+  @IsOptional()
+  SMTP_AUTH_PASSWORD?: string;
+
+  @ValidateIf((env: EnvironmentVariables) => env.MAIL_TRANSPORT === MailTransport.Smtp)
+  @IsString()
+  @IsNotEmpty({ message: 'SMTP_FROM_EMAIL is required when MAIL_TRANSPORT=smtp' })
+  SMTP_FROM_EMAIL?: string;
+
+  /**
+   * Outside production, every email goes to these addresses (comma separated) instead of its
+   * own, so testing never mails real people. Empty: emails go where they are addressed.
+   */
+  @IsString()
+  @IsOptional()
+  MAIL_REDIRECT_TO?: string;
 
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
   @IsOptional()

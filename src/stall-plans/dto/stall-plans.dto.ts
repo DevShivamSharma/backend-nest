@@ -244,6 +244,14 @@ export class PublishPlanDto {
   revision!: number;
 }
 
+/** Sending back an external event's plan: which revision, and what the organiser must change. */
+export class RejectPlanDto extends PublishPlanDto {
+  @Trim()
+  @IsString()
+  @Length(1, 1000, { message: 'Say what the organiser should change (up to 1000 characters).' })
+  note!: string;
+}
+
 export class SavePlanDto extends PlanContentDto {
   @IsInt()
   @Min(0)

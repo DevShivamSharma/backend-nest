@@ -45,6 +45,11 @@ export class RuleValuesDto {
   @IsNumber({ allowNaN: false, allowInfinity: false })
   partitionClearance!: number;
 
+  /** Absent from clients that predate the Pillars rule: the stored or default value stays. */
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  pillarClearance?: number;
+
   @IsNumber({ allowNaN: false, allowInfinity: false })
   emergencyExitClearance!: number;
 

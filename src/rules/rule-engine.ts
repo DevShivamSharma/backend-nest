@@ -107,6 +107,7 @@ const RESTRICTED: Array<{
     text: 'the area below a fire curtain',
     clearance: 'curtainClearance',
   },
+  { kind: 'column', rule: 'PILLAR', text: 'a pillar', clearance: 'pillarClearance' },
   {
     kind: 'utility',
     rule: 'FACILITY_ACCESS',

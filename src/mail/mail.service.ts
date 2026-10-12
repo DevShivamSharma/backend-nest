@@ -1,11 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createTransport, type Transporter } from 'nodemailer';
 
 import type { AppConfig, MailConfig } from '../config/configuration';
 import { Environment, MailTransport } from '../config/env.validation';
 
 export interface MailMessage {
-  to: string;
+  /** One address, or several who all see each other. */
+  to: string | string[];
   subject: string;
   text: string;
   /** Display name of the sender, usually the organisation's. */
@@ -15,17 +17,28 @@ export interface MailMessage {
 
 /**
  * Outgoing email. The `log` transport writes each message to the server log, which is how links
- * reach a developer before an email provider is connected.
+ * reach a developer before an email provider is connected; `smtp` sends it. Outside production,
+ * MAIL_REDIRECT_TO sends every message to the developers instead of the people it names.
  */
 @Injectable()
 export class MailService implements OnModuleInit {
   private readonly logger = new Logger(MailService.name);
   private readonly mail: MailConfig;
   private readonly app: AppConfig;
+  private readonly transporter: Transporter | null;
 
   constructor(config: ConfigService) {
     this.mail = config.getOrThrow<MailConfig>('mail');
     this.app = config.getOrThrow<AppConfig>('app');
+    const smtp = this.mail.smtp;
+    this.transporter = smtp
+      ? createTransport({
+          host: smtp.host,
+          port: smtp.port,
+          secure: smtp.secure,
+          auth: smtp.user ? { user: smtp.user, pass: smtp.password ?? '' } : undefined,
+        })
+      : null;
   }
 
   onModuleInit(): void {
@@ -49,13 +62,27 @@ export class MailService implements OnModuleInit {
   }
 
   async send(message: MailMessage): Promise<void> {
-    // Only the log transport exists; a provider (SMTP, SES) plugs in here.
+    const addressed = [message.to].flat().filter(Boolean);
+    const to = this.mail.redirectTo.length ? this.mail.redirectTo : addressed;
+    if (!to.length) return;
+    const subject = this.mail.redirectTo.length
+      ? `${message.subject} [for ${addressed.join(', ')}]`
+      : message.subject;
+    if (this.transporter && this.mail.smtp) {
+      await this.transporter.sendMail({
+        from: { name: message.senderName ?? 'Venue platform', address: this.mail.smtp.from },
+        to,
+        replyTo: message.replyTo ?? undefined,
+        subject,
+        text: message.text,
+      });
+      return;
+    }
     if (this.app.env !== Environment.Test) {
       this.logger.log(
-        `Email to ${message.to} from ${message.senderName ?? 'the platform'}\n` +
-          `Subject: ${message.subject}\n\n${message.text}`,
+        `Email to ${to.join(', ')} from ${message.senderName ?? 'the platform'}\n` +
+          `Subject: ${subject}\n\n${message.text}`,
       );
     }
-    await Promise.resolve();
   }
 }

@@ -18,7 +18,7 @@ import {
 } from '../access/org-access.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
-import { CheckPlanDto, PublishPlanDto, SavePlanDto } from './dto/stall-plans.dto';
+import { CheckPlanDto, PublishPlanDto, RejectPlanDto, SavePlanDto } from './dto/stall-plans.dto';
 import { StallPlansService } from './stall-plans.service';
 import type { PlanCheckView, PlannerView, StallPlanView } from './stall-plans.views';
 
@@ -65,6 +65,61 @@ export class StallPlansController {
     @Body() dto: PublishPlanDto,
   ): Promise<StallPlanView> {
     return this.plans.publish(access, id, hallId, dto, user);
+  }
+
+  /** External events: the organiser sends the saved plan to the venue for approval. */
+  @RequirePermissions('events.view', 'layouts.publish')
+  @Post('submit')
+  @HttpCode(HttpStatus.OK)
+  submit(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Body() dto: PublishPlanDto,
+  ): Promise<StallPlanView> {
+    return this.plans.submit(access, id, hallId, dto, user);
+  }
+
+  /** The organiser takes back a plan that waits for approval. */
+  @RequirePermissions('events.view', 'layouts.edit')
+  @Post('withdraw')
+  @HttpCode(HttpStatus.OK)
+  withdraw(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+  ): Promise<StallPlanView> {
+    return this.plans.withdraw(access, id, hallId, user);
+  }
+
+  /** The venue approves the plan that waits, which publishes it. */
+  @RequirePermissions('events.view', 'layouts.approve')
+  @Post('approve')
+  @HttpCode(HttpStatus.OK)
+  approve(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Body() dto: PublishPlanDto,
+  ): Promise<StallPlanView> {
+    return this.plans.review(access, id, hallId, dto, true, user);
+  }
+
+  /** The venue sends the plan that waits back to the organiser, saying what to change. */
+  @RequirePermissions('events.view', 'layouts.approve')
+  @Post('reject')
+  @HttpCode(HttpStatus.OK)
+  reject(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Body() dto: RejectPlanDto,
+  ): Promise<StallPlanView> {
+    return this.plans.review(access, id, hallId, dto, false, user);
   }
 
   @RequirePermissions('events.view', 'layouts.edit')

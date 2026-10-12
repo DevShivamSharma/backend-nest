@@ -23,6 +23,7 @@ export const RULE_IDS = [
   'FOYER',
   'PARTITION',
   'SMOKE_CURTAIN',
+  'PILLAR',
   'cornerKeepOut',
   'internalZones',
   'eventSeparation',
@@ -156,6 +157,14 @@ export const RULES: readonly RuleDefinition[] = [
     available: true,
   },
   {
+    id: 'PILLAR',
+    label: 'Pillars',
+    description: 'No stall stands on a pillar, nor within the set clearance of one.',
+    reference: 'Planning meeting, October 2026',
+    group: 'floor',
+    available: true,
+  },
+  {
     id: 'cornerKeepOut',
     label: 'Hall corners',
     description:
@@ -207,6 +216,8 @@ export interface RuleValues {
   facilityClearance: number;
   /** Kept free around partitions. */
   partitionClearance: number;
+  /** Kept free around pillars. */
+  pillarClearance: number;
   /** Free depth in front of an emergency exit. */
   emergencyExitClearance: number;
   /** Stall sizes are multiples of this. */
@@ -225,6 +236,7 @@ export const DEFAULT_RULE_VALUES: RuleValues = {
   curtainClearance: 1,
   facilityClearance: 1,
   partitionClearance: 1,
+  pillarClearance: 1,
   emergencyExitClearance: 3,
   sizeStep: 1,
   maxUtilization: 0.7,
@@ -248,6 +260,7 @@ export const VALUE_LIMITS: readonly ValueLimit[] = [
   { key: 'curtainClearance', label: 'Clearance around fire curtains', unit: 'm', min: 0, max: 10 },
   { key: 'facilityClearance', label: 'Clearance around services', unit: 'm', min: 0, max: 10 },
   { key: 'partitionClearance', label: 'Clearance along partitions', unit: 'm', min: 0, max: 10 },
+  { key: 'pillarClearance', label: 'Clearance around pillars', unit: 'm', min: 0, max: 10 },
   {
     key: 'emergencyExitClearance',
     label: 'Free depth at emergency exits',

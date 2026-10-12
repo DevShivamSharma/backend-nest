@@ -3,15 +3,17 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditService } from '../audit/audit.service';
-import type { Actor, OrgAccessContext } from '../common/http/authenticated-request';
+import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { EventEntity } from '../events/event.entity';
 import type { EventHallDetailView } from '../events/event.views';
 import { EventsService } from '../events/events.service';
+import { MailMessage, MailService } from '../mail/mail.service';
 import { drawingProfile } from '../rules/drawing-profiles';
 import { ringArea } from '../venues/floor-plan/geometry';
 import {
@@ -21,9 +23,17 @@ import {
   PlanStallDto,
   PlanZoneDto,
   PublishPlanDto,
+  RejectPlanDto,
   SavePlanDto,
 } from './dto/stall-plans.dto';
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
+import { PricingService } from './pricing/pricing.service';
+import {
+  planApprovedEmail,
+  planRejectedEmail,
+  planSubmittedEmail,
+  PlanReviewMail,
+} from './plan-review-email';
 import {
   PlanObjectEntity,
   PlanSeatEntity,
@@ -35,6 +45,7 @@ import type {
   PlanCheckView,
   PlannerView,
   PlanObjectView,
+  PlanReviewView,
   PlanSeatView,
   PlanStallView,
   PlanZoneView,
@@ -60,13 +71,23 @@ type PlanContent = {
  *
  * Who draws: on an internal event the venue's own team, on an external one the organisers the
  * venue invited to it. Both need `layouts.edit`; everyone else with `layouts.view` reads.
+ *
+ * Who publishes: on an internal event the venue's team (`layouts.publish`). On an external one
+ * the organiser (`layouts.publish`) sends the saved plan for approval, and the venue's team
+ * (`layouts.approve`) approves it, which publishes it, or sends it back with a note. Each step
+ * is emailed to the other side. While a plan waits, the organiser cannot change it, only
+ * withdraw it.
  */
 @Injectable()
 export class StallPlansService {
+  private readonly logger = new Logger(StallPlansService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly events: EventsService,
     private readonly audit: AuditService,
+    private readonly mail: MailService,
+    private readonly pricing: PricingService,
   ) {}
 
   async get(access: OrgAccessContext, id: string, hallId: string): Promise<PlannerView> {
@@ -75,13 +96,29 @@ export class StallPlansService {
     const plan = await this.dataSource
       .getRepository(StallPlanEntity)
       .findOneBy({ eventHallId: row.id });
-    const readOnlyReason = StallPlansService.readOnlyReason(access, event);
+    const drawer = StallPlansService.readOnlyReason(access, event);
+    const waiting = event.kind === 'external' && plan?.reviewStatus === 'submitted';
+    const readOnlyReason = drawer ?? (waiting ? StallPlansService.waitingReason(access) : null);
+    const publisher = !drawer && access.permissions.includes('layouts.publish');
+    const venueTeam = !EventsService.isOrganiser(access);
+    const saved = await this.planView(this.dataSource.manager, plan);
+    // The venue reviews an external event's plan: what the saved plan breaks, if anything.
+    const findings =
+      event.kind === 'external' && venueTeam && saved.revision > 0
+        ? [...StallPlansService.structure(saved, hall), ...StallPlansService.rules(saved, hall)]
+        : null;
     return {
       hall,
-      plan: await this.planView(this.dataSource.manager, plan),
+      plan: saved,
+      findings,
+      pricing: await this.pricing.view(access, event, row.id),
       canEdit: !readOnlyReason,
       readOnlyReason,
-      canPublish: !readOnlyReason && access.permissions.includes('layouts.publish'),
+      canPublish: publisher && event.kind === 'internal',
+      needsApproval: event.kind === 'external',
+      canSubmit: publisher && event.kind === 'external' && !waiting,
+      canWithdraw: !drawer && waiting,
+      canApprove: waiting && venueTeam && access.permissions.includes('layouts.approve'),
     };
   }
 
@@ -99,6 +136,11 @@ export class StallPlansService {
   ): Promise<StallPlanView> {
     const { event, row } = await this.events.eventHallOf(access, id, hallId);
     this.assertCanEdit(access, event);
+    if (event.kind === 'external') {
+      throw new ForbiddenException(
+        `${access.organisation.name} publishes the plans of external events: send it for approval.`,
+      );
+    }
     const hall = await this.events.hall(access, id, hallId);
     return this.dataSource.transaction(async (em) => {
       const plans = em.getRepository(StallPlanEntity);
@@ -192,6 +234,9 @@ export class StallPlansService {
         where: { eventHallId: row.id },
         lock: { mode: 'pessimistic_write' },
       });
+      if (event.kind === 'external' && plan.reviewStatus === 'submitted') {
+        throw new ForbiddenException(StallPlansService.waitingReason(access));
+      }
       if (plan.revision !== dto.revision) {
         throw new ConflictException(
           'Someone saved this plan after you opened it. Reload the planner to see their changes.',
@@ -253,6 +298,12 @@ export class StallPlansService {
         })),
       );
 
+      await this.pricing.dropMissing(
+        em,
+        row.id,
+        dto.stalls.map((st) => st.id),
+      );
+
       plan.revision += 1;
       plan.updatedById = actor.id;
       const saved = await plans.save(plan);
@@ -277,6 +328,294 @@ export class StallPlansService {
       );
       return this.planView(em, saved);
     });
+  }
+
+  // ---- approval of external events' plans ---------------------------------------------------
+
+  /** The organiser sends the saved plan to the venue for approval; the venue is emailed. */
+  async submit(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+    dto: PublishPlanDto,
+    actor: AuthUser,
+  ): Promise<StallPlanView> {
+    const { event, row } = await this.events.eventHallOf(access, id, hallId);
+    this.assertCanEdit(access, event);
+    if (event.kind !== 'external') {
+      throw new BadRequestException(
+        'Plans of internal events are published, not sent for approval.',
+      );
+    }
+    const hall = await this.events.hall(access, id, hallId);
+    const view = await this.dataSource.transaction(async (em) => {
+      const plans = em.getRepository(StallPlanEntity);
+      const plan = await plans.findOne({
+        where: { eventHallId: row.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!plan || plan.revision === 0) {
+        throw new BadRequestException('Save the plan before sending it for approval.');
+      }
+      if (plan.reviewStatus === 'submitted') {
+        throw new ConflictException('This plan is already waiting for approval.');
+      }
+      if (plan.revision !== dto.revision) {
+        throw new ConflictException(
+          'The saved plan changed after you opened it. Reload the planner, then send it.',
+        );
+      }
+      if (plan.publishedRevision === plan.revision) {
+        throw new BadRequestException('This plan is approved and published as it is.');
+      }
+      const saved = await this.planView(em, plan);
+      const problems = [
+        ...StallPlansService.structure(saved, hall),
+        ...StallPlansService.rules(saved, hall),
+      ];
+      if (problems.length) {
+        throw new BadRequestException(
+          StallPlansService.refusal(problems).replace('was not saved', 'was not sent'),
+        );
+      }
+      // Prices are not the venue's to approve, but a plan goes with every stall for sale priced.
+      const unpriced = await this.pricing.unpriced(em, plan);
+      if (unpriced.length) {
+        throw new BadRequestException(
+          `The plan was not sent: ${PricingService.unpricedMessage(unpriced)}`,
+        );
+      }
+      Object.assign(plan, {
+        reviewStatus: 'submitted',
+        reviewRevision: plan.revision,
+        submittedAt: new Date(),
+        submittedById: actor.id,
+        reviewedAt: null,
+        reviewedById: null,
+        reviewNote: null,
+      });
+      const sent = await plans.save(plan);
+      await this.audit.record(
+        {
+          action: 'plan.submitted',
+          actor,
+          organisationId: access.organisation.id,
+          targetType: 'event',
+          targetId: event.id,
+          metadata: { name: event.name, hall: hall.hall.name, revision: plan.revision },
+        },
+        em,
+      );
+      return this.planView(em, sent);
+    });
+    const to = await this.approverEmails(access.organisation.id);
+    await this.notify(
+      planSubmittedEmail(
+        this.reviewMail(access, event, hall, view.revision, actor, id, hallId, to),
+      ),
+    );
+    return view;
+  }
+
+  /** The organiser takes back a plan that waits for approval, to change it. */
+  async withdraw(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+    actor: Actor,
+  ): Promise<StallPlanView> {
+    const { event, row } = await this.events.eventHallOf(access, id, hallId);
+    this.assertCanEdit(access, event);
+    const hall = await this.events.hall(access, id, hallId);
+    return this.dataSource.transaction(async (em) => {
+      const plans = em.getRepository(StallPlanEntity);
+      const plan = await plans.findOne({
+        where: { eventHallId: row.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!plan || plan.reviewStatus !== 'submitted') {
+        throw new ConflictException('This plan is not waiting for approval.');
+      }
+      const revision = plan.reviewRevision;
+      Object.assign(plan, StallPlansService.noReview());
+      const back = await plans.save(plan);
+      await this.audit.record(
+        {
+          action: 'plan.withdrawn',
+          actor,
+          organisationId: access.organisation.id,
+          targetType: 'event',
+          targetId: event.id,
+          metadata: { name: event.name, hall: hall.hall.name, revision },
+        },
+        em,
+      );
+      return this.planView(em, back);
+    });
+  }
+
+  /**
+   * The venue approves the plan that waits, which publishes it, or sends it back with a note.
+   * Either way the organiser is emailed. Approval checks the rules again: they may have
+   * changed since the plan was sent.
+   */
+  async review(
+    access: OrgAccessContext,
+    id: string,
+    hallId: string,
+    dto: PublishPlanDto | RejectPlanDto,
+    approve: boolean,
+    actor: AuthUser,
+  ): Promise<StallPlanView> {
+    const { event, row } = await this.events.eventHallOf(access, id, hallId);
+    if (event.kind !== 'external' || EventsService.isOrganiser(access)) {
+      throw new ForbiddenException(
+        `${access.organisation.name}’s team approves the plans of external events.`,
+      );
+    }
+    const hall = await this.events.hall(access, id, hallId);
+    const note = 'note' in dto ? dto.note : null;
+    const { view, submittedById } = await this.dataSource.transaction(async (em) => {
+      const plans = em.getRepository(StallPlanEntity);
+      const plan = await plans.findOne({
+        where: { eventHallId: row.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!plan || plan.reviewStatus !== 'submitted') {
+        throw new ConflictException('This plan is not waiting for approval.');
+      }
+      if (plan.reviewRevision !== dto.revision) {
+        throw new ConflictException(
+          'The organiser changed what waits for approval. Reload the planner to see it.',
+        );
+      }
+      const now = new Date();
+      if (approve) {
+        const saved = await this.planView(em, plan);
+        const problems = [
+          ...StallPlansService.structure(saved, hall),
+          ...StallPlansService.rules(saved, hall),
+        ];
+        if (problems.length) {
+          throw new BadRequestException(
+            StallPlansService.refusal(problems).replace(
+              'The plan was not saved',
+              'The plan cannot be approved; send it back',
+            ),
+          );
+        }
+        Object.assign(plan, {
+          publishedRevision: plan.revision,
+          publishedAt: now,
+          publishedById: actor.id,
+        });
+      }
+      Object.assign(plan, {
+        reviewStatus: approve ? 'approved' : 'rejected',
+        reviewedAt: now,
+        reviewedById: actor.id,
+        reviewNote: note,
+      });
+      const answered = await plans.save(plan);
+      await this.audit.record(
+        {
+          action: approve ? 'plan.approved' : 'plan.rejected',
+          actor,
+          organisationId: access.organisation.id,
+          targetType: 'event',
+          targetId: event.id,
+          metadata: {
+            name: event.name,
+            hall: hall.hall.name,
+            revision: plan.revision,
+            ...(note ? { note } : {}),
+          },
+        },
+        em,
+      );
+      return { view: await this.planView(em, answered), submittedById: plan.submittedById };
+    });
+    const to = await this.organiserEmails(access.organisation.id, event.id, submittedById);
+    const mail = this.reviewMail(access, event, hall, dto.revision, actor, id, hallId, to);
+    await this.notify(
+      approve ? planApprovedEmail(mail) : planRejectedEmail({ ...mail, note: note! }),
+    );
+    return view;
+  }
+
+  /** Members of the venue's own team who may approve: their role holds `layouts.approve`. */
+  private async approverEmails(organisationId: string): Promise<string[]> {
+    const rows: Array<{ email: string }> = await this.dataSource.query(
+      `SELECT DISTINCT u.email
+         FROM memberships m
+         JOIN roles r ON r.id = m.role_id
+         JOIN users u ON u.id = m.user_id
+        WHERE m.organisation_id = $1
+          AND u.status = 'active'
+          AND r.scope_kind = 'organisation'
+          AND (r.is_locked OR 'layouts.approve' = ANY (r.permissions))`,
+      [organisationId],
+    );
+    return rows.map((r) => r.email);
+  }
+
+  /** Who sent the plan, and the event's organisers who may draw it. */
+  private async organiserEmails(
+    organisationId: string,
+    eventId: string,
+    submittedById: string | null,
+  ): Promise<string[]> {
+    const rows: Array<{ email: string }> = await this.dataSource.query(
+      `SELECT DISTINCT u.email
+         FROM memberships m
+         JOIN roles r ON r.id = m.role_id
+         JOIN users u ON u.id = m.user_id
+        WHERE m.organisation_id = $1
+          AND u.status = 'active'
+          AND (
+            u.id = $3
+            OR (
+              r.scope_kind = 'event'
+              AND m.scope -> 'eventIds' @> jsonb_build_array($2::text)
+              AND 'layouts.edit' = ANY (r.permissions)
+            )
+          )`,
+      [organisationId, eventId, submittedById],
+    );
+    return rows.map((r) => r.email);
+  }
+
+  private reviewMail(
+    access: OrgAccessContext,
+    event: EventEntity,
+    hall: EventHallDetailView,
+    revision: number,
+    actor: AuthUser,
+    id: string,
+    hallId: string,
+    to: string[],
+  ): PlanReviewMail {
+    return {
+      to,
+      organisation: access.organisation,
+      eventName: event.name,
+      organiserName: event.organiserName,
+      hallName: hall.hall.name,
+      revision,
+      byName: actor.name,
+      link: this.mail.link(`/${access.organisation.slug}/events/${id}/halls/${hallId}/planner`),
+    };
+  }
+
+  /** Sends after the change is stored: a mail server that fails does not undo the approval. */
+  private async notify(message: MailMessage): Promise<void> {
+    try {
+      await this.mail.send(message);
+    } catch (error) {
+      this.logger.error(
+        `Could not send "${message.subject}": ${error instanceof Error ? error.message : error}`,
+      );
+    }
   }
 
   // ---- helpers ------------------------------------------------------------------------------
@@ -397,6 +736,23 @@ export class StallPlansService {
     });
   }
 
+  /** Why the organiser cannot change a plan that waits for approval. */
+  private static waitingReason(access: OrgAccessContext): string {
+    return `The plan was sent to ${access.organisation.name} for approval. It can change again once they answer, or after you withdraw it.`;
+  }
+
+  private static noReview(): Partial<StallPlanEntity> {
+    return {
+      reviewStatus: null,
+      reviewRevision: null,
+      submittedAt: null,
+      submittedById: null,
+      reviewedAt: null,
+      reviewedById: null,
+      reviewNote: null,
+    };
+  }
+
   private static published(plan: StallPlanEntity): StallPlanView['published'] {
     return plan.publishedRevision && plan.publishedAt
       ? { revision: plan.publishedRevision, at: plan.publishedAt.toISOString() }
@@ -409,12 +765,37 @@ export class StallPlansService {
     return `The plan was not saved: ${named.join(' ')}${more ? ` And ${more} more.` : ''}`;
   }
 
+  private async reviewView(
+    em: EntityManager,
+    plan: StallPlanEntity,
+  ): Promise<PlanReviewView | null> {
+    if (!plan.reviewStatus || !plan.reviewRevision || !plan.submittedAt) return null;
+    const ids = [plan.submittedById, plan.reviewedById].filter((v): v is string => !!v);
+    const names = new Map<string, string>(
+      ids.length
+        ? (await em.query(`SELECT id, name FROM users WHERE id = ANY ($1::uuid[])`, [ids])).map(
+            (u: { id: string; name: string }) => [u.id, u.name],
+          )
+        : [],
+    );
+    return {
+      status: plan.reviewStatus,
+      revision: plan.reviewRevision,
+      submittedAt: plan.submittedAt.toISOString(),
+      submittedBy: (plan.submittedById && names.get(plan.submittedById)) ?? null,
+      reviewedAt: plan.reviewedAt?.toISOString() ?? null,
+      reviewedBy: (plan.reviewedById && names.get(plan.reviewedById)) ?? null,
+      note: plan.reviewNote,
+    };
+  }
+
   private async planView(em: EntityManager, plan: StallPlanEntity | null): Promise<StallPlanView> {
     if (!plan) {
       return {
         revision: 0,
         updatedAt: null,
         published: null,
+        review: null,
         zones: [],
         stalls: [],
         seats: [],
@@ -437,6 +818,7 @@ export class StallPlansService {
       revision: plan.revision,
       updatedAt: plan.updatedAt.toISOString(),
       published: StallPlansService.published(plan),
+      review: await this.reviewView(em, plan),
       zones: zones.map(zoneView),
       stalls: stalls.map(stallView),
       seats: seats.map(seatView),

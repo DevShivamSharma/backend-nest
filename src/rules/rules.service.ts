@@ -8,6 +8,7 @@ import { HallsService } from '../venues/halls.service';
 import { DRAWING_PROFILES, drawingProfile } from './drawing-profiles';
 import { CheckLayoutDto, UpdateRulesDto } from './dto/rules.dto';
 import {
+  DEFAULT_RULE_VALUES,
   effectiveValues,
   RULE_IDS,
   RuleId,
@@ -71,7 +72,14 @@ export class RulesService {
         if (flipped.length) changed.push(`switches (${flipped.join(', ')})`);
       }
       if (dto.values !== undefined) {
-        rules.values = this.values(dto.values);
+        rules.values = this.values({
+          ...dto.values,
+          // A client that predates the Pillars rule keeps the clearance there is.
+          pillarClearance:
+            dto.values.pillarClearance ??
+            rules.values?.pillarClearance ??
+            DEFAULT_RULE_VALUES.pillarClearance,
+        });
         changed.push('values');
       }
       if (dto.references !== undefined) {

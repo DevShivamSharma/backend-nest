@@ -24,7 +24,7 @@ const MAX_TEXT = 200;
 export type FloorAreaKind =
   | 'outside' // not part of the hall: the space around an irregular outline
   | 'wall'
-  | 'column' // a pillar; stalls may be built around one
+  | 'column' // a pillar; the Pillars rule keeps stalls off it and clear of it
   | 'passage' // a compulsory passage for entry, exit or services
   | 'fire_curtain' // nothing may be built below it
   | 'no_build' // any other no-construction zone
@@ -160,7 +160,8 @@ export interface HallFloor {
 
 /** Whether stalls may not stand on an area of this kind. */
 export function blocksStalls(kind: FloorAreaKind): boolean {
-  // Columns: ITPO's own approved layouts build stalls around them. Markings: no stated meaning.
+  // Columns: the Pillars rule decides, with its clearance (it can be switched off where stalls
+  // are built around pillars, as ITPO's older layouts do). Markings: no stated meaning.
   return kind !== 'column' && kind !== 'marking';
 }
 

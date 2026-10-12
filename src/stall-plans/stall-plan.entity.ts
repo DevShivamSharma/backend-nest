@@ -16,6 +16,9 @@ export type StallScheme = (typeof STALL_SCHEMES)[number];
 export const PLAN_OBJECT_KINDS = ['line', 'rect', 'circle', 'polyline', 'text'] as const;
 export type PlanObjectKind = (typeof PLAN_OBJECT_KINDS)[number];
 
+export const PLAN_REVIEW_STATUSES = ['submitted', 'approved', 'rejected'] as const;
+export type PlanReviewStatus = (typeof PLAN_REVIEW_STATUSES)[number];
+
 /** The stall plan of one hall of an event. `revision` goes up with every save. */
 @Entity({ name: 'stall_plans' })
 export class StallPlanEntity {
@@ -40,6 +43,33 @@ export class StallPlanEntity {
 
   @Column({ name: 'published_by', type: 'uuid', nullable: true })
   publishedById!: string | null;
+
+  /**
+   * An external event's plan goes to the venue for approval: sent, then approved (and so
+   * published) or sent back. Null while it was never sent, or after it was withdrawn.
+   */
+  @Column({ name: 'review_status', type: 'varchar', length: 16, nullable: true })
+  reviewStatus!: PlanReviewStatus | null;
+
+  /** The saved revision that was sent. */
+  @Column({ name: 'review_revision', type: 'integer', nullable: true })
+  reviewRevision!: number | null;
+
+  @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
+  submittedAt!: Date | null;
+
+  @Column({ name: 'submitted_by', type: 'uuid', nullable: true })
+  submittedById!: string | null;
+
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  reviewedAt!: Date | null;
+
+  @Column({ name: 'reviewed_by', type: 'uuid', nullable: true })
+  reviewedById!: string | null;
+
+  /** Why the venue sent it back. */
+  @Column({ name: 'review_note', type: 'varchar', length: 1000, nullable: true })
+  reviewNote!: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

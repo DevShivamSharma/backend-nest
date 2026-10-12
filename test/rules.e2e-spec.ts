@@ -87,7 +87,7 @@ describe('Rules (e2e)', () => {
       .get('/api/orgs/rules-itpo/rules/catalogue')
       .set(auth(viewer))
       .expect(200);
-    expect(res.body.rules).toHaveLength(17);
+    expect(res.body.rules).toHaveLength(18);
     expect(res.body.rules.find((r: { id: string }) => r.id === 'internalZones')).toMatchObject({
       available: false,
     });

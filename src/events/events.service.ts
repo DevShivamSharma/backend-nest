@@ -234,7 +234,13 @@ export class EventsService {
       .findOneByOrFail({ hallId, version: row.floorVersion });
     const [view] = await this.hallViews(em, event, !EventsService.isOrganiser(access), [row]);
     return {
-      event: { id: event.id, name: event.name, kind: event.kind, audience: event.audience },
+      event: {
+        id: event.id,
+        name: event.name,
+        kind: event.kind,
+        audience: event.audience,
+        organiserName: event.organiserName,
+      },
       hall: view,
       floor: floor.floor,
       rules: EventsService.rulesView(row),

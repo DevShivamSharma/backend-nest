@@ -5,6 +5,8 @@ import { Events1791900000000 } from './migrations/1791900000000-Events';
 import { StallPlanning1792000000000 } from './migrations/1792000000000-StallPlanning';
 import { PlanObjects1792100000000 } from './migrations/1792100000000-PlanObjects';
 import { PlanPublishing1792200000000 } from './migrations/1792200000000-PlanPublishing';
+import { PlanReview1792300000000 } from './migrations/1792300000000-PlanReview';
+import { StallPricing1792400000000 } from './migrations/1792400000000-StallPricing';
 import { EventHallCategoryEntity, StallCategoryEntity } from '../categories/category.entity';
 import {
   PlanObjectEntity,
@@ -13,6 +15,7 @@ import {
   PlanZoneEntity,
   StallPlanEntity,
 } from '../stall-plans/stall-plan.entity';
+import { StallPriceCardEntity, StallPriceEntity } from '../stall-plans/pricing/pricing.entity';
 import { EventEntity, EventHallEntity } from '../events/event.entity';
 import { OrganisationRulesEntity } from '../rules/rules.entity';
 import { JsonFloorSource1791500000000 } from './migrations/1791500000000-JsonFloorSource';
@@ -71,6 +74,8 @@ export const ENTITIES = [
   PlanStallEntity,
   PlanSeatEntity,
   PlanObjectEntity,
+  StallPriceCardEntity,
+  StallPriceEntity,
 ];
 
 /**
@@ -97,6 +102,8 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       StallPlanning1792000000000,
       PlanObjects1792100000000,
       PlanPublishing1792200000000,
+      PlanReview1792300000000,
+      StallPricing1792400000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

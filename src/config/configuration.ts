@@ -32,6 +32,16 @@ export interface AuthConfig {
 
 export interface MailConfig {
   transport: MailTransport;
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string | null;
+    password: string | null;
+    from: string;
+  } | null;
+  /** Outside production, where every email goes instead; empty to send as addressed. */
+  redirectTo: string[];
 }
 
 /** One model the assistant may use. */
@@ -113,6 +123,24 @@ export function configuration(): Configuration {
     },
     mail: {
       transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,
+      smtp:
+        env.MAIL_TRANSPORT === MailTransport.Smtp
+          ? {
+              host: env.SMTP_HOST_NAME ?? '',
+              port: Number(env.SMTP_PORT ?? 465),
+              secure: env.SMTP_SECURE !== 'false',
+              user: env.SMTP_AUTH_USER || null,
+              password: env.SMTP_AUTH_PASSWORD || null,
+              from: env.SMTP_FROM_EMAIL ?? '',
+            }
+          : null,
+      redirectTo:
+        nodeEnv === Environment.Production
+          ? []
+          : (env.MAIL_REDIRECT_TO ?? '')
+              .split(',')
+              .map((a) => a.trim())
+              .filter(Boolean),
     },
     ai: aiConfig(env),
   };

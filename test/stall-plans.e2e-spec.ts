@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 
+import { MailMessage, MailService } from '../src/mail/mail.service';
 import { createTestApp, login, SUPER_ADMIN, tokenFrom } from './test-app';
 
 /**
@@ -48,6 +49,19 @@ describe('Stall planning (e2e)', () => {
       isActive: true,
       location: null,
       description: null,
+      ...more,
+    };
+  }
+
+  function rates(more: Record<string, unknown> = {}) {
+    return {
+      bareRate: 8000,
+      shellRate: 9500,
+      side2Percent: 5,
+      side3Percent: 10,
+      side4Percent: 15,
+      catalogueCharge: 5000,
+      fnbPrice: null,
       ...more,
     };
   }
@@ -295,5 +309,250 @@ describe('Stall planning (e2e)', () => {
     await http.get(plan(fair)).set(auth(organiser)).expect(404);
     // Categories are the venue's.
     await http.get(`${base}/categories`).set(auth(organiser)).expect(403);
+  });
+  it('sends an external event’s plan to the venue for approval, and emails each answer', async () => {
+    // The plan's emails; invitations go by too.
+    const sent: MailMessage[] = [];
+    const spy = jest.spyOn(app.get(MailService), 'send').mockImplementation(async (m) => {
+      if (m.subject.startsWith('Stall plan')) sent.push(m);
+    });
+    const roles = (await http.get(`${base}/roles`).set(auth(owner))).body;
+    const invited = await http
+      .post(`${base}/events/${expo}/people`)
+      .set(auth(owner))
+      .send({
+        email: 'admin@expo.test',
+        roleId: roles.find((r: { key: string }) => r.key === 'organiser_admin').id,
+      })
+      .expect(201);
+    const lead = await accept(invited.body.invitation.inviteUrl, 'Expo Lead', 'expo-lead-pass-1');
+
+    // The organiser cannot publish an external event's plan; they send it for approval.
+    const opened = await http.get(plan(expo)).set(auth(lead)).expect(200);
+    expect(opened.body).toMatchObject({
+      canPublish: false,
+      needsApproval: true,
+      canSubmit: true,
+      canApprove: false,
+    });
+    await http
+      .post(`${plan(expo)}/publish`)
+      .set(auth(lead))
+      .send({ revision: 1 })
+      .expect(403);
+    // Every stall for sale needs a price before the plan goes.
+    const unpriced = await http
+      .post(`${plan(expo)}/submit`)
+      .set(auth(lead))
+      .send({ revision: 1 })
+      .expect(400);
+    expect(unpriced.body.message).toBe(
+      'The plan was not sent: 1 stall for sale has no price: B-1. Price it first.',
+    );
+    await http
+      .put(`${plan(expo)}/pricing/card`)
+      .set(auth(lead))
+      .send({ general: rates() })
+      .expect(200);
+    const submitted = await http
+      .post(`${plan(expo)}/submit`)
+      .set(auth(lead))
+      .send({ revision: 1 })
+      .expect(200);
+    expect(submitted.body.review).toMatchObject({
+      status: 'submitted',
+      revision: 1,
+      submittedBy: 'Expo Lead',
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(['ops@sp-itpo.test']);
+    expect(sent[0].subject).toBe('Stall plan for approval: Expo, Hall 5');
+    expect(sent[0].text).toContain('Expo Lead (Expo Co) sent the stall plan of Hall 5');
+    expect(sent[0].text).toContain(`/sp-itpo/events/${expo}/halls/${hall}/planner`);
+
+    // While it waits, the organiser cannot change it; the venue may answer.
+    const waiting = await http.get(plan(expo)).set(auth(lead)).expect(200);
+    expect(waiting.body).toMatchObject({ canEdit: false, canSubmit: false, canWithdraw: true });
+    expect(waiting.body.readOnlyReason).toMatch(/sent to Org sp for approval/);
+    await http
+      .put(plan(expo))
+      .set(auth(lead))
+      .send({ revision: 1, zones: [], stalls: [], seats: [], objects: [] })
+      .expect(403);
+    await http
+      .post(`${plan(expo)}/approve`)
+      .set(auth(lead))
+      .send({ revision: 1 })
+      .expect(403);
+    const venue = await http.get(plan(expo)).set(auth(owner)).expect(200);
+    expect(venue.body.canApprove).toBe(true);
+    // The venue sees what the saved plan breaks; the organiser is not given it.
+    expect(venue.body.findings).toEqual([]);
+    expect(waiting.body.findings).toBeNull();
+
+    // Sent back, with what to change: the sender and the event's drawers are told.
+    await http
+      .post(`${plan(expo)}/reject`)
+      .set(auth(owner))
+      .send({ revision: 1 })
+      .expect(400);
+    const rejected = await http
+      .post(`${plan(expo)}/reject`)
+      .set(auth(owner))
+      .send({ revision: 1, note: 'Leave 3 m in front of the fire exit.' })
+      .expect(200);
+    expect(rejected.body.review).toMatchObject({
+      status: 'rejected',
+      reviewedBy: 'Ops',
+      note: 'Leave 3 m in front of the fire exit.',
+    });
+    expect(rejected.body.published).toBeNull();
+    expect(sent).toHaveLength(2);
+    expect([sent[1].to].flat().sort()).toEqual(['admin@expo.test', 'architect@expo.test']);
+    expect(sent[1].subject).toBe('Stall plan sent back: Expo, Hall 5');
+    expect(sent[1].text).toContain('Leave 3 m in front of the fire exit.');
+
+    // Changed, sent again, approved: approval publishes it.
+    await http
+      .put(plan(expo))
+      .set(auth(lead))
+      .send({ revision: 1, zones: [], stalls: [stall('1', 14, 10)], seats: [], objects: [] })
+      .expect(200);
+    await http
+      .post(`${plan(expo)}/submit`)
+      .set(auth(lead))
+      .send({ revision: 2 })
+      .expect(200);
+    await http
+      .post(`${plan(expo)}/approve`)
+      .set(auth(owner))
+      .send({ revision: 1 })
+      .expect(409);
+    const approved = await http
+      .post(`${plan(expo)}/approve`)
+      .set(auth(owner))
+      .send({ revision: 2 })
+      .expect(200);
+    expect(approved.body.review).toMatchObject({ status: 'approved', revision: 2 });
+    expect(approved.body.published).toMatchObject({ revision: 2 });
+    expect(sent.map((m) => m.subject).slice(2)).toEqual([
+      'Stall plan for approval: Expo, Hall 5',
+      'Stall plan approved: Expo, Hall 5',
+    ]);
+    await http
+      .post(`${plan(expo)}/submit`)
+      .set(auth(lead))
+      .send({ revision: 2 })
+      .expect(400);
+
+    // A plan sent by mistake is withdrawn, and can be changed again.
+    await http
+      .put(plan(expo))
+      .set(auth(lead))
+      .send({ revision: 2, zones: [], stalls: [stall('1', 18, 10)], seats: [], objects: [] })
+      .expect(200);
+    await http
+      .post(`${plan(expo)}/submit`)
+      .set(auth(lead))
+      .send({ revision: 3 })
+      .expect(200);
+    const back = await http
+      .post(`${plan(expo)}/withdraw`)
+      .set(auth(lead))
+      .expect(200);
+    expect(back.body.review).toBeNull();
+    expect(back.body.published).toMatchObject({ revision: 2 });
+    expect((await http.get(plan(expo)).set(auth(lead))).body.canEdit).toBe(true);
+    // Internal events are published, not sent.
+    await http
+      .post(`${plan(fair)}/submit`)
+      .set(auth(owner))
+      .send({ revision: 1 })
+      .expect(400);
+    spy.mockRestore();
+  });
+  it('prices stalls by the hall’s rate card and on single stalls, by the team that plans them', async () => {
+    const roles = (await http.get(`${base}/roles`).set(auth(owner))).body;
+    // The venue prices its internal event.
+    const opened = await http.get(plan(fair)).set(auth(owner)).expect(200);
+    expect(opened.body.pricing).toEqual({
+      card: null,
+      prices: [],
+      canManage: true,
+      readOnlyReason: null,
+    });
+    await http
+      .put(`${plan(fair)}/pricing/card`)
+      .set(auth(owner))
+      .send({ general: rates({ side2Percent: -1 }) })
+      .expect(400);
+    const card = await http
+      .put(`${plan(fair)}/pricing/card`)
+      .set(auth(owner))
+      .send({ general: rates(), premium: rates({ shellRate: 12000 }), marquee: null })
+      .expect(200);
+    expect(card.body.card).toEqual({
+      general: rates(),
+      premium: rates({ shellRate: 12000 }),
+      marquee: null,
+    });
+
+    // A price on one stall, then taken off again.
+    const stalls = opened.body.plan.stalls as Array<{ id: string }>;
+    expect(stalls.length).toBeGreaterThan(0);
+    const [first] = stalls;
+    const set = await http
+      .put(`${plan(fair)}/pricing/stalls`)
+      .set(auth(owner))
+      .send({ prices: [{ stallId: first.id, price: 150000, note: '  Agreed with the buyer ' }] })
+      .expect(200);
+    expect(set.body.prices).toEqual([
+      { stallId: first.id, price: 150000, note: 'Agreed with the buyer' },
+    ]);
+    const off = await http
+      .put(`${plan(fair)}/pricing/stalls`)
+      .set(auth(owner))
+      .send({ prices: [{ stallId: first.id, price: null }] })
+      .expect(200);
+    expect(off.body.prices).toEqual([]);
+
+    // A stall's price goes when a save leaves the stall out.
+    await http
+      .put(`${plan(fair)}/pricing/stalls`)
+      .set(auth(owner))
+      .send({ prices: [{ stallId: first.id, price: 1000 }] })
+      .expect(200);
+    const kept = await http.get(plan(fair)).set(auth(owner));
+    await http
+      .put(plan(fair))
+      .set(auth(owner))
+      .send({
+        revision: kept.body.plan.revision,
+        zones: [],
+        stalls: [stall('77', 30, 20)],
+        seats: [],
+        objects: [],
+      })
+      .expect(200);
+    expect((await http.get(plan(fair)).set(auth(owner))).body.pricing.prices).toEqual([]);
+
+    // The venue sees the external event's prices, but the organiser sets them.
+    const venue = await http.get(plan(expo)).set(auth(owner)).expect(200);
+    expect(venue.body.pricing).toMatchObject({ canManage: false });
+    expect(venue.body.pricing.readOnlyReason).toMatch(/Expo Co prices the stalls/);
+    await http
+      .put(`${plan(expo)}/pricing/card`)
+      .set(auth(owner))
+      .send({ general: rates() })
+      .expect(403);
+    // An organiser's architect draws but does not see prices.
+    expect(roles.find((r: { key: string }) => r.key === 'organiser_architect')).toBeDefined();
+    const architect = await http.get(plan(expo)).set(auth(organiser)).expect(200);
+    expect(architect.body.pricing).toBeNull();
+    await http
+      .put(`${plan(expo)}/pricing/stalls`)
+      .set(auth(organiser))
+      .send({ prices: [] })
+      .expect(403);
   });
 });

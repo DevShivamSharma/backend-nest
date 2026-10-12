@@ -3,8 +3,11 @@ import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { AuditModule } from '../audit/audit.module';
 import { EventsModule } from '../events/events.module';
+import { MailModule } from '../mail/mail.module';
 import { DrawingImportController } from './drawing-import/drawing-import.controller';
 import { DrawingImportService } from './drawing-import/drawing-import.service';
+import { PricingController } from './pricing/pricing.controller';
+import { PricingService } from './pricing/pricing.service';
 import { StallPlansController } from './stall-plans.controller';
 import { StallPlansService } from './stall-plans.service';
 
@@ -13,9 +16,9 @@ import { StallPlansService } from './stall-plans.service';
  * stalls read from a hall's CAD plan PDF for review.
  */
 @Module({
-  imports: [AccessModule, AuditModule, EventsModule],
-  controllers: [StallPlansController, DrawingImportController],
-  providers: [StallPlansService, DrawingImportService],
+  imports: [AccessModule, AuditModule, EventsModule, MailModule],
+  controllers: [StallPlansController, DrawingImportController, PricingController],
+  providers: [StallPlansService, DrawingImportService, PricingService],
   exports: [StallPlansService],
 })
 export class StallPlansModule {}

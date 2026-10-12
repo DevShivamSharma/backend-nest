@@ -30,6 +30,7 @@ function only(...ids: RuleId[]): RuleSwitches {
     'FOYER',
     'PARTITION',
     'SMOKE_CURTAIN',
+    'PILLAR',
     'cornerKeepOut',
     'internalZones',
     'eventSeparation',
@@ -180,6 +181,19 @@ describe('rule engine', () => {
     expect(r.violations.find((v) => v.ruleId === 'SMOKE_CURTAIN')?.message).toMatch(
       /0\.5 m .* keep 1 m/,
     );
+  });
+
+  it('keeps stalls off pillars and their clearance, unless the rule is off', () => {
+    const floor = hall({ areas: [{ kind: 'column', x: 20, y: 15, width: 1, height: 1 }] });
+    const stalls = [stall('A', 19, 14), stall('B', 21.5, 14), stall('C', 23, 20)];
+    const r = run(floor, stalls, only('PILLAR'));
+    expect(r.violations.map((v) => [v.ruleId, v.stallIds])).toEqual([
+      ['PILLAR', ['A']],
+      ['PILLAR', ['B']],
+    ]);
+    expect(r.violations[0].message).toBe('Stall A stands on a pillar.');
+    expect(r.violations[1].message).toBe('Stall B is 0.5 m from a pillar; keep 1 m clear.');
+    expect(run(floor, stalls, only()).violations).toEqual([]);
   });
 
   it('reports a band drawn in pieces once per stall', () => {
