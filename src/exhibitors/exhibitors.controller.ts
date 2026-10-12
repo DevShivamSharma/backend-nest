@@ -21,8 +21,14 @@ import {
 } from '../access/org-access.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
-import { CreateExhibitorDto, ListExhibitorsQuery, UpdateExhibitorDto } from './dto/exhibitor.dto';
-import type { ExhibitorView } from './exhibitor.views';
+import type { CreatedInvitationView } from '../team/team.views';
+import {
+  CreateExhibitorDto,
+  InviteExhibitorPersonDto,
+  ListExhibitorsQuery,
+  UpdateExhibitorDto,
+} from './dto/exhibitor.dto';
+import type { ExhibitorPeopleView, ExhibitorView } from './exhibitor.views';
 import { ExhibitorsService } from './exhibitors.service';
 
 /**
@@ -82,6 +88,26 @@ export class ExhibitorsController {
     @Param('exhibitorId', ParseUUIDPipe) exhibitorId: string,
   ): Promise<void> {
     return this.exhibitors.remove(access, exhibitorId, user);
+  }
+
+  @Get('exhibitors/:exhibitorId/people')
+  people(
+    @CurrentAccess() access: OrgAccessContext,
+    @Param('exhibitorId', ParseUUIDPipe) exhibitorId: string,
+  ): Promise<ExhibitorPeopleView> {
+    return this.exhibitors.people(access, exhibitorId);
+  }
+
+  /** Invites a person who books stalls for the exhibitor. */
+  @RequirePermissions('bookings.manage')
+  @Post('exhibitors/:exhibitorId/people')
+  invitePerson(
+    @CurrentAccess() access: OrgAccessContext,
+    @CurrentUser() user: AuthUser,
+    @Param('exhibitorId', ParseUUIDPipe) exhibitorId: string,
+    @Body() dto: InviteExhibitorPersonDto,
+  ): Promise<CreatedInvitationView> {
+    return this.exhibitors.invitePerson(access, exhibitorId, dto, user);
   }
 
   @RequirePermissions('bookings.manage')

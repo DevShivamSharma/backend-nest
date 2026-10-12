@@ -6,14 +6,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull } from 'typeorm';
 
+import { MembershipEntity } from '../access/membership.entity';
 import { AuditService } from '../audit/audit.service';
-import type { Actor, OrgAccessContext } from '../common/http/authenticated-request';
+import type { Actor, AuthUser, OrgAccessContext } from '../common/http/authenticated-request';
 import { EventsService } from '../events/events.service';
-import { CreateExhibitorDto, ListExhibitorsQuery, UpdateExhibitorDto } from './dto/exhibitor.dto';
+import { RoleEntity } from '../roles/role.entity';
+import { InvitationEntity } from '../team/invitation.entity';
+import { InvitationsService } from '../team/invitations.service';
+import { TeamService } from '../team/team.service';
+import type { CreatedInvitationView } from '../team/team.views';
+import {
+  CreateExhibitorDto,
+  InviteExhibitorPersonDto,
+  ListExhibitorsQuery,
+  UpdateExhibitorDto,
+} from './dto/exhibitor.dto';
 import { EventExhibitorEntity, ExhibitorEntity } from './exhibitor.entity';
-import type { ExhibitorView } from './exhibitor.views';
+import type { ExhibitorPeopleView, ExhibitorView } from './exhibitor.views';
+
+/** The platform's event-scoped role for people who book stalls (PlatformFoundation's seed). */
+const EXHIBITOR_ROLE_KEY = 'exhibitor';
 
 /**
  * The companies that take stalls, and the events they are registered for (docs/15 §3.3; ported
@@ -25,6 +39,7 @@ export class ExhibitorsService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly events: EventsService,
+    private readonly invitations: InvitationsService,
     private readonly audit: AuditService,
   ) {}
 
@@ -153,6 +168,16 @@ export class ExhibitorsService {
           `${exhibitor.name} is registered for ${n} ${n === 1 ? 'event' : 'events'}. Take it off ${n === 1 ? 'that event' : 'those events'} first.`,
         );
       }
+      const { members, invitations } = await this.peopleOf(
+        em,
+        access.organisation.id,
+        exhibitor.id,
+      );
+      if (members.length || invitations.length) {
+        throw new ConflictException(
+          `${exhibitor.name} has people who book for it. Remove them, and revoke their invitations, on the Team page first.`,
+        );
+      }
       await em.getRepository(ExhibitorEntity).delete({ id: exhibitor.id });
       await this.audit.record(
         {
@@ -182,6 +207,7 @@ export class ExhibitorsService {
       const links = em.getRepository(EventExhibitorEntity);
       if (await links.existsBy({ eventId, exhibitorId })) return;
       await links.insert({ eventId, exhibitorId });
+      await this.syncPeople(em, access.organisation.id, exhibitorId, eventId, true);
       await this.audit.record(
         {
           action: 'exhibitor.registered',
@@ -219,6 +245,7 @@ export class ExhibitorsService {
         );
       }
       await em.getRepository(EventExhibitorEntity).delete({ eventId, exhibitorId });
+      await this.syncPeople(em, access.organisation.id, exhibitorId, eventId, false);
       await this.audit.record(
         {
           action: 'exhibitor.unregistered',
@@ -231,6 +258,55 @@ export class ExhibitorsService {
         em,
       );
     });
+  }
+
+  // ---- people -------------------------------------------------------------------------------
+
+  /** The members who book for the exhibitor, and the open invitations to do so. */
+  async people(access: OrgAccessContext, exhibitorId: string): Promise<ExhibitorPeopleView> {
+    const em = this.dataSource.manager;
+    const exhibitor = await this.getVisible(em, access, exhibitorId);
+    const { members, invitations } = await this.peopleOf(em, access.organisation.id, exhibitor.id);
+    return {
+      members: members.map(TeamService.view),
+      invitations: invitations.map((i) => InvitationsService.view(i, i.role!, i.invitedBy ?? null)),
+    };
+  }
+
+  /**
+   * Invites a person who books stalls for this exhibitor (docs/15 §9 Q13: invite-only): the
+   * platform's event-scoped Exhibitor role, for each event the exhibitor is registered for that
+   * the inviter sees, with the exhibitor named in the scope. As for every role, the inviter must
+   * hold what the role gives.
+   */
+  async invitePerson(
+    access: OrgAccessContext,
+    exhibitorId: string,
+    dto: InviteExhibitorPersonDto,
+    user: AuthUser,
+  ): Promise<CreatedInvitationView> {
+    const em = this.dataSource.manager;
+    const exhibitor = await this.getVisible(em, access, exhibitorId);
+    const [view] = await this.views(em, access, [exhibitor]);
+    if (!view.eventIds.length) {
+      throw new ConflictException(
+        `Register ${exhibitor.name} for an event first: its people see only the events it takes part in.`,
+      );
+    }
+    const role = await em
+      .getRepository(RoleEntity)
+      .findOneBy({ key: EXHIBITOR_ROLE_KEY, organisationId: IsNull() });
+    if (!role) throw new NotFoundException('The Exhibitor role is missing. Ask the platform team.');
+    const { view: invitation } = await this.invitations.invite(
+      access.organisation,
+      {
+        email: dto.email,
+        roleId: role.id,
+        scope: { eventIds: view.eventIds, exhibitorId: exhibitor.id },
+      },
+      { actor: user, permissions: access.permissions },
+    );
+    return invitation;
   }
 
   // ---- building blocks, also used by bookings ----------------------------------------------
@@ -302,6 +378,62 @@ export class ExhibitorsService {
       eventIds: events.get(e.id) ?? [],
       createdAt: e.createdAt.toISOString(),
     }));
+  }
+
+  /** Members and open invitations whose scope names this exhibitor. */
+  private async peopleOf(
+    em: EntityManager,
+    organisationId: string,
+    exhibitorId: string,
+  ): Promise<{ members: MembershipEntity[]; invitations: InvitationEntity[] }> {
+    const members = await em
+      .getRepository(MembershipEntity)
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.user', 'u')
+      .innerJoinAndSelect('m.role', 'r')
+      .where('m.organisationId = :organisationId', { organisationId })
+      .andWhere(`m.scope ->> 'exhibitorId' = :exhibitorId`, { exhibitorId })
+      .orderBy('u.name', 'ASC')
+      .getMany();
+    const invitations = await em
+      .getRepository(InvitationEntity)
+      .createQueryBuilder('i')
+      .innerJoinAndSelect('i.role', 'r')
+      .leftJoinAndSelect('i.invitedBy', 'by')
+      .where('i.organisationId = :organisationId', { organisationId })
+      .andWhere('i.acceptedAt IS NULL AND i.revokedAt IS NULL')
+      .andWhere(`i.scope ->> 'exhibitorId' = :exhibitorId`, { exhibitorId })
+      .orderBy('i.createdAt', 'DESC')
+      .getMany();
+    return { members, invitations };
+  }
+
+  /**
+   * The exhibitor's people see the events it takes part in: registering adds the event to their
+   * scope (members and open invitations alike), unregistering takes it out. Done in SQL on the
+   * jsonb scope so one statement covers everyone, inside the registration's transaction.
+   */
+  private async syncPeople(
+    em: EntityManager,
+    organisationId: string,
+    exhibitorId: string,
+    eventId: string,
+    add: boolean,
+  ): Promise<void> {
+    const events = `COALESCE(scope -> 'eventIds', '[]'::jsonb)`;
+    const next = add ? `${events} || to_jsonb($2::text)` : `${events} - $2::text`;
+    const only = add ? `AND NOT ${events} ? $2` : '';
+    await em.query(
+      `UPDATE memberships SET scope = jsonb_set(scope, '{eventIds}', ${next}), updated_at = now()
+        WHERE organisation_id = $1 AND scope ->> 'exhibitorId' = $3 ${only}`,
+      [organisationId, eventId, exhibitorId],
+    );
+    await em.query(
+      `UPDATE invitations SET scope = jsonb_set(scope, '{eventIds}', ${next})
+        WHERE organisation_id = $1 AND scope ->> 'exhibitorId' = $3
+          AND accepted_at IS NULL AND revoked_at IS NULL ${only}`,
+      [organisationId, eventId, exhibitorId],
+    );
   }
 
   private async assertNameFree(

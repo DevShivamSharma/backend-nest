@@ -522,6 +522,13 @@ export class EventsService {
     if (!role) throw new NotFoundException('Role not found.');
     const refusal = RolesService.grantCheck(access.permissions, role, true);
     if (refusal) throw new ForbiddenException(refusal);
+    // A person who books stalls books for one exhibitor; the exhibitor's page invites them, with
+    // the exhibitor in their scope. Given from here, they would act for nobody.
+    if (RolesService.effectivePermissions(role).includes('stalls.book')) {
+      throw new BadRequestException(
+        'People who book stalls are invited from their exhibitor, so they book for it.',
+      );
+    }
 
     const member = await em
       .getRepository(MembershipEntity)

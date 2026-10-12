@@ -85,6 +85,14 @@ export class UpdateExhibitorDto {
   address?: string | null;
 }
 
+/** A person who books stalls for the exhibitor. */
+export class InviteExhibitorPersonDto {
+  @NormaliseEmail()
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(254)
+  email!: string;
+}
+
 export class ListExhibitorsQuery {
   @IsOptional()
   @IsUUID()
