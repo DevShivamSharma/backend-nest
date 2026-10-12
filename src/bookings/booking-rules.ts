@@ -1,4 +1,4 @@
-import type { EventStatus } from '../events/event.entity';
+import type { EventBookingChannel, EventStatus } from '../events/event.entity';
 import { forSale } from '../stall-plans/pricing/stall-price';
 import type { PublishedStallEntity } from '../stall-plans/stall-plan.entity';
 import type { BookingStatus } from './booking.entity';
@@ -32,6 +32,24 @@ export function eventClosedReason(event: { name: string; status: EventStatus }):
     case 'cancelled':
       return `${event.name} is ${event.status}; its stalls are no longer booked.`;
   }
+}
+
+/**
+ * Why exhibitors cannot hold this event's stalls themselves now; null while they can. The
+ * organisation must have the portal on, the event must sell on the platform (not through the
+ * venue's own system), and the event must be on sale.
+ */
+export function portalClosedReason(
+  organisation: { name: string; features: { exhibitorPortal: boolean } },
+  event: { name: string; status: EventStatus; bookingChannel: EventBookingChannel },
+): string | null {
+  if (!organisation.features.exhibitorPortal) {
+    return `${organisation.name} does not take stall bookings online yet.`;
+  }
+  if (event.bookingChannel !== 'platform_portal') {
+    return `Stalls of ${event.name} are booked through the venue’s own booking system.`;
+  }
+  return eventClosedReason(event);
 }
 
 type SaleFields = Pick<PublishedStallEntity, 'isBlocked' | 'isActive' | 'pricePaise'>;

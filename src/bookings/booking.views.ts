@@ -57,7 +57,7 @@ export type StallState = 'free' | 'held' | 'booked' | 'not_for_sale';
 
 export interface MapStallView extends PublishedStallView {
   state: StallState;
-  booking: { id: string; exhibitor: string; status: BookingStatus } | null;
+  booking: { id: string; exhibitorId: string; exhibitor: string; status: BookingStatus } | null;
 }
 
 /** A hall's published stalls with which are free, on the floor the event is drawn on. */

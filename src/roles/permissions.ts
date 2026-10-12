@@ -184,7 +184,7 @@ export const PERMISSION_GROUPS = [
         key: 'stalls.book',
         label: 'Book stalls',
         description: 'Hold and book stalls as an exhibitor',
-        available: false,
+        available: true,
       },
       {
         key: 'bookings.view',

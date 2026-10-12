@@ -21,6 +21,7 @@ import {
   eventClosedReason,
   holdEnds,
   isActive,
+  portalClosedReason,
   stallClosedReason,
   stallState,
 } from './booking-rules';
@@ -113,13 +114,18 @@ export class BookingsService {
     const stalls = await em
       .getRepository(PublishedStallEntity)
       .find({ where: { eventHallId: row.id }, order: { stallNumber: 'ASC' } });
-    const active: Array<{ id: string; stall_id: string; status: BookingStatus; exhibitor: string }> =
-      await em.query(
-        `SELECT b.id, b.stall_id, b.status, x.name AS exhibitor
+    const active: Array<{
+      id: string;
+      stall_id: string;
+      status: BookingStatus;
+      exhibitor_id: string;
+      exhibitor: string;
+    }> = await em.query(
+      `SELECT b.id, b.stall_id, b.status, b.exhibitor_id, x.name AS exhibitor
            FROM bookings b JOIN exhibitors x ON x.id = b.exhibitor_id
           WHERE b.event_hall_id = $1 AND b.status IN ('held', 'confirmed')`,
-        [row.id],
-      );
+      [row.id],
+    );
     const byStall = new Map(active.map((b) => [b.stall_id, b]));
     const published =
       plan?.publishedRevision && plan.publishedAt
@@ -140,18 +146,29 @@ export class BookingsService {
         return {
           ...BookingsService.stallView(s),
           state: stallState(s, b?.status ?? null),
-          booking: b ? { id: b.id, exhibitor: b.exhibitor, status: b.status } : null,
+          booking: b
+            ? { id: b.id, exhibitorId: b.exhibitor_id, exhibitor: b.exhibitor, status: b.status }
+            : null,
         };
       }),
     };
   }
 
   /** Books a stall for a registered exhibitor: held until confirmed, or confirmed at once. */
-  async create(access: OrgAccessContext, dto: CreateBookingDto, actor: Actor): Promise<BookingView> {
+  async create(
+    access: OrgAccessContext,
+    dto: CreateBookingDto,
+    actor: Actor,
+    channel: BookingChannel = 'internal',
+  ): Promise<BookingView> {
     const { event, row } = await this.events.eventHallOf(access, dto.eventId, dto.hallId);
     const id = await this.dataSource.transaction(async (em) => {
       const locked = await this.lockEvent(em, event.id);
-      const closed = eventClosedReason(locked);
+      // The portal also needs the organisation's switch and the platform as the event's channel.
+      const closed =
+        channel === 'external'
+          ? portalClosedReason(access.organisation, locked)
+          : eventClosedReason(locked);
       if (closed) throw new ConflictException(closed);
       const exhibitor = await this.exhibitors.getOwn(em, access.organisation.id, dto.exhibitorId);
       if (!(await this.exhibitors.isRegistered(em, event.id, exhibitor.id))) {
@@ -159,7 +176,8 @@ export class BookingsService {
       }
       const stall = await this.lockFreeStall(em, row, dto.stallId);
       const now = new Date();
-      const confirm = dto.confirm === true;
+      // An exhibitor only holds; the payment (or the organiser) confirms.
+      const confirm = channel === 'internal' && dto.confirm === true;
       const repo = em.getRepository(BookingEntity);
       const booking = await repo.save(
         repo.create({
@@ -169,7 +187,7 @@ export class BookingsService {
           stallId: stall.stallId,
           stallLabel: stallLabel(stall),
           exhibitorId: exhibitor.id,
-          channel: 'internal',
+          channel,
           status: confirm ? 'confirmed' : 'held',
           holdExpiresAt: confirm ? null : holdEnds(now, this.holdMinutes),
           // The price as published: a later rate card never changes what was agreed.
@@ -198,6 +216,7 @@ export class BookingsService {
             stall: booking.stallLabel,
             exhibitor: exhibitor.name,
             amountPaise: booking.amountPaise,
+            channel,
           },
         },
         em,
@@ -251,6 +270,38 @@ export class BookingsService {
         cancelReason: reason,
       });
       return { action: 'booking.cancelled', metadata: { reason } };
+    });
+    return this.get(access, bookingId);
+  }
+
+  /**
+   * An exhibitor lets go of its own hold. A confirmed booking is the organiser's to cancel. A
+   * booking of another exhibitor is not found, so ids reveal nothing.
+   */
+  async cancelOwnHold(
+    access: OrgAccessContext,
+    bookingId: string,
+    exhibitorId: string,
+    reason: string | null,
+    actor: Actor,
+  ): Promise<BookingView> {
+    await this.change(access, bookingId, actor, (booking, event) => {
+      if (booking.exhibitorId !== exhibitorId) {
+        throw new NotFoundException('There is no such booking.');
+      }
+      if (booking.status !== 'held') {
+        throw new ConflictException(
+          'Only a hold is let go here. Ask the organiser to cancel a confirmed booking.',
+        );
+      }
+      EventsService.assertOpen(event);
+      Object.assign(booking, {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+        cancelledById: actor.id,
+        cancelReason: reason ?? 'Let go by the exhibitor',
+      });
+      return { action: 'booking.cancelled', metadata: { reason, by: 'exhibitor' } };
     });
     return this.get(access, bookingId);
   }
@@ -379,7 +430,7 @@ export class BookingsService {
    * The published stall, row-locked, when it can be booked. The plan row is share-locked first,
    * so a re-publish waits for this booking and then sees it.
    */
-  private async lockFreeStall(
+  async lockFreeStall(
     em: EntityManager,
     row: EventHallEntity,
     stallId: string,
