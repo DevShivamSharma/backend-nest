@@ -15,6 +15,7 @@ import type { EventHallDetailView } from '../events/event.views';
 import { EventsService } from '../events/events.service';
 import { MailMessage, MailService } from '../mail/mail.service';
 import { drawingProfile } from '../rules/drawing-profiles';
+import { PlanDeliveriesService } from '../venue-system/plan-deliveries.service';
 import { ringArea } from '../venues/floor-plan/geometry';
 import {
   CheckPlanDto,
@@ -90,6 +91,7 @@ export class StallPlansService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly pricing: PricingService,
+    private readonly deliveries: PlanDeliveriesService,
   ) {}
 
   async get(access: OrgAccessContext, id: string, hallId: string): Promise<PlannerView> {
@@ -228,6 +230,10 @@ export class StallPlansService {
       plan.publishedAt = new Date();
       plan.publishedById = actor.id;
       const published = await plans.save(plan);
+      // Flow 1 (docs/15 §4): an internal event that sells through the venue's system sends the
+      // published stalls there. Only the outbox row is written here, in this transaction; the
+      // worker sends it, so the venue's server never holds up or undoes a publish.
+      await this.deliveries.enqueue(em, event, row, actor.id);
       await this.audit.record(
         {
           action: 'plan.published',
