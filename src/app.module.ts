@@ -17,6 +17,7 @@ import { OrgSettingsModule } from './org-settings/org-settings.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PortalModule } from './portal/portal.module';
+import { PublicEventsModule } from './public-events/public-events.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { TeamModule } from './team/team.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -63,6 +64,7 @@ import { VenuesModule } from './venues/venues.module';
     BookingsModule,
     PaymentsModule,
     PortalModule,
+    PublicEventsModule,
     SettlementsModule,
     AiModule,
   ],

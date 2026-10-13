@@ -13,6 +13,7 @@ import { expireOpenPayments } from '../payments/booking-payments';
 import type { PaymentProvider, PaymentStatus } from '../payments/payment.entity';
 import { stallLabel } from '../stall-plans/published-stalls';
 import { PublishedStallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
+import type { HallFloor } from '../venues/floor/hall-floor';
 import {
   ACTIVE_BOOKING_STATUSES,
   BookingChannel,
@@ -122,6 +123,19 @@ export class BookingsService {
   async stallMap(access: OrgAccessContext, eventId: string, hallId: string): Promise<StallMapView> {
     const detail = await this.events.hall(access, eventId, hallId);
     const { event, row } = await this.events.eventHallOf(access, eventId, hallId);
+    return this.stallMapOf(event, row, detail.hall, detail.floor);
+  }
+
+  /**
+   * The stall map of an event hall already found. Kept apart from stallMap so the public view,
+   * which has no member to check access for, draws the very same map.
+   */
+  async stallMapOf(
+    event: EventEntity,
+    row: EventHallEntity,
+    hall: { hallId: string; name: string; floorVersion: number },
+    floor: HallFloor,
+  ): Promise<StallMapView> {
     const em = this.dataSource.manager;
     const plan = await em.getRepository(StallPlanEntity).findOneBy({ eventHallId: row.id });
     const stalls = await em
@@ -146,14 +160,14 @@ export class BookingsService {
         : null;
     const closedReason =
       eventClosedReason(event) ??
-      (published ? null : `No stall plan of ${detail.hall.name} is published yet.`);
+      (published ? null : `No stall plan of ${hall.name} is published yet.`);
     return {
       event: { id: event.id, name: event.name, status: event.status },
-      hall: { id: hallId, name: detail.hall.name, floorVersion: detail.hall.floorVersion },
+      hall: { id: hall.hallId, name: hall.name, floorVersion: hall.floorVersion },
       published,
       bookable: !closedReason,
       closedReason,
-      floor: detail.floor,
+      floor,
       stalls: stalls.map((s) => {
         const b = byStall.get(s.stallId);
         return {
