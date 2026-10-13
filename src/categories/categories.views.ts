@@ -6,6 +6,8 @@ export interface CategoryView {
   status: CategoryStatus;
   /** Event halls that sell it; such a category can be switched off but not deleted. */
   eventHalls: number;
+  /** The category's id in SelfCare (`T_CODE_MASTER.id`), when linked. */
+  itpoId: string | null;
   updatedAt: string;
 }
 

@@ -26,13 +26,20 @@ import type { CreatedInvitationView } from '../team/team.views';
 import { PlanSeatEntity, PlanStallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
 import { HallEntity, HallFloorVersionEntity } from '../venues/hall.entity';
 import { VenueEntity } from '../venues/venue.entity';
+import { VenueSystemIntegrationEntity } from '../venue-system/venue-system-integration.entity';
 import {
   CreateEventDto,
   EventHallRulesDto,
   InviteEventPersonDto,
   UpdateEventDto,
 } from './dto/events.dto';
-import { EventEntity, EventHallEntity, EventKind, EventStatus } from './event.entity';
+import {
+  EventBookingChannel,
+  EventEntity,
+  EventHallEntity,
+  EventKind,
+  EventStatus,
+} from './event.entity';
 import type {
   EventDetailView,
   EventHallDetailView,
@@ -118,16 +125,26 @@ export class EventsService {
     });
     const event = await this.dataSource.transaction(async (em) => {
       await this.assertVenueEventIdFree(em, organisationId, fields.venueEventId);
+      // docs/15 §2 decision 3: an internal event sells through the venue's own system when the
+      // organisation is linked to one, unless the person chose otherwise; an external event
+      // always sells here. Set explicitly because save() does not read column defaults back.
+      if (dto.kind === 'external' && dto.bookingChannel === 'venue_system') {
+        throw new BadRequestException('An external event sells its stalls through this platform.');
+      }
+      const linked = await em
+        .getRepository(VenueSystemIntegrationEntity)
+        .existsBy({ organisationId, enabled: true });
+      const bookingChannel: EventBookingChannel =
+        dto.kind === 'external'
+          ? 'platform_portal'
+          : (dto.bookingChannel ?? (linked ? 'venue_system' : 'platform_portal'));
       const repo = em.getRepository(EventEntity);
       const saved = await repo.save(
         repo.create({
           organisationId,
           ...fields,
           status: 'draft',
-          // docs/15 §2 decision 3: an internal event sells through the venue's system once the
-          // organisation has an enabled integration (M1). None exists yet, so every event starts
-          // on the platform's portal. Set here because save() does not read column defaults back.
-          bookingChannel: 'platform_portal',
+          bookingChannel,
           createdById: actor.id,
         }),
       );
@@ -162,10 +179,27 @@ export class EventsService {
       if (next.venueEventId !== event.venueEventId) {
         await this.assertVenueEventIdFree(em, organisationId, next.venueEventId, event.id);
       }
-      const changed = (Object.keys(next) as Array<keyof typeof next>).filter(
+      const changed: string[] = (Object.keys(next) as Array<keyof typeof next>).filter(
         (k) => next[k] !== event[k],
       );
       Object.assign(event, next);
+      if (dto.bookingChannel !== undefined && dto.bookingChannel !== event.bookingChannel) {
+        if (event.kind === 'external') {
+          throw new BadRequestException(
+            'An external event sells its stalls through this platform.',
+          );
+        }
+        const active = await em
+          .getRepository(BookingEntity)
+          .countBy({ eventId: event.id, status: In([...ACTIVE_BOOKING_STATUSES]) });
+        if (active) {
+          throw new ConflictException(
+            `${event.name} has bookings on this platform. Cancel them before its stalls are sold in another place.`,
+          );
+        }
+        event.bookingChannel = dto.bookingChannel;
+        changed.push('bookingChannel');
+      }
       const saved = await em.getRepository(EventEntity).save(event);
       if (changed.length) {
         await this.record(em, 'event.updated', organisationId, saved, actor, { changed });

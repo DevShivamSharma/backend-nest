@@ -148,6 +148,12 @@ export class UpdateHallDto extends HallDetailsDto {
   @IsInt()
   @Min(1)
   expectedVersion?: number;
+
+  /** The hall's id in SelfCare (`T_HALLS.id`); null unlinks it. */
+  @IsOptional()
+  @EmptyToNull()
+  @Matches(/^\d{1,12}$/, { message: 'A SelfCare id is a number, e.g. 56.' })
+  itpoId?: string | null;
 }
 
 /** About 12 MB of text: ITPO's whole `T_HALL_LAYOUTS` export is under 2 MB. */

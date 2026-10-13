@@ -15,7 +15,12 @@ import {
 
 import { EmptyToNull, NormaliseEmail, Trim } from '../../common/validation';
 import { EVENT_TYPES, EventType } from '../../rules/rule-catalogue';
-import { EVENT_KINDS, EventKind } from '../event.entity';
+import {
+  EVENT_BOOKING_CHANNELS,
+  EVENT_KINDS,
+  EventBookingChannel,
+  EventKind,
+} from '../event.entity';
 
 /** A calendar date, `YYYY-MM-DD`; whether it exists is checked by the service. */
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -43,6 +48,11 @@ class EventFieldsDto {
   @EmptyToNull()
   @Matches(DATE, { message: DATE_MESSAGE })
   dismantleOn?: string | null;
+
+  /** Where the stalls are sold (docs/15 §2 decision 3); internal events only may choose. */
+  @IsOptional()
+  @IsIn(EVENT_BOOKING_CHANNELS)
+  bookingChannel?: EventBookingChannel;
 }
 
 export class CreateEventDto extends EventFieldsDto {

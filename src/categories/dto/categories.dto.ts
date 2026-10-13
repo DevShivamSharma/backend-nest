@@ -7,10 +7,11 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
-import { Trim } from '../../common/validation';
+import { EmptyToNull, Trim } from '../../common/validation';
 import { CATEGORY_STATUSES, CategoryStatus } from '../category.entity';
 
 /** Most rows one import takes. */
@@ -25,7 +26,12 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsIn(CATEGORY_STATUSES)
   status?: CategoryStatus;
-}
+
+  /** The category's id in SelfCare (`T_CODE_MASTER.id`); null unlinks it. */
+  @IsOptional()
+  @EmptyToNull()
+  @Matches(/^\d{1,12}$/, { message: 'A SelfCare id is a number, e.g. 56.' })
+  itpoId?: string | null;}
 
 export class UpdateCategoryDto {
   @IsOptional()
@@ -37,7 +43,12 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsIn(CATEGORY_STATUSES)
   status?: CategoryStatus;
-}
+
+  /** The category's id in SelfCare (`T_CODE_MASTER.id`); null unlinks it. */
+  @IsOptional()
+  @EmptyToNull()
+  @Matches(/^\d{1,12}$/, { message: 'A SelfCare id is a number, e.g. 56.' })
+  itpoId?: string | null;}
 
 /** Rows read from the venue's CSV by the browser; names already listed are skipped. */
 export class ImportCategoriesDto {

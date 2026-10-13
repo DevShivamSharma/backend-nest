@@ -4,7 +4,7 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
 export type ExternalSystem = 'itpo' | 'json' | 'csv';
 
 /** The kinds of our records a venue system has its own id for. */
-export type ExternalEntityType = 'hall';
+export type ExternalEntityType = 'hall' | 'category';
 
 /**
  * Which record of a venue's own system one of ours stands for: ITPO's hall 56 is our hall X.

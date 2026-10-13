@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../common/http/authenticated-request';
 import { EventHallEntity } from '../events/event.entity';
 import { ExternalRefEntity } from '../integrations/external-ref.entity';
+import { setExternalId } from '../integrations/external-refs';
 import { CreateHallDto, UpdateHallDto } from './dto/venue.dto';
 import {
   blankFloor,
@@ -179,6 +180,13 @@ export class HallsService {
       if (dto.level !== undefined) hall.level = dto.level ?? null;
       if (dto.uses !== undefined) hall.uses = HallsService.uses(dto.uses);
       const saved = await em.getRepository(HallEntity).save(hall);
+      const linked =
+        dto.itpoId !== undefined &&
+        (await setExternalId(
+          em,
+          { organisationId, system: 'itpo', entityType: 'hall', localId: hall.id },
+          dto.itpoId,
+        ));
       await this.audit.record(
         {
           action: 'hall.updated',
@@ -188,11 +196,14 @@ export class HallsService {
           targetId: hall.id,
           metadata: {
             name: saved.name,
-            changed: Object.keys(before).filter(
-              (key) =>
-                JSON.stringify(before[key as keyof typeof before]) !==
-                JSON.stringify(saved[key as keyof typeof before]),
-            ),
+            changed: [
+              ...Object.keys(before).filter(
+                (key) =>
+                  JSON.stringify(before[key as keyof typeof before]) !==
+                  JSON.stringify(saved[key as keyof typeof before]),
+              ),
+              ...(linked ? ['itpoId'] : []),
+            ],
             ...(dto.annotations ? { floorVersion: saved.currentVersion } : {}),
           },
         },
@@ -458,6 +469,9 @@ export class HallsService {
     const sources = new Map<string, HallSourceView>(
       refs.map((ref) => [ref.localId, { system: ref.system, externalId: ref.externalId }]),
     );
+    const itpoIds = new Map<string, string>(
+      refs.filter((ref) => ref.system === 'itpo').map((ref) => [ref.localId, ref.externalId]),
+    );
     return halls.map((hall) => ({
       id: hall.id,
       venueId: hall.venueId,
@@ -470,6 +484,7 @@ export class HallsService {
       floorArea: hall.floorArea,
       currentVersion: hall.currentVersion,
       source: sources.get(hall.id) ?? null,
+      itpoId: itpoIds.get(hall.id) ?? null,
       updatedAt: hall.updatedAt.toISOString(),
     }));
   }

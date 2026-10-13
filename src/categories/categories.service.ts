@@ -4,6 +4,8 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../common/http/authenticated-request';
+import { ExternalRefEntity } from '../integrations/external-ref.entity';
+import { setExternalId } from '../integrations/external-refs';
 import { EventHallCategoryEntity, StallCategoryEntity } from './category.entity';
 import type { CategoryImportView, CategoryView } from './categories.views';
 import { CreateCategoryDto, ImportCategoriesDto, UpdateCategoryDto } from './dto/categories.dto';
@@ -24,13 +26,20 @@ export class CategoriesService {
       .getRepository(StallCategoryEntity)
       .createQueryBuilder('c')
       .leftJoin(EventHallCategoryEntity, 'ehc', 'ehc.category_id = c.id')
+      .leftJoin(
+        ExternalRefEntity,
+        'ref',
+        "ref.local_id = c.id AND ref.organisation_id = c.organisation_id AND ref.system = 'itpo' AND ref.entity_type = 'category'",
+      )
       .select('c.id', 'id')
       .addSelect('c.name', 'name')
       .addSelect('c.status', 'status')
       .addSelect('c.updated_at', 'updatedAt')
       .addSelect('COUNT(ehc.event_hall_id)::int', 'eventHalls')
+      .addSelect('ref.external_id', 'itpoId')
       .where('c.organisation_id = :organisationId', { organisationId })
       .groupBy('c.id')
+      .addGroupBy('ref.external_id')
       .orderBy('lower(c.name)', 'ASC')
       .getRawMany<Omit<CategoryView, 'updatedAt'> & { updatedAt: Date }>();
     return rows.map((r) => ({ ...r, updatedAt: new Date(r.updatedAt).toISOString() }));
@@ -47,12 +56,19 @@ export class CategoriesService {
       const category = await repo.save(
         repo.create({ organisationId, name: dto.name, status: dto.status ?? 'active' }),
       );
+      if (dto.itpoId !== undefined) {
+        await setExternalId(
+          em,
+          { organisationId, system: 'itpo', entityType: 'category', localId: category.id },
+          dto.itpoId,
+        );
+      }
       await this.record(em, 'category.created', organisationId, category, actor, {
         status: category.status,
       });
       return category;
     });
-    return CategoriesService.view(saved, 0);
+    return CategoriesService.view(saved, 0, dto.itpoId ?? null);
   }
 
   async update(
@@ -72,6 +88,16 @@ export class CategoriesService {
       if (dto.status !== undefined && dto.status !== category.status) {
         changed.push('status');
         category.status = dto.status;
+      }
+      if (
+        dto.itpoId !== undefined &&
+        (await setExternalId(
+          em,
+          { organisationId, system: 'itpo', entityType: 'category', localId: category.id },
+          dto.itpoId,
+        ))
+      ) {
+        changed.push('itpoId');
       }
       if (!changed.length) return;
       await em.getRepository(StallCategoryEntity).save(category);
@@ -93,6 +119,7 @@ export class CategoriesService {
           `${category.name} is sold on ${halls} event ${halls === 1 ? 'hall' : 'halls'}. Make it inactive instead.`,
         );
       }
+      await em.getRepository(ExternalRefEntity).delete({ organisationId, localId: id });
       await em.getRepository(StallCategoryEntity).delete({ id });
       await this.record(em, 'category.deleted', organisationId, category, actor, {});
     });
@@ -185,12 +212,13 @@ export class CategoriesService {
     );
   }
 
-  static view(c: StallCategoryEntity, eventHalls: number): CategoryView {
+  static view(c: StallCategoryEntity, eventHalls: number, itpoId: string | null): CategoryView {
     return {
       id: c.id,
       name: c.name,
       status: c.status,
       eventHalls,
+      itpoId,
       updatedAt: c.updatedAt.toISOString(),
     };
   }

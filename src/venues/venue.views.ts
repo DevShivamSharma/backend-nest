@@ -29,6 +29,8 @@ export interface HallView {
   floorArea: number;
   currentVersion: number;
   source: HallSourceView | null;
+  /** The hall's id in SelfCare (`T_HALLS.id`), when linked. */
+  itpoId: string | null;
   updatedAt: string;
 }
 
