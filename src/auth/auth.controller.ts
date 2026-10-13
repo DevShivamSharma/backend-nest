@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Req,
@@ -20,9 +21,15 @@ import { AuthUser, clientInfo } from '../common/http/authenticated-request';
 import type { AuthConfig } from '../config/configuration';
 import { InvitationsService } from '../team/invitations.service';
 import type { InvitationPreview } from '../team/team.views';
-import type { AcceptedInvitationView, MeView, SessionView } from './auth.views';
+import type { AcceptedInvitationView, DevLoginView, MeView, SessionView } from './auth.views';
 import { AuthService } from './auth.service';
-import { AcceptInvitationDto, ForgotPasswordDto, LoginDto, ResetPasswordDto } from './dto/auth.dto';
+import {
+  AcceptInvitationDto,
+  DevLoginDto,
+  ForgotPasswordDto,
+  LoginDto,
+  ResetPasswordDto,
+} from './dto/auth.dto';
 import type { IssuedRefresh } from './tokens.service';
 
 /** The refresh token lives only in this httpOnly cookie, scoped to the auth routes. */
@@ -35,13 +42,16 @@ const SENSITIVE = { default: { limit: 10, ttl: 60_000 } };
 @Controller('auth')
 export class AuthController {
   private readonly cookieSecure: boolean;
+  private readonly devLoginEmails: string[];
 
   constructor(
     private readonly auth: AuthService,
     private readonly invitations: InvitationsService,
     config: ConfigService,
   ) {
-    this.cookieSecure = config.getOrThrow<AuthConfig>('auth').cookieSecure;
+    const authConfig = config.getOrThrow<AuthConfig>('auth');
+    this.cookieSecure = authConfig.cookieSecure;
+    this.devLoginEmails = authConfig.devLoginEmails;
   }
 
   @Public()
@@ -95,6 +105,41 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser): Promise<MeView> {
     return this.auth.me(user);
+  }
+
+  /**
+   * Local development only: the accounts the quick-login page offers. Not found in production
+   * or when DEV_LOGIN_EMAILS is empty, so the route reveals nothing there.
+   */
+  @Public()
+  @Get('dev-logins')
+  devLogins(): Promise<DevLoginView[]> {
+    this.assertDevLogin();
+    return this.auth.devLogins(this.devLoginEmails);
+  }
+
+  /** Local development only: signs in as one of those accounts, without its password. */
+  @Public()
+  @Throttle(SENSITIVE)
+  @Post('dev-login')
+  @HttpCode(HttpStatus.OK)
+  async devLogin(
+    @Body() dto: DevLoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SessionView> {
+    this.assertDevLogin();
+    const { session, refresh } = await this.auth.devLogin(
+      dto.email,
+      this.devLoginEmails,
+      clientInfo(req),
+    );
+    this.setRefreshCookie(res, refresh);
+    return session;
+  }
+
+  private assertDevLogin(): void {
+    if (!this.devLoginEmails.length) throw new NotFoundException();
   }
 
   @Public()

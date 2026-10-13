@@ -13,6 +13,14 @@ export class LoginDto {
   password!: string;
 }
 
+/** Local development only: which quick-login account to sign in as. */
+export class DevLoginDto {
+  @NormaliseEmail()
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(254)
+  email!: string;
+}
+
 export class AcceptInvitationDto {
   /** Required for a new account; ignored when the account exists. */
   @Trim()

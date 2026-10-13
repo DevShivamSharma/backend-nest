@@ -28,6 +28,8 @@ export interface AuthConfig {
   accessTtlSeconds: number;
   refreshTtlDays: number;
   cookieSecure: boolean;
+  /** Accounts the local quick-login page may sign in as; always empty in production. */
+  devLoginEmails: string[];
 }
 
 export interface MailConfig {
@@ -135,6 +137,13 @@ export function configuration(): Configuration {
         env.COOKIE_SECURE !== undefined
           ? env.COOKIE_SECURE === 'true'
           : nodeEnv === Environment.Production,
+      devLoginEmails:
+        nodeEnv === Environment.Production
+          ? []
+          : (env.DEV_LOGIN_EMAILS ?? '')
+              .split(',')
+              .map((e) => e.trim().toLowerCase())
+              .filter(Boolean),
     },
     mail: {
       transport: (env.MAIL_TRANSPORT as MailTransport) ?? MailTransport.Log,

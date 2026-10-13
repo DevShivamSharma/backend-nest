@@ -316,6 +316,14 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   @IsOptional()
   LLM_TEXT_MODEL?: string;
+
+  /**
+   * Local development only: accounts (comma-separated emails) the quick-login page may sign in
+   * as without a password. Ignored in production, where the routes do not exist.
+   */
+  @IsString()
+  @IsOptional()
+  DEV_LOGIN_EMAILS?: string;
 }
 
 export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables {

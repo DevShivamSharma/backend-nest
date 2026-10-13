@@ -29,3 +29,13 @@ export interface MeView {
   user: UserView;
   memberships: MembershipSummary[];
 }
+
+/** Local development only: one account the quick-login page offers, and where it lands. */
+export interface DevLoginView {
+  email: string;
+  name: string;
+  organisation: { slug: string; name: string };
+  role: string;
+  roleKey: string;
+  landing: string;
+}

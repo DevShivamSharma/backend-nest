@@ -13,7 +13,13 @@ import { InvitationsService } from '../team/invitations.service';
 import { PasswordService } from '../users/password.service';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
-import type { AcceptedInvitationView, MeView, SessionView, UserView } from './auth.views';
+import type {
+  AcceptedInvitationView,
+  DevLoginView,
+  MeView,
+  SessionView,
+  UserView,
+} from './auth.views';
 import { AcceptInvitationDto } from './dto/auth.dto';
 import { PasswordResetTokenEntity } from './password-reset-token.entity';
 import { IssuedRefresh, TokensService } from './tokens.service';
@@ -170,6 +176,55 @@ export class AuthService {
         em,
       );
     });
+  }
+
+  /**
+   * Local development only: the accounts the quick-login page offers, each with where it lands
+   * (the portal for exhibitors, events for organisers, home for the venue's team).
+   */
+  async devLogins(allowed: readonly string[]): Promise<DevLoginView[]> {
+    const out: DevLoginView[] = [];
+    for (const email of allowed) {
+      const user = await this.users.findByEmail(email);
+      if (!user || user.status !== UserStatus.Active) continue;
+      for (const m of await this.memberships.listForUser(user.id)) {
+        const slug = m.organisation!.slug;
+        const roleKey = m.role!.key;
+        out.push({
+          email: user.email,
+          name: user.name,
+          organisation: { slug, name: m.organisation!.name },
+          role: m.role!.name,
+          roleKey,
+          landing:
+            roleKey === 'exhibitor'
+              ? `/${slug}/portal`
+              : m.role!.scopeKind === 'event'
+                ? `/${slug}/events`
+                : `/${slug}`,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Local development only: signs in as an allowed account, without its password. */
+  async devLogin(email: string, allowed: readonly string[], client: ClientInfo): Promise<SignedIn> {
+    if (!allowed.includes(UsersService.normaliseEmail(email))) {
+      throw new UnauthorizedException('This account is not on the local quick-login list.');
+    }
+    const user = await this.users.findByEmail(email);
+    if (!user || user.status !== UserStatus.Active) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+    await this.users.recordLogin(user.id);
+    await this.audit.record({
+      action: 'auth.login',
+      actor: { id: user.id, email: user.email },
+      ip: client.ip,
+      metadata: { via: 'dev quick-login' },
+    });
+    return this.startSession(user, client);
   }
 
   private async startSession(user: UserEntity, client: ClientInfo): Promise<SignedIn> {
