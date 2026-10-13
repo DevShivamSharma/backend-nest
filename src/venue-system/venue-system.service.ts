@@ -11,7 +11,7 @@ import { Environment } from '../config/env.validation';
 import { OrganisationEntity } from '../organisations/organisation.entity';
 import { VenueIntegrationDto } from './dto/venue-system.dto';
 import { VenueSystemIntegrationEntity } from './venue-system-integration.entity';
-import type { VenueIntegrationView } from './venue-system.views';
+import type { PlanDeliveryStatus, VenueIntegrationView } from './venue-system.views';
 
 /**
  * An organisation's link to its venue system (docs/15 §3.1): where a published plan is pushed
@@ -34,14 +34,38 @@ export class VenueSystemService {
     const row = await em
       .getRepository(VenueSystemIntegrationEntity)
       .findOneBy({ organisationId });
+    const [last]: Array<{
+      status: PlanDeliveryStatus;
+      created_at: Date;
+      last_error: string | null;
+      event: string;
+      hall: string;
+    }> = await em.query(
+      `SELECT d.status, d.created_at, d.last_error, e.name AS event, h.name AS hall
+         FROM plan_deliveries d
+         JOIN events e ON e.id = d.event_id
+         JOIN event_halls eh ON eh.id = d.event_hall_id
+         JOIN halls h ON h.id = eh.hall_id
+        WHERE d.organisation_id = $1
+        ORDER BY d.created_at DESC
+        LIMIT 1`,
+      [organisationId],
+    );
     return {
       configured: !!row,
       callbackUrl: row?.callbackUrl ?? null,
       secretHint: row?.secretHint ?? null,
       enabled: row?.enabled ?? false,
       updatedAt: row ? row.updatedAt.toISOString() : null,
-      // The newest push joins plan_deliveries, which arrives with the delivery work.
-      lastDelivery: null,
+      lastDelivery: last
+        ? {
+            status: last.status,
+            at: last.created_at.toISOString(),
+            event: last.event,
+            hall: last.hall,
+            error: last.last_error,
+          }
+        : null,
     };
   }
 

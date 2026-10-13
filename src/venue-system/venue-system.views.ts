@@ -1,5 +1,6 @@
-/** How a push to the venue system stands; the Task 3 delivery entity uses the same type. */
-export type PlanDeliveryStatus = 'pending' | 'sending' | 'delivered' | 'failed';
+import type { PlanDeliveryStatus } from './plan-delivery.entity';
+
+export type { PlanDeliveryStatus };
 
 /** The link as people see it: never the secret, only its last four characters. */
 export interface VenueIntegrationView {
