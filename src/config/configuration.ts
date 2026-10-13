@@ -1,4 +1,10 @@
-import { AiProvider, Environment, MailTransport, PaymentsTransport } from './env.validation';
+import {
+  AiProvider,
+  Environment,
+  MailTransport,
+  PaymentsTransport,
+  VenueCallbackTransport,
+} from './env.validation';
 
 export interface AppConfig {
   env: Environment;
@@ -59,6 +65,13 @@ export interface PaymentsConfig {
   webhookSecret: string | null;
 }
 
+export interface VenueSystemConfig {
+  transport: VenueCallbackTransport;
+  timeoutMs: number;
+  /** The 32-byte key that seals venue secrets; null when unset. Never logged. */
+  secretKey: Buffer | null;
+}
+
 /** One model the assistant may use. */
 export interface AiModelConfig {
   provider: AiProvider;
@@ -83,6 +96,7 @@ export interface Configuration {
   mail: MailConfig;
   bookings: BookingsConfig;
   payments: PaymentsConfig;
+  venueSystem: VenueSystemConfig;
   ai: AiConfig;
 }
 
@@ -177,6 +191,14 @@ export function configuration(): Configuration {
             }
           : null,
       webhookSecret: env.RAZORPAY_WEBHOOK_SECRET?.trim() || null,
+    },
+    venueSystem: {
+      transport:
+        (env.VENUE_CALLBACK_TRANSPORT as VenueCallbackTransport) ?? VenueCallbackTransport.Log,
+      timeoutMs: Number(env.VENUE_CALLBACK_TIMEOUT_MS ?? 10_000),
+      secretKey: env.INTEGRATION_SECRET_KEY
+        ? Buffer.from(env.INTEGRATION_SECRET_KEY, 'base64')
+        : null,
     },
     ai: aiConfig(env),
   };

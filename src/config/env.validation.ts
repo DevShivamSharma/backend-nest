@@ -46,6 +46,12 @@ export enum PaymentsTransport {
   Razorpay = 'razorpay',
 }
 
+/** Where plan pushes go: the server log (development, demos), or the venue's HTTPS endpoint. */
+export enum VenueCallbackTransport {
+  Log = 'log',
+  Http = 'http',
+}
+
 /**
  * Refuses the log transport in production. Its development route marks any order paid without
  * money changing hands, so a production server left on the default would give stalls away.
@@ -261,6 +267,32 @@ export class EnvironmentVariables {
   })
   RAZORPAY_WEBHOOK_SECRET?: string;
 
+  /** `log` (the default) writes each push to the server log and counts it delivered. */
+  @IsEnum(VenueCallbackTransport, { message: 'VENUE_CALLBACK_TRANSPORT must be one of: log, http' })
+  @IsOptional()
+  VENUE_CALLBACK_TRANSPORT: VenueCallbackTransport = VenueCallbackTransport.Log;
+
+  /** How long one push waits for the venue's answer. At most a minute: the claim lease is 10. */
+  @IsInt()
+  @Min(1000)
+  @Max(60_000)
+  @IsOptional()
+  VENUE_CALLBACK_TIMEOUT_MS: number = 10_000;
+
+  /**
+   * Seals the venue secrets in the database (AES-256-GCM). 32 random bytes, base64. Losing it
+   * loses every venue secret: they are entered again, not recovered. Never logged.
+   */
+  @ValidateIf(
+    (env: EnvironmentVariables) =>
+      env.VENUE_CALLBACK_TRANSPORT === VenueCallbackTransport.Http ||
+      env.INTEGRATION_SECRET_KEY !== undefined,
+  )
+  @Matches(/^[A-Za-z0-9+/]{43}=$/, {
+    message:
+      'INTEGRATION_SECRET_KEY must be 32 random bytes in base64 (openssl rand -base64 32); it is required when VENUE_CALLBACK_TRANSPORT=http',
+  })
+  INTEGRATION_SECRET_KEY?: string;
   @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
   @IsOptional()
   AI_PROVIDER: AiProvider = AiProvider.Gemini;

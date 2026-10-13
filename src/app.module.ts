@@ -19,6 +19,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PortalModule } from './portal/portal.module';
 import { PublicEventsModule } from './public-events/public-events.module';
 import { SettlementsModule } from './settlements/settlements.module';
+import { VenueSystemModule } from './venue-system/venue-system.module';
 import { TeamModule } from './team/team.module';
 import { CategoriesModule } from './categories/categories.module';
 import { EventsModule } from './events/events.module';
@@ -66,6 +67,7 @@ import { VenuesModule } from './venues/venues.module';
     PortalModule,
     PublicEventsModule,
     SettlementsModule,
+    VenueSystemModule,
     AiModule,
   ],
   controllers: [HealthController],
