@@ -225,12 +225,28 @@ describe('extractStalls', () => {
     expect(r.issues.join(' ')).toContain('detail drawing');
   });
 
-  it('reports a stall label without a closed outline instead of guessing one', () => {
+  it('completes a stall whose outline the drawing leaves open from its lines and area label', () => {
     // Stall E: two partitions and a fascia, but its fourth side is missing.
     const r = extractStalls(
       blockPlan({
         paths: [partition(seg(14, 2, 18, 2), seg(18, 2, 18, 5)), facia(...dashed(18, 5, 14, 5))],
         texts: [text('E', 16, 3.5), text('12m²', 16, 4.2)],
+      }),
+    );
+    const e = r.stalls.find((s) => s.letter === 'E')!;
+    expect(e.area).toBeCloseTo(12, 1);
+    expect(e.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'NO_OUTLINE', severity: 'warning' })]),
+    );
+    expect(r.unresolved).toEqual([]);
+  });
+
+  it('reports a stall label without a closed outline when nothing gives the missing side', () => {
+    // As above, without an area label: the open side cannot be placed.
+    const r = extractStalls(
+      blockPlan({
+        paths: [partition(seg(14, 2, 18, 2), seg(18, 2, 18, 5)), facia(...dashed(18, 5, 14, 5))],
+        texts: [text('E', 16, 3.5)],
       }),
     );
     expect(r.stalls.some((s) => s.letter === 'E')).toBe(false);

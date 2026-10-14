@@ -13,8 +13,10 @@ import { normalizeFootprint, polygonArea, type Point } from './stall-footprint';
  * Deterministic, no AI: stall outlines are the closed faces formed by the plan's stall lines —
  * red partitions (closed edges) and fascia lines (open, customer-facing edges) — read by layer.
  * Grid lines, dimension lines, arrows, hatches and annotations are never outlines: they only
- * calibrate (the 1 m grid) or describe (labels). Nothing is invented: a value the drawing does
- * not support is reported as an issue for review, never filled in.
+ * calibrate (the 1 m grid) or describe (labels). Nothing is invented silently: a value the drawing
+ * does not support is reported as an issue for review. The one completion: a lettered stall whose
+ * outline the drawing leaves open gets the rectangle its surrounding lines and area label give,
+ * flagged NO_OUTLINE.
  *
  * Coordinates: input in displayed page points (x right, y down); output per hall group in
  * metres (x right, z down) from that group's own grid origin. Halls 8, 9, 10 and 11 of the
@@ -64,6 +66,7 @@ export interface ExtractionIssue {
     | 'HOLE'
     | 'DIAGONAL_EDGE'
     | 'DEFAULT_AREA'
+    | 'NO_OUTLINE'
     | 'KIOSK';
   severity: IssueSeverity;
   message: string;
@@ -152,6 +155,8 @@ export interface ExtractionResult {
   unresolved: UnresolvedLabel[];
   /** Areas the stall grid covers, per group, largest first. Empty when the grid covers none. */
   gridAreas: GridArea[];
+  /** The floor the drawing states (its title, its block numbers' floor letter); null when none or both. */
+  floor: 'GF' | 'FF' | null;
   issues: string[];
 }
 
@@ -172,6 +177,22 @@ export function hallOfBlock(block: string): string | null {
   const m = BLOCK.exec(block);
   if (!m) return null;
   return String(Number(m[1])) + m[2].replace(/(?:GF|FF|G|F)$/, '');
+}
+
+/**
+ * The floor a drawing is of: "(GROUND FLOOR)" / "FIRST FLOOR" in its texts, or the floor letter
+ * of its block numbers (5G-26, 14FF-03). Null when it states none, or both.
+ */
+export function floorOfDrawing(texts: string[]): 'GF' | 'FF' | null {
+  const floors = new Set<'GF' | 'FF'>();
+  for (const text of texts) {
+    if (/ground\s*floor/i.test(text)) floors.add('GF');
+    if (/first\s*floor/i.test(text)) floors.add('FF');
+    const block = BLOCK.exec(text)?.[2];
+    if (block && /(?:GF|G)$/.test(block)) floors.add('GF');
+    else if (block && /(?:FF|F)$/.test(block)) floors.add('FF');
+  }
+  return floors.size === 1 ? [...floors][0] : null;
 }
 const AREA = /^=?\s*(\d+(?:\.\d+)?)\s*(?:m²|m2|sqm|sq\.?\s*m)$/i;
 const DIMS = /(\d+(?:\.\d+)?)\s*m?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*m\b/i;
@@ -302,9 +323,11 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     kiosk: boolean;
     block: string | null;
     blockInferred: boolean;
+    /** Completed from the lines around a label: the drawing does not close this outline. */
+    suggested: boolean;
   }
   const faceList: Face[] = [];
-  for (const f of faces) {
+  const describe = (f: { outer: Point[]; holes: number }, suggested: boolean): Face => {
     const inside = texts.filter((t) => pointInPolygon({ x: t.x, z: t.y }, f.outer));
     const letters = inside.map((t) => t.text).filter((t) => LETTER.test(t));
     const areaLabels = inside
@@ -338,7 +361,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
       if (h.x < bb.minX || h.x > bb.maxX || h.y < bb.minY || h.y > bb.maxY) continue;
       if (pointInPolygon({ x: h.x, z: h.y }, f.outer)) count[h.kind]++;
     }
-    faceList.push({
+    return {
       pt: f.outer,
       holes: f.holes,
       texts: inside.map((t) => t.text),
@@ -359,7 +382,46 @@ export function extractStalls(page: PageVectors): ExtractionResult {
       ),
       block: null,
       blockInferred: false,
-    });
+      suggested,
+    };
+  };
+  for (const f of faces) faceList.push(describe(f, false));
+
+  // A stall letter on the hall grid that no closed outline encloses: a partition or fascia line
+  // is missing in the drawing. The lines around the label (and its area label, for the side that
+  // has no line) complete the outline; the stall is flagged for review.
+  const onHallGrid = (x: number, y: number) =>
+    gridSegs.some(
+      (g) =>
+        Math.abs(g.x1 - g.x2) < 0.05 &&
+        Math.abs(g.x1 - x) < 1.5 * pitch &&
+        Math.min(g.y1, g.y2) <= y &&
+        Math.max(g.y1, g.y2) >= y,
+    ) &&
+    gridSegs.some(
+      (g) =>
+        Math.abs(g.y1 - g.y2) < 0.05 &&
+        Math.abs(g.y1 - y) < 1.5 * pitch &&
+        Math.min(g.x1, g.x2) <= x &&
+        Math.max(g.x1, g.x2) >= x,
+    );
+  const inAnyFace = (x: number, y: number) =>
+    faceList.some((f) => pointInPolygon({ x, z: y }, f.pt));
+  for (const t of texts) {
+    if (!LETTER.test(t.text) || inAnyFace(t.x, t.y) || !onHallGrid(t.x, t.y)) continue;
+    const areas = texts
+      .filter((o) => AREA.test(o.text) && !inAnyFace(o.x, o.y))
+      .map((o) => ({ x: o.x, z: o.y, area: Number(AREA.exec(o.text)![1]) }));
+    const outer = suggestOutline(
+      { x: t.x, z: t.y },
+      areas,
+      hLines,
+      vLines,
+      faceList.map((f) => f.pt),
+      pitch,
+      tol,
+    );
+    if (outer) faceList.push(describe({ outer, holes: 0 }, true));
   }
 
   const excluded: ExcludedRegion[] = [];
@@ -510,12 +572,16 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     // spacing hides a fraction of a percent that adds up to tens of centimetres across a hall.
     // Stall corners lie on the half-metre grid, so a regression over all of them measures each
     // axis's scale over the whole hall.
+    // A suggested outline's corners are partly guessed: they do not measure the scale.
+    const drawn = members.some((f) => !f.suggested)
+      ? members.filter((f) => !f.suggested)
+      : members;
     const fx = refineLattice(
-      members.flatMap((f) => f.pt.map((p) => p.x)),
+      drawn.flatMap((f) => f.pt.map((p) => p.x)),
       coarseX,
     );
     const fy = refineLattice(
-      members.flatMap((f) => f.pt.map((p) => p.z)),
+      drawn.flatMap((f) => f.pt.map((p) => p.z)),
       coarseY,
     );
     const cal: GroupCalibration = {
@@ -696,6 +762,13 @@ export function extractStalls(page: PageVectors): ExtractionResult {
           severity: 'info',
           message: 'An edge lay midway between half metres; the area label decided where it goes.',
         });
+      if (f.suggested)
+        stallIssues.push({
+          code: 'NO_OUTLINE',
+          severity: 'warning',
+          message:
+            'The drawing does not close this outline (a partition or fascia line is missing); it was completed from the lines around the label and its area. Check it.',
+        });
       if (f.holes)
         stallIssues.push({
           code: 'HOLE',
@@ -809,23 +882,6 @@ export function extractStalls(page: PageVectors): ExtractionResult {
 
   // Stall letters (and area labels) on the hall grid that no closed outline encloses.
   const unresolved: UnresolvedLabel[] = [];
-  const inAnyFace = (x: number, y: number) =>
-    faceList.some((f) => pointInPolygon({ x, z: y }, f.pt));
-  const onHallGrid = (x: number, y: number) =>
-    gridSegs.some(
-      (g) =>
-        Math.abs(g.x1 - g.x2) < 0.05 &&
-        Math.abs(g.x1 - x) < 1.5 * pitch &&
-        Math.min(g.y1, g.y2) <= y &&
-        Math.max(g.y1, g.y2) >= y,
-    ) &&
-    gridSegs.some(
-      (g) =>
-        Math.abs(g.y1 - g.y2) < 0.05 &&
-        Math.abs(g.y1 - y) < 1.5 * pitch &&
-        Math.min(g.x1, g.x2) <= x &&
-        Math.max(g.x1, g.x2) >= x,
-    );
   const orphans = texts.filter(
     (t) =>
       (LETTER.test(t.text) || AREA.test(t.text)) && !inAnyFace(t.x, t.y) && onHallGrid(t.x, t.y),
@@ -883,6 +939,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     excluded,
     unresolved,
     gridAreas: gridAreas(gridSegs, pitch, groups, stalls),
+    floor: floorOfDrawing(texts.map((t) => t.text)),
     issues,
   };
 }
@@ -1398,6 +1455,114 @@ export function fitLattice(
       best = { pitch: p, origin, rms, used: inl.length };
   }
   return best.rms === Infinity ? { pitch: guess, origin: vals[0], rms: 0, used: 0 } : best;
+}
+
+type Sides = { minX: number; maxX: number; minY: number; maxY: number };
+
+/**
+ * The rectangle a stall label lies in when the drawing leaves its outline open: on each side the
+ * nearest stall line across the label, within a bay's reach. With an area label, a side with no
+ * line (or a line that gives the wrong area) is set from the other three. Null when no rectangle
+ * fits: it would overlap a drawn stall, disagree with the area label, or lacks a side.
+ */
+function suggestOutline(
+  at: Point,
+  areas: Array<Point & { area: number }>,
+  h: Line[],
+  v: Line[],
+  faces: Point[][],
+  pitch: number,
+  tol: number,
+): Point[] | null {
+  const reach = 15 * pitch;
+  const across = (lines: Line[], c: number, along: number, dir: 1 | -1): number | null => {
+    let best: number | null = null;
+    for (const l of lines) {
+      const d = (l.c - c) * dir;
+      if (d <= tol || d > reach || along < l.lo - tol || along > l.hi + tol) continue;
+      if (best === null || d < (best - c) * dir) best = l.c;
+    }
+    return best;
+  };
+  const found = {
+    minX: across(v, at.x, at.z, -1),
+    maxX: across(v, at.x, at.z, 1),
+    minY: across(h, at.z, at.x, -1),
+    maxY: across(h, at.z, at.x, 1),
+  };
+  // The stall's area label: the nearest one in the same bay as the letter (between the lines
+  // found on either side of it).
+  const within = (c: number, lo: number | null, hi: number | null) =>
+    (lo === null || c > lo) && (hi === null || c < hi);
+  const area =
+    areas
+      .filter(
+        (a) =>
+          Math.hypot(a.x - at.x, a.z - at.z) < 8 * pitch &&
+          within(a.x, found.minX, found.maxX) &&
+          within(a.z, found.minY, found.maxY),
+      )
+      .sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z))[0]
+      ?.area ?? null;
+  // Each try notes the side set from the area label; every other side must be drawn along most
+  // of its length (a line that only touches the label's row is another stall's).
+  const tries: Array<{ s: Sides; derived: keyof Sides | null }> = [];
+  const complete = (s: typeof found): s is Sides => Object.values(s).every((c) => c !== null);
+  if (complete(found)) tries.push({ s: found, derived: null });
+  if (area !== null) {
+    const sq = area * pitch * pitch;
+    const distance = (side: keyof Sides) =>
+      found[side] === null ? Infinity : Math.abs(found[side] - (side.endsWith('X') ? at.x : at.z));
+    // A side without a line first, then the farthest line (the likeliest to be another bay's).
+    const sides = (['minX', 'maxX', 'minY', 'maxY'] as const)
+      .slice()
+      .sort((a, b) => distance(b) - distance(a));
+    for (const side of sides) {
+      const s = { ...found, [side]: 0 };
+      if (!complete(s)) continue;
+      if (side === 'minX') s.minX = s.maxX - sq / (s.maxY - s.minY);
+      if (side === 'maxX') s.maxX = s.minX + sq / (s.maxY - s.minY);
+      if (side === 'minY') s.minY = s.maxY - sq / (s.maxX - s.minX);
+      if (side === 'maxY') s.maxY = s.minY + sq / (s.maxX - s.minX);
+      tries.push({ s, derived: side });
+    }
+  }
+  const drawn = (lines: Line[], c: number, lo: number, hi: number) =>
+    lines
+      .filter((l) => Math.abs(l.c - c) <= tol)
+      .reduce((sum, l) => sum + Math.max(0, Math.min(hi, l.hi) - Math.max(lo, l.lo)), 0) /
+    (hi - lo);
+  for (const { s, derived } of tries) {
+    const w = s.maxX - s.minX;
+    const d = s.maxY - s.minY;
+    if (!(w >= pitch && d >= pitch)) continue;
+    const edges: Array<[keyof Sides, number]> = [
+      ['minX', drawn(v, s.minX, s.minY, s.maxY)],
+      ['maxX', drawn(v, s.maxX, s.minY, s.maxY)],
+      ['minY', drawn(h, s.minY, s.minX, s.maxX)],
+      ['maxY', drawn(h, s.maxY, s.minX, s.maxX)],
+    ];
+    if (edges.some(([side, share]) => side !== derived && share < 0.9)) continue;
+    if (at.x <= s.minX || at.x >= s.maxX || at.z <= s.minY || at.z >= s.maxY) continue;
+    if (area !== null && Math.abs((w * d) / (pitch * pitch) - area) > Math.max(0.51, area * 0.01))
+      continue;
+    const overlaps = faces.some((f) => {
+      const b = bounds(f);
+      const [x0, x1] = [Math.max(b.minX, s.minX), Math.min(b.maxX, s.maxX)];
+      const [y0, y1] = [Math.max(b.minY, s.minY), Math.min(b.maxY, s.maxY)];
+      return (
+        x1 - x0 > tol && y1 - y0 > tol && pointInPolygon({ x: (x0 + x1) / 2, z: (y0 + y1) / 2 }, f)
+      );
+    });
+    if (overlaps) continue;
+    return [
+      { x: s.minX, z: s.minY },
+      { x: s.maxX, z: s.minY },
+      { x: s.maxX, z: s.maxY },
+      { x: s.minX, z: s.maxY },
+    ];
+  }
+  return null;
 }
 
 function bounds(ps: Point[]): { minX: number; maxX: number; minY: number; maxY: number } {

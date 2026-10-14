@@ -1,4 +1,4 @@
-import { forHall, hallNumbers, WrongPlanError } from './hall-match';
+import { forHall, hallFloor, hallNumbers, WrongPlanError } from './hall-match';
 import type { ExtractionResult, ExtractedStall, GroupCalibration } from './stall-extraction';
 
 /** A drawing of several halls, each stall a 10 pt square at (x, y) on the page. */
@@ -42,6 +42,7 @@ function drawing(
       { texts: ['10-01 A'], x: 805, y: 805, reason: 'no outline' },
     ],
     gridAreas: groups.map((g) => ({ group: g.group, outline: [], area: 100 })),
+    floor: null,
     issues: [],
   };
 }
@@ -58,6 +59,26 @@ describe('the stalls of the hall being planned', () => {
     expect([...hallNumbers(['Hall 8-9-10', null])]).toEqual(['8', '9', '10']);
     expect([...hallNumbers(['Hall 5G', 'H5'])]).toEqual(['5']);
     expect([...hallNumbers(['Hall 12A'])]).toEqual(['12A']);
+    expect([...hallNumbers(['Hall 14GF'])]).toEqual(['14']);
+    expect([...hallNumbers(['Hall 14FF'])]).toEqual(['14']);
+  });
+
+  it('reads the floor from a name or code', () => {
+    expect(hallFloor(['Hall 14GF', null])).toBe('GF');
+    expect(hallFloor(['Hall 14FF', null])).toBe('FF');
+    expect(hallFloor(['Main hall', 'H5G'])).toBe('GF');
+    expect(hallFloor(['Hall 4 First Floor', null])).toBe('FF');
+    expect(hallFloor(['Hall 12A', null])).toBeNull();
+  });
+
+  it('refuses the plan of the other floor of the same hall', () => {
+    const groundFloor = { ...drawing([['14', '14-01 A', 100, 100]]), floor: 'GF' as const };
+    expect(() => forHall(groundFloor, 'Hall 14FF', null)).toThrow(
+      'Wrong plan: this drawing is of the ground floor, not Hall 14FF (first floor).',
+    );
+    expect(forHall(groundFloor, 'Hall 14GF', null).hall.groups).toEqual(['14']);
+    // A hall with no floor in its name takes either.
+    expect(forHall(groundFloor, 'Hall 14', null).hall.groups).toEqual(['14']);
   });
 
   it("keeps only this hall's stalls, grid and nearby labels from a plan of several halls", () => {

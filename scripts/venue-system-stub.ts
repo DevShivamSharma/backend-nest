@@ -227,6 +227,10 @@ function decide(body: unknown, deliveryId: string): Answer {
       eventHallId: 'stub',
       stallsApplied: plan.stalls.length,
       stallsDeactivated: 0,
+      // ./.venue-stub-no-layout (or VENUE_STUB_NO_LAYOUT=1) plays a hall with no base layout.
+      ...(existsSync('./.venue-stub-no-layout') || process.env.VENUE_STUB_NO_LAYOUT === '1'
+        ? { warnings: ['HALL_HAS_NO_BASE_LAYOUT'] }
+        : {}),
     },
   };
 }

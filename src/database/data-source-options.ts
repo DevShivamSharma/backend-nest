@@ -14,6 +14,7 @@ import { Payments1792800000000 } from './migrations/1792800000000-Payments';
 import { Settlements1792900000000 } from './migrations/1792900000000-Settlements';
 import { VenueSystemIntegrations1793000000000 } from './migrations/1793000000000-VenueSystemIntegrations';
 import { PlanDeliveries1793100000000 } from './migrations/1793100000000-PlanDeliveries';
+import { PlanDeliveryWarnings1793200000000 } from './migrations/1793200000000-PlanDeliveryWarnings';
 import { VenueSystemIntegrationEntity } from '../venue-system/venue-system-integration.entity';
 import { PlanDeliveryEntity } from '../venue-system/plan-delivery.entity';
 import { SettlementEntity } from '../settlements/settlement.entity';
@@ -135,6 +136,7 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       Settlements1792900000000,
       VenueSystemIntegrations1793000000000,
       PlanDeliveries1793100000000,
+      PlanDeliveryWarnings1793200000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

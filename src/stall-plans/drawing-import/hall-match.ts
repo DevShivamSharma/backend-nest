@@ -21,17 +21,27 @@ const AROUND = 40;
 
 /**
  * The hall numbers in a hall's name or code ("Hall 8-9-10" → 8, 9, 10; "H5" → 5). "Hall 12A" is
- * hall 12A, not 12; a trailing G or F is the floor ("Hall 5G" is hall 5), as the drawing's block
- * numbers have it.
+ * hall 12A, not 12; a trailing G, F, GF or FF is the floor ("Hall 5G", "Hall 14GF" are halls 5
+ * and 14), as the drawing's block numbers have it.
  */
 export function hallNumbers(names: ReadonlyArray<string | null | undefined>): Set<string> {
   return new Set(
     names
       .filter((n): n is string => !!n)
-      .flatMap((n) => [...n.toUpperCase().matchAll(/(\d+)([A-Z]?)(?![A-Z])/g)])
-      .map((m) => String(Number(m[1])) + (/[GF]/.test(m[2]) ? '' : m[2])),
+      .flatMap((n) => [...n.toUpperCase().matchAll(/(\d+)(GF|FF|[A-Z]?)(?![A-Z])/g)])
+      .map((m) => String(Number(m[1])) + (/^(?:GF|FF|G|F)$/.test(m[2]) ? '' : m[2])),
   );
 }
+
+/** The floor a hall's name or code states ("Hall 14GF", "H5G", "Hall 4 First Floor"); null when none. */
+export function hallFloor(names: ReadonlyArray<string | null | undefined>): 'GF' | 'FF' | null {
+  const text = names.filter((n): n is string => !!n).join(' ');
+  const ground = /ground\s*floor|\bg\.?f\b|\d(?:gf|g)\b/i.test(text);
+  const first = /first\s*floor|\bf\.?f\b|\d(?:ff|f)\b/i.test(text);
+  return ground === first ? null : ground ? 'GF' : 'FF';
+}
+
+const FLOOR_NAME = { GF: 'ground floor', FF: 'first floor' } as const;
 
 /**
  * Only the stalls of the hall being planned, out of a drawing that may have several halls: the
@@ -44,6 +54,15 @@ export function forHall(
   hallName: string,
   hallCode: string | null,
 ): HallStalls {
+  // Hall 14 GF and Hall 14 FF share their number: the floor tells their plans apart.
+  const floor = hallFloor([hallName, hallCode]);
+  if (floor && result.floor && floor !== result.floor) {
+    throw new WrongPlanError(
+      `Wrong plan: this drawing is of the ${FLOOR_NAME[result.floor]}, not ${hallName} ` +
+        `(${FLOOR_NAME[floor]}). Upload the plan of ${hallName}.`,
+    );
+  }
+
   const drawingHalls = result.groups.map((g) => g.group).filter((g) => g !== '?');
   const numbers = hallNumbers([hallName, hallCode]);
   const matched = drawingHalls.filter((g) => numbers.has(g));
@@ -67,7 +86,7 @@ export function forHall(
   }
   const out = only(result, groups, drawingHalls, false);
   out.issues = [
-    `Neither the drawing nor ${hallName} names a hall number to match by: check this is ${hallName}'s plan before importing.`,
+    `${numbers.size ? 'The drawing names no' : `Neither the drawing nor ${hallName} names a`} hall number to match by: check this is ${hallName}'s plan before importing.`,
     ...out.issues,
   ];
   return out;

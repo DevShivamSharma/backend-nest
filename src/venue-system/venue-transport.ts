@@ -19,6 +19,8 @@ export interface VenueAnswer {
   /** The venue's error `code` and `message` (contract §6), when its body had them. */
   code: string | null;
   message: string | null;
+  /** Codes from a successful answer's `warnings` (contract §5 step 10); empty otherwise. */
+  warnings?: string[];
   /** True from the log transport: nothing was sent. */
   logged?: boolean;
 }
@@ -53,6 +55,23 @@ export function venueError(text: string): { code: string | null; message: string
     // Not JSON: a proxy's page, say. Its first words are still a clue.
   }
   return { code: null, message: text.trim().slice(0, 200) || null };
+}
+
+/**
+ * The `warnings` of a successful answer: short codes only, at most ten, so a venue's body cannot
+ * fill the row. Anything that is not a list of strings counts as none.
+ */
+export function venueWarnings(text: string): string[] {
+  try {
+    const body = JSON.parse(text) as { warnings?: unknown };
+    if (!Array.isArray(body.warnings)) return [];
+    return body.warnings
+      .filter((w): w is string => typeof w === 'string' && w.trim().length > 0)
+      .map((w) => w.trim().slice(0, 64))
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
 }
 
 /** The sentence a person sees for a refusal or a failed attempt. */
@@ -116,6 +135,9 @@ export class HttpVenueTransport implements VenueTransport {
     }
     // The same timeout covers reading the body; a body cut short is read as empty.
     const text = await response.text().catch(() => '');
-    return { status: response.status, ...venueError(text) };
+    const ok = response.status >= 200 && response.status < 300;
+    return ok
+      ? { status: response.status, code: null, message: null, warnings: venueWarnings(text) }
+      : { status: response.status, ...venueError(text) };
   }
 }

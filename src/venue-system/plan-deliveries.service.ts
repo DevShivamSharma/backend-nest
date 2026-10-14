@@ -260,7 +260,11 @@ export class PlanDeliveriesService {
     if (answer.logged) return this.finish(row.id, { status: 'delivered' });
     const outcome = classifyAnswer(answer.status);
     if (outcome === 'delivered') {
-      return this.finish(row.id, { status: 'delivered', statusCode: answer.status });
+      return this.finish(row.id, {
+        status: 'delivered',
+        statusCode: answer.status,
+        warnings: answer.warnings,
+      });
     }
     const said = answerText(answer);
     const wait = BACKOFF_MINUTES[row.attempts - 1];
@@ -291,6 +295,7 @@ export class PlanDeliveriesService {
       venueCode?: string | null;
       lastError?: string | null;
       retryInMinutes?: number;
+      warnings?: string[];
     },
   ): Promise<void> {
     // `$2::text` everywhere: without one type, Postgres deduces varchar from `status = $2` and
@@ -302,6 +307,7 @@ export class PlanDeliveriesService {
               next_attempt_at = CASE WHEN $2::text = 'pending'
                                      THEN now() + make_interval(mins => $6::int) END,
               delivered_at = CASE WHEN $2::text = 'delivered' THEN now() END,
+              warnings = $7::text[],
               updated_at = now()
         WHERE id = $1 AND status = 'sending'`,
       [
@@ -311,6 +317,7 @@ export class PlanDeliveriesService {
         f.venueCode ?? null,
         f.lastError?.slice(0, 500) ?? null,
         f.retryInMinutes ?? 0,
+        f.warnings ?? [],
       ],
     );
   }
@@ -445,6 +452,7 @@ export class PlanDeliveriesService {
       lastStatusCode: d.lastStatusCode,
       venueCode: d.venueCode,
       lastError: d.lastError,
+      warnings: d.warnings ?? [],
       deliveredAt: d.deliveredAt?.toISOString() ?? null,
       createdAt: d.createdAt.toISOString(),
       resentFromId: d.resentFromId,

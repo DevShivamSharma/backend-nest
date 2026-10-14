@@ -53,6 +53,10 @@ export class PlanDeliveryEntity {
   @Column({ name: 'last_error', type: 'varchar', length: 500, nullable: true })
   lastError!: string | null;
 
+  /** Codes the venue sent with a successful answer, e.g. `HALL_HAS_NO_BASE_LAYOUT`. */
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  warnings!: string[];
+
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt!: Date | null;
 
