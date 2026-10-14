@@ -21,7 +21,7 @@ import { EventsService } from '../events/events.service';
 import { ExternalRefEntity } from '../integrations/external-ref.entity';
 import { PublishedStallEntity, StallPlanEntity } from '../stall-plans/stall-plan.entity';
 import { HallEntity } from '../venues/hall.entity';
-import { itpoPushBody, itpoPushProblems } from './itpo-stall-push';
+import { INT32_MAX, itpoPushBody, itpoPushProblems } from './itpo-stall-push';
 import { PlanDeliveryEntity } from './plan-delivery.entity';
 import { VenueSystemIntegrationEntity } from './venue-system-integration.entity';
 import type { PlanDeliveriesView, PlanDeliveryView } from './venue-system.views';
@@ -86,6 +86,14 @@ export class PlanDeliveriesService {
       .getRepository(VenueSystemIntegrationEntity)
       .findOneBy({ organisationId: event.organisationId });
     if (!link?.enabled) return;
+    // SelfCare answers 409 STALE_REVISION to a revision it already applied: a publish that did
+    // not change the revision has nothing new to send.
+    const plan = await em.getRepository(StallPlanEntity).findOneBy({ eventHallId: eventHall.id });
+    const delivered = await em.getRepository(PlanDeliveryEntity).findOne({
+      where: { eventHallId: eventHall.id, status: 'delivered' },
+      order: { createdAt: 'DESC' },
+    });
+    if (delivered && plan?.publishedRevision === delivered.planRevision) return;
     await this.supersede(em, eventHall.id);
     await this.insert(em, event, eventHall, actorId, null);
   }
@@ -404,23 +412,19 @@ export class PlanDeliveriesService {
         localId: In(categoryIds),
       });
       for (const ref of categoryRefs) {
-        // A non-numeric id is no `T_CODE_MASTER` id: the category then counts as unmapped.
-        if (/^\d+$/.test(ref.externalId)) categories.set(ref.localId, Number(ref.externalId));
+        // A non-numeric or over-int32 id is no `T_CODE_MASTER` id: the category counts as unmapped.
+        if (/^\d+$/.test(ref.externalId) && Number(ref.externalId) <= INT32_MAX) {
+          categories.set(ref.localId, Number(ref.externalId));
+        }
       }
       const named = await em.getRepository(StallCategoryEntity).findBy({ id: In(categoryIds) });
       for (const c of named) categoryNames.set(c.id, c.name);
     }
     const input = {
       deliveryId,
-      sentAt: new Date(),
-      event: { id: event.id, name: event.name, venueEventId: event.venueEventId },
-      hall: {
-        id: hall.id,
-        name: hall.name,
-        itpoId: hallRef?.externalId ?? null,
-        floorVersion: eventHall.floorVersion,
-      },
-      plan: { revision: plan.publishedRevision, publishedAt: plan.publishedAt },
+      event: { venueEventId: event.venueEventId },
+      hall: { itpoId: hallRef?.externalId ?? null },
+      plan: { revision: plan.publishedRevision },
       stalls,
       categories,
       categoryNames,

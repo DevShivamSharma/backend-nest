@@ -237,7 +237,9 @@ export function extractStalls(page: PageVectors): ExtractionResult {
   const kiosks: VectorSegment[] = [];
   for (const p of page.paths) {
     const r = role(p);
-    if ((r === 'closed' || r === 'open') && p.stroke && p.width > 0.3) {
+    // Width 0 is a PDF hairline (the thinnest line the device draws): AutoCAD plots stall lines
+    // with no lineweight that way.
+    if ((r === 'closed' || r === 'open') && p.stroke && (p.width > 0.3 || p.width === 0)) {
       for (const s of p.segments) edgeSegs.push({ ...s, open: r === 'open' });
     } else if (r === 'grid' && p.stroke) {
       gridSegs.push(...p.segments);
@@ -280,14 +282,16 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     const dy = s.y2 - s.y1;
     const len = Math.hypot(dx, dy);
     if (len < 0.02 * pitch) continue;
-    if (Math.abs(dy) <= 0.02 * len)
+    // Within tol of an axis is on it: a dash plotted as a thin filled bar has a diagonal across
+    // its own width, which is no slanted partition.
+    if (Math.abs(dy) <= Math.max(0.02 * len, tol))
       H.push({
         c: (s.y1 + s.y2) / 2,
         lo: Math.min(s.x1, s.x2),
         hi: Math.max(s.x1, s.x2),
         open: s.open,
       });
-    else if (Math.abs(dx) <= 0.02 * len)
+    else if (Math.abs(dx) <= Math.max(0.02 * len, tol))
       V.push({
         c: (s.x1 + s.x2) / 2,
         lo: Math.min(s.y1, s.y2),
@@ -306,6 +310,12 @@ export function extractStalls(page: PageVectors): ExtractionResult {
 
   // --- 5. texts -------------------------------------------------------------------------------------
   const texts = page.texts.map((t) => ({ ...t, text: t.text.replace(/\s+/g, ' ').trim() }));
+  // The plan's note on unlabelled stalls ("all stalls are of 12 sqm, unless otherwise
+  // mentioned"); without one, an unlabelled stall is taken as 12 m².
+  const note = /all\s+stalls?\b[^.]{0,40}?(\d+(?:\.\d+)?)\s*(?:sq\.?\s*m|sqm|m²|m2)/i.exec(
+    texts.map((t) => t.text).join(' '),
+  );
+  const defaultArea = note ? Number(note[1]) : 12;
 
   // --- 6. per face: labels, roles, grid support ---------------------------------------------------
   interface Face {
@@ -682,12 +692,11 @@ export function extractStalls(page: PageVectors): ExtractionResult {
         });
         include = false;
       } else if (!f.letters.length) {
-        if (areaLabel === null && Math.abs(area - 12) <= 0.26) {
+        if (areaLabel === null && Math.abs(area - defaultArea) <= 0.26) {
           stallIssues.push({
             code: 'DEFAULT_AREA',
             severity: 'warning',
-            message:
-              'No label: taken as a standard 12 m² stall (plan note: "all stalls are of 12 sqm, unless otherwise mentioned").',
+            message: `No label: taken as a standard ${defaultArea} m² stall${note ? ` (plan note: "${note[0]}")` : ''}.`,
           });
         } else {
           stallIssues.push({
@@ -713,11 +722,11 @@ export function extractStalls(page: PageVectors): ExtractionResult {
             message: `Label ${areaLabel} m² is the rounded ${area} m² of the outline.`,
           });
         }
-      } else if (f.letters.length && Math.abs(area - 12) > 0.26) {
+      } else if (note && f.letters.length && Math.abs(area - defaultArea) > 0.26) {
         stallIssues.push({
           code: 'AREA_MISMATCH',
           severity: 'warning',
-          message: `No area label, and the outline measures ${area} m², not the default 12 m².`,
+          message: `No area label, and the outline measures ${area} m², not the plan's default ${defaultArea} m².`,
         });
       }
       for (const d of f.dims) {

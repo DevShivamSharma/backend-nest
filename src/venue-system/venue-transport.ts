@@ -32,24 +32,49 @@ export interface VenueTransport {
 export type DeliveryOutcome = 'delivered' | 'refused' | 'retry';
 
 /**
- * 2xx: SelfCare has it. 5xx, 408, 429 and no answer are temporary: the same delivery is sent
- * again later. 400, 401, 404, 409 and 422 are the contract's refusals (§6) and any other answer
- * (another 4xx, a redirect we do not follow) would be the same next time: retrying cannot help.
+ * 2xx: SelfCare has it. 5xx and no answer are temporary: the same delivery is sent again later.
+ * Every 4xx is final (the receiver's contract): 400, 401, 404, 409 and 422 are its refusals, and
+ * any other answer (a redirect we do not follow) would be the same next time.
  */
 export function classifyAnswer(status: number | null): DeliveryOutcome {
   if (status === null) return 'retry';
   if (status >= 200 && status < 300) return 'delivered';
-  if (status >= 500 || status === 408 || status === 429) return 'retry';
+  if (status >= 500) return 'retry';
   return 'refused';
+}
+
+/**
+ * What the receiver's `details` add to its message: the payload problems (400), the booked
+ * stalls (409 EVENT_HALL_HAS_BOOKINGS), the applied revision (409 STALE_REVISION) or the unknown
+ * category ids (422). Anything else is left out.
+ */
+function detailsText(details: unknown): string | null {
+  if (!details || typeof details !== 'object') return null;
+  const d = details as Record<string, unknown>;
+  const list = (v: unknown) =>
+    Array.isArray(v) && v.length
+      ? v
+          .filter((x) => typeof x === 'string' || typeof x === 'number')
+          .slice(0, 10)
+          .join(', ') + (v.length > 10 ? '…' : '')
+      : null;
+  const parts = [
+    list(d.problems),
+    list(d.stalls) && `Booked stalls: ${list(d.stalls)}`,
+    typeof d.appliedRevision === 'number' && `SelfCare has revision ${d.appliedRevision}`,
+    list(d.ids) && `Unknown category ids: ${list(d.ids)}`,
+  ].filter(Boolean);
+  return parts.length ? parts.join('. ') : null;
 }
 
 /** The venue's JSON error body, `{ code, message, details }`, cut to what the row keeps. */
 export function venueError(text: string): { code: string | null; message: string | null } {
   try {
-    const body = JSON.parse(text) as { code?: unknown; message?: unknown };
+    const body = JSON.parse(text) as { code?: unknown; message?: unknown; details?: unknown };
     const code = typeof body.code === 'string' ? body.code.trim().slice(0, 64) || null : null;
-    const message =
-      typeof body.message === 'string' ? body.message.trim().slice(0, 400) || null : null;
+    const said = typeof body.message === 'string' ? body.message.trim() : '';
+    const details = detailsText(body.details);
+    const message = [said, details].filter(Boolean).join(' — ').slice(0, 400) || null;
     if (code || message) return { code, message };
   } catch {
     // Not JSON: a proxy's page, say. Its first words are still a clue.

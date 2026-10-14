@@ -1,4 +1,5 @@
 import { ITPO_PX_PER_METRE } from '../integrations/itpo/itpo-hall-layout';
+import type { StallSide } from '../rules/rule-engine';
 import { forSale } from '../stall-plans/pricing/stall-price';
 import { stallLabel } from '../stall-plans/published-stalls';
 import type { PublishedStallEntity } from '../stall-plans/stall-plan.entity';
@@ -7,16 +8,20 @@ import type { PublishedStallEntity } from '../stall-plans/stall-plan.entity';
 export const ITPO_SCHEMA_VERSION = 1;
 
 /**
- * SelfCare's own stalls are one pixel wider and taller than their metres (a 5 × 6 m stall is
- * 101 × 121 px in the contract's example and in `T_STALLS`): the box's stroke. Pushed stalls
- * match them, so they draw like SelfCare's.
+ * SelfCare's own stalls are one pixel wider and taller than their cells (a 4 × 6 stall is
+ * 81 × 121 px in the contract's reference row and in `T_STALLS`): the box's stroke. Pushed
+ * stalls match them, so they draw like SelfCare's.
  */
 const STROKE_PX = 1;
+/**
+ * SelfCare draws a stall's right and bottom walls 2 px inside the last cell's far edge
+ * (`left + cols × 20 − 2`), so neighbours' walls do not overlap: the contract's "+18".
+ */
+const FAR_WALL_INSET_PX = 2;
 /** Positions are stored to the millimetre; this keeps 19.9999 m on the 20 m grid line. */
 const EPS = 1e-6;
 
 export interface ItpoStall {
-  platformStallId: string;
   island_number: string;
   stall_number: string;
   stall_name: string;
@@ -28,7 +33,11 @@ export interface ItpoStall {
     centerX: number;
     centerY: number;
   };
-  layout_grid: { area: string; stallCoords: Array<{ x: number; y: number }> };
+  layout_grid: {
+    area: string;
+    stallCoords: Array<{ x: number; y: number }>;
+    borderCoords: Array<{ x1: number; x2: number; y1: number; y2: number; isDashed: boolean }>;
+  };
   no_of_open_sides: number;
   category_id: number[];
   is_premium: boolean;
@@ -38,26 +47,26 @@ export interface ItpoStall {
   is_horseshoe_stall: boolean;
   is_marquee_available: boolean;
   is_restricted_for_overseas: boolean;
-  location: string | null;
-  description: string | null;
+  /** Left out when we have none: the receiver takes a string or nothing, not null. */
+  location?: string;
+  description?: string;
 }
 
+/** Exactly the receiver's fields (contract, schemaVersion 1): nothing it does not read. */
 export interface ItpoPushBody {
   schemaVersion: typeof ITPO_SCHEMA_VERSION;
-  deliveryId: string;
   kind: 'plan.published';
-  sentAt: string;
-  event: { itpoBookingId: string; platformEventId: string; name: string };
-  hall: { itpoHallId: number; platformHallId: string; name: string; floorVersion: number };
-  plan: { revision: number; publishedAt: string; pxPerMetre: number; stalls: ItpoStall[] };
+  deliveryId: string;
+  event: { itpoBookingId: string };
+  hall: { itpoHallId: number };
+  plan: { revision: number; stalls: ItpoStall[] };
 }
 
 export interface ItpoPushInput {
   deliveryId: string;
-  sentAt: Date;
-  event: { id: string; name: string; venueEventId: string | null };
-  hall: { id: string; name: string; itpoId: string | null; floorVersion: number };
-  plan: { revision: number; publishedAt: Date };
+  event: { venueEventId: string | null };
+  hall: { itpoId: string | null };
+  plan: { revision: number };
   stalls: readonly PublishedStallEntity[];
   /** Our category id → SelfCare's `T_CODE_MASTER` id, for the mapped ones. */
   categories: ReadonlyMap<string, number>;
@@ -65,8 +74,8 @@ export interface ItpoPushInput {
   categoryNames: ReadonlyMap<string, string>;
 }
 
-/** Metres to SelfCare pixels, whole: a pixel is 5 cm, finer than any stall is placed. */
-const px = (metres: number): number => Math.round(metres * ITPO_PX_PER_METRE);
+/** The receiver's integers (hall id, revision, category ids) are 32-bit signed. */
+export const INT32_MAX = 2_147_483_647;
 
 /** Only active stalls go: SelfCare inserts every pushed row as active and has no flag for it. */
 const pushed = (stalls: readonly PublishedStallEntity[]) => stalls.filter((s) => s.isActive);
@@ -81,8 +90,19 @@ export function itpoPushProblems(input: ItpoPushInput): string[] {
   }
   if (!input.hall.itpoId) {
     out.push('This hall has no SelfCare hall id. Set it on the hall’s page.');
-  } else if (!Number.isSafeInteger(Number(input.hall.itpoId))) {
-    out.push(`The hall’s SelfCare id “${input.hall.itpoId}” is not a number.`);
+  } else if (!/^\d+$/.test(input.hall.itpoId) || Number(input.hall.itpoId) > INT32_MAX) {
+    out.push(`The hall’s SelfCare id “${input.hall.itpoId}” is not a whole number SelfCare can take.`);
+  }
+  // SelfCare needs an island number on every stall (contract: required, non-empty).
+  const noIsland = pushed(input.stalls)
+    .filter((s) => !s.islandNumber?.trim())
+    .map((s) => s.stallNumber)
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  if (noIsland.length) {
+    const shown = noIsland.slice(0, 5).join(', ') + (noIsland.length > 5 ? '…' : '');
+    out.push(
+      `${noIsland.length === 1 ? 'A stall has' : `${noIsland.length} stalls have`} no island number: ${shown}. SelfCare needs one on every stall.`,
+    );
   }
   // Only stalls for sale need a category SelfCare knows; a blocked stall sells nothing.
   const missing = new Set<string>();
@@ -106,24 +126,12 @@ export function itpoPushBody(input: ItpoPushInput): ItpoPushBody {
   );
   return {
     schemaVersion: ITPO_SCHEMA_VERSION,
-    deliveryId: input.deliveryId,
     kind: 'plan.published',
-    sentAt: input.sentAt.toISOString(),
-    event: {
-      itpoBookingId: input.event.venueEventId!,
-      platformEventId: input.event.id,
-      name: input.event.name,
-    },
-    hall: {
-      itpoHallId: Number(input.hall.itpoId),
-      platformHallId: input.hall.id,
-      name: input.hall.name,
-      floorVersion: input.hall.floorVersion,
-    },
+    deliveryId: input.deliveryId,
+    event: { itpoBookingId: input.event.venueEventId! },
+    hall: { itpoHallId: Number(input.hall.itpoId) },
     plan: {
       revision: input.plan.revision,
-      publishedAt: input.plan.publishedAt.toISOString(),
-      pxPerMetre: ITPO_PX_PER_METRE,
       stalls: stalls.map((s) => itpoStall(s, input.categories)),
     },
   };
@@ -133,13 +141,14 @@ export function itpoStall(
   s: PublishedStallEntity,
   categories: ReadonlyMap<string, number>,
 ): ItpoStall {
-  const left = px(s.x);
-  const top = px(s.y);
-  const width = px(s.width) + STROKE_PX;
-  const height = px(s.depth) + STROKE_PX;
+  const box = cellBox(s);
+  const g = ITPO_PX_PER_METRE;
+  const left = box.col * g;
+  const top = box.row * g;
+  const width = box.cols * g + STROKE_PX;
+  const height = box.rows * g + STROKE_PX;
   return {
-    platformStallId: s.stallId,
-    island_number: s.islandNumber ?? '',
+    island_number: s.islandNumber!.trim(),
     stall_number: s.stallNumber,
     // We keep no stall name; SelfCare's own rows say "NA".
     stall_name: 'NA',
@@ -152,8 +161,9 @@ export function itpoStall(
       centerY: top + height / 2,
     },
     layout_grid: {
-      area: `${Number((s.width * s.depth).toFixed(2))}sqm`,
-      stallCoords: gridPoints(s),
+      area: `${box.cols * box.rows}sqm`,
+      stallCoords: gridPoints(box),
+      borderCoords: borders(box, s.openSides),
     },
     no_of_open_sides: s.openSides.length,
     category_id: s.categoryIds.flatMap((id) => {
@@ -167,23 +177,72 @@ export function itpoStall(
     is_horseshoe_stall: s.isHorseshoe,
     is_marquee_available: s.isMarqueeAvailable,
     is_restricted_for_overseas: s.isRestrictedForOverseas,
-    location: s.location,
-    description: s.description,
+    ...(s.location !== null && { location: s.location }),
+    ...(s.description !== null && { description: s.description }),
   };
 }
 
+/** The 1 m cells a stall covers: first column and row, and how many of each. */
+interface CellBox {
+  col: number;
+  row: number;
+  cols: number;
+  rows: number;
+}
+
 /**
- * The 1 m cells of SelfCare's 20 px grid the stall covers, by their top-left corners, row by
- * row. A stall on whole metres gives width × depth points, as SelfCare's own rows have.
+ * One box drives the coordinates, the cells and the walls, so they always agree. A stall off
+ * whole metres takes every cell it touches, as SelfCare can only draw whole cells.
  */
-function gridPoints(s: PublishedStallEntity): Array<{ x: number; y: number }> {
+function cellBox(s: PublishedStallEntity): CellBox {
+  const col = Math.floor(s.x + EPS);
+  const row = Math.floor(s.y + EPS);
+  return {
+    col,
+    row,
+    cols: Math.max(1, Math.ceil(s.x + s.width - EPS) - col),
+    rows: Math.max(1, Math.ceil(s.y + s.depth - EPS) - row),
+  };
+}
+
+/** The cells' top-left corners on SelfCare's 20 px grid, row by row (a 4 × 6 stall: 24). */
+function gridPoints(b: CellBox): Array<{ x: number; y: number }> {
+  const g = ITPO_PX_PER_METRE;
   const points: Array<{ x: number; y: number }> = [];
-  const [firstCol, endCol] = [Math.floor(s.x + EPS), Math.ceil(s.x + s.width - EPS)];
-  const [firstRow, endRow] = [Math.floor(s.y + EPS), Math.ceil(s.y + s.depth - EPS)];
-  for (let row = firstRow; row < endRow; row++) {
-    for (let col = firstCol; col < endCol; col++) {
-      points.push({ x: col * ITPO_PX_PER_METRE, y: row * ITPO_PX_PER_METRE });
-    }
+  for (let r = 0; r < b.rows; r++) {
+    for (let c = 0; c < b.cols; c++) points.push({ x: (b.col + c) * g, y: (b.row + r) * g });
   }
   return points;
+}
+
+/**
+ * One segment per outer cell edge, top, bottom, left, right, as SelfCare's own rows have. The
+ * right and bottom walls sit `FAR_WALL_INSET_PX` inside; an open side is dashed.
+ */
+function borders(b: CellBox, open: readonly StallSide[]): ItpoStall['layout_grid']['borderCoords'] {
+  const g = ITPO_PX_PER_METRE;
+  const left = b.col * g;
+  const top = b.row * g;
+  const right = left + b.cols * g - FAR_WALL_INSET_PX;
+  const bottom = top + b.rows * g - FAR_WALL_INSET_PX;
+  const out: ItpoStall['layout_grid']['borderCoords'] = [];
+  for (const [y, side] of [
+    [top, 'top'],
+    [bottom, 'bottom'],
+  ] as const) {
+    for (let c = 0; c < b.cols; c++) {
+      const x1 = left + c * g;
+      out.push({ x1, x2: x1 + g, y1: y, y2: y, isDashed: open.includes(side) });
+    }
+  }
+  for (const [x, side] of [
+    [left, 'left'],
+    [right, 'right'],
+  ] as const) {
+    for (let r = 0; r < b.rows; r++) {
+      const y1 = top + r * g;
+      out.push({ x1: x, x2: x, y1, y2: y1 + g, isDashed: open.includes(side) });
+    }
+  }
+  return out;
 }

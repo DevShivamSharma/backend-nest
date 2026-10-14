@@ -82,22 +82,19 @@ function bodyProblems(body: unknown, deliveryHeader: string): string[] {
   if (body.deliveryId !== deliveryHeader) {
     problems.push('deliveryId differs from the X-Platform-Delivery header.');
   }
-  if (!isText(body.sentAt)) problems.push('sentAt is missing.');
   const event = body.event;
-  if (!isObject(event) || !isText(event.itpoBookingId) || !isText(event.platformEventId)) {
-    problems.push('event.itpoBookingId and event.platformEventId are required.');
+  if (!isObject(event) || !isText(event.itpoBookingId)) {
+    problems.push('event.itpoBookingId is required.');
   }
   const hall = body.hall;
-  if (!isObject(hall) || !isNumber(hall.itpoHallId) || !isText(hall.platformHallId)) {
-    problems.push('hall.itpoHallId (a number) and hall.platformHallId are required.');
+  if (!isObject(hall) || !Number.isInteger(hall.itpoHallId)) {
+    problems.push('hall.itpoHallId (an integer) is required.');
   }
   const plan = body.plan;
   if (!isObject(plan) || !isNumber(plan.revision) || !Array.isArray(plan.stalls)) {
     problems.push('plan.revision (a number) and plan.stalls (a list) are required.');
     return problems;
   }
-  if (!isText(plan.publishedAt)) problems.push('plan.publishedAt is missing.');
-  if (plan.pxPerMetre !== 20) problems.push('plan.pxPerMetre must be 20.');
   const seen = new Set<string>();
   plan.stalls.forEach((stall: unknown, index: number) => {
     const at = `stalls[${index}]`;
@@ -105,8 +102,7 @@ function bodyProblems(body: unknown, deliveryHeader: string): string[] {
       problems.push(`${at} is not an object.`);
       return;
     }
-    if (!isText(stall.platformStallId)) problems.push(`${at}.platformStallId is missing.`);
-    if (typeof stall.island_number !== 'string') problems.push(`${at}.island_number is missing.`);
+    if (!isText(stall.island_number)) problems.push(`${at}.island_number is missing.`);
     if (!isText(stall.stall_number)) problems.push(`${at}.stall_number is missing.`);
     const key = `${String(stall.island_number)}|${String(stall.stall_number)}`;
     if (seen.has(key)) problems.push(`${at}: island + stall number ${key} is repeated.`);
@@ -122,8 +118,29 @@ function bodyProblems(body: unknown, deliveryHeader: string): string[] {
     const grid = stall.layout_grid;
     if (!isObject(grid) || !isText(grid.area) || !Array.isArray(grid.stallCoords)) {
       problems.push(`${at}.layout_grid is missing.`);
-    } else if (!grid.stallCoords.every((p: unknown) => isObject(p) && isNumber(p.x) && isNumber(p.y))) {
-      problems.push(`${at}.layout_grid.stallCoords has a point that is not finite.`);
+    } else if (
+      !grid.stallCoords.length ||
+      !grid.stallCoords.every(
+        (p: unknown) => isObject(p) && isNumber(p.x) && isNumber(p.y) && p.x % 20 === 0 && p.y % 20 === 0,
+      )
+    ) {
+      problems.push(`${at}.layout_grid.stallCoords must be points on the 20 px grid.`);
+    } else if (
+      !Array.isArray(grid.borderCoords) ||
+      !grid.borderCoords.length ||
+      !grid.borderCoords.every(
+        (b: unknown) =>
+          isObject(b) &&
+          isNumber(b.x1) &&
+          isNumber(b.x2) &&
+          isNumber(b.y1) &&
+          isNumber(b.y2) &&
+          typeof b.isDashed === 'boolean',
+      )
+    ) {
+      problems.push(`${at}.layout_grid.borderCoords is missing or malformed.`);
+    } else if (grid.area !== `${grid.stallCoords.length}sqm`) {
+      problems.push(`${at}.layout_grid.area must be "${grid.stallCoords.length}sqm".`);
     }
     if (!isNumber(stall.no_of_open_sides)) problems.push(`${at}.no_of_open_sides is not a number.`);
     if (!Array.isArray(stall.category_id) || !stall.category_id.every(isNumber)) {
