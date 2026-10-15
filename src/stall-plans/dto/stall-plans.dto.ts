@@ -99,6 +99,13 @@ export class PlanStallDto {
   @IsIn(STALL_SIDES, { each: true })
   openSides!: StallSide[];
 
+  /** Cells cut out, [column, row] from the top-left; kept to the stall on save. None: none. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10000)
+  @IsPoints('Cut cells are a list of [column, row] cells.')
+  cutCells?: Array<[number, number]>;
+
   @IsIn(STALL_SCHEMES)
   scheme!: StallScheme;
 

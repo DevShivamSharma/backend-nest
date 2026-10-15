@@ -36,6 +36,7 @@ export function publishedStallRows(
       width: s.width,
       depth: s.depth,
       openSides: s.openSides,
+      cutCells: s.cutCells,
       scheme: s.scheme,
       categoryIds: s.categoryIds,
       isPremium: s.isPremium,
@@ -68,8 +69,8 @@ const money = (paise: number | null): string =>
 /**
  * What a re-publish would change about stalls with an active booking, one sentence each; empty
  * when nothing a booking relies on changes. A booked stall must stay in the plan, where it is
- * and as big (x, y, width, depth), for sale (not blocked, active), at the same price (paise and
- * currency) and with the same number (island and stall). Zone, categories, scheme, open sides,
+ * and the same shape (x, y, width, depth, cut cells), for sale (not blocked, active), at the
+ * same price (paise and currency) and with the same number (island and stall). Zone, categories, scheme, open sides,
  * flags, location and description may change, as long as the price stays the same.
  */
 export function bookedStallChanges(
@@ -91,7 +92,13 @@ export function bookedStallChanges(
       say(`${who} is not in this version.`);
       continue;
     }
-    if (now.x !== was.x || now.y !== was.y || now.width !== was.width || now.depth !== was.depth) {
+    if (
+      now.x !== was.x ||
+      now.y !== was.y ||
+      now.width !== was.width ||
+      now.depth !== was.depth ||
+      JSON.stringify(now.cutCells) !== JSON.stringify(was.cutCells)
+    ) {
       say(`${who} is moved or resized.`);
     }
     if (!forSale(now)) say(`${who} is taken off sale.`);

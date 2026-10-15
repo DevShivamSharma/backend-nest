@@ -136,6 +136,10 @@ export class PlanStallEntity {
   @Column({ name: 'open_sides', type: 'text', array: true, default: () => "'{}'" })
   openSides!: StallSide[];
 
+  /** Cells cut out of the rectangle, [column, row] from its top-left; see `stall-cells.ts`. */
+  @Column({ name: 'cut_cells', type: 'jsonb', default: () => "'[]'::jsonb" })
+  cutCells!: Array<[number, number]>;
+
   @Column({ type: 'varchar', length: 8, default: 'shell' })
   scheme!: StallScheme;
 
@@ -282,6 +286,9 @@ export class PublishedStallEntity {
 
   @Column({ name: 'open_sides', type: 'text', array: true })
   openSides!: StallSide[];
+
+  @Column({ name: 'cut_cells', type: 'jsonb' })
+  cutCells!: Array<[number, number]>;
 
   @Column({ type: 'varchar', length: 8 })
   scheme!: StallScheme;

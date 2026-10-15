@@ -24,6 +24,8 @@ export interface PlanStallView {
   width: number;
   depth: number;
   openSides: StallSide[];
+  /** Cells cut out, [column, row] from the top-left. */
+  cutCells: Array<[number, number]>;
   scheme: StallScheme;
   categoryIds: string[];
   isPremium: boolean;

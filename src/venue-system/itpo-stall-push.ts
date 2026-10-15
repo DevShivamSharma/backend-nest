@@ -91,7 +91,9 @@ export function itpoPushProblems(input: ItpoPushInput): string[] {
   if (!input.hall.itpoId) {
     out.push('This hall has no SelfCare hall id. Set it on the hall’s page.');
   } else if (!/^\d+$/.test(input.hall.itpoId) || Number(input.hall.itpoId) > INT32_MAX) {
-    out.push(`The hall’s SelfCare id “${input.hall.itpoId}” is not a whole number SelfCare can take.`);
+    out.push(
+      `The hall’s SelfCare id “${input.hall.itpoId}” is not a whole number SelfCare can take.`,
+    );
   }
   // SelfCare needs an island number on every stall (contract: required, non-empty).
   const noIsland = pushed(input.stalls)
@@ -142,6 +144,7 @@ export function itpoStall(
   categories: ReadonlyMap<string, number>,
 ): ItpoStall {
   const box = cellBox(s);
+  const kept = keptCells(box, s);
   const g = ITPO_PX_PER_METRE;
   const left = box.col * g;
   const top = box.row * g;
@@ -161,9 +164,10 @@ export function itpoStall(
       centerY: top + height / 2,
     },
     layout_grid: {
-      area: `${box.cols * box.rows}sqm`,
-      stallCoords: gridPoints(box),
-      borderCoords: borders(box, s.openSides),
+      // SelfCare's area is its cell count: a cut stall's is less than its box.
+      area: `${kept.length}sqm`,
+      stallCoords: gridPoints(box, kept),
+      borderCoords: borders(box, kept, s.openSides),
     },
     no_of_open_sides: s.openSides.length,
     category_id: s.categoryIds.flatMap((id) => {
@@ -205,43 +209,63 @@ function cellBox(s: PublishedStallEntity): CellBox {
   };
 }
 
-/** The cells' top-left corners on SelfCare's 20 px grid, row by row (a 4 × 6 stall: 24). */
-function gridPoints(b: CellBox): Array<{ x: number; y: number }> {
-  const g = ITPO_PX_PER_METRE;
-  const points: Array<{ x: number; y: number }> = [];
+/**
+ * The box's cells the stall keeps, as [column, row] within the box: all of them less the ones
+ * cut away. A cut cell of a stall off whole metres goes by the box cell its corner falls in.
+ */
+function keptCells(b: CellBox, s: PublishedStallEntity): Array<[number, number]> {
+  const cut = new Set(
+    s.cutCells.map(
+      ([c, r]) => `${Math.floor(s.x + c + EPS) - b.col},${Math.floor(s.y + r + EPS) - b.row}`,
+    ),
+  );
+  const kept: Array<[number, number]> = [];
   for (let r = 0; r < b.rows; r++) {
-    for (let c = 0; c < b.cols; c++) points.push({ x: (b.col + c) * g, y: (b.row + r) * g });
+    for (let c = 0; c < b.cols; c++) if (!cut.has(`${c},${r}`)) kept.push([c, r]);
   }
-  return points;
+  return kept;
+}
+
+/** The kept cells' top-left corners on SelfCare's 20 px grid, row by row (a 4 × 6 stall: 24). */
+function gridPoints(
+  b: CellBox,
+  kept: ReadonlyArray<[number, number]>,
+): Array<{ x: number; y: number }> {
+  const g = ITPO_PX_PER_METRE;
+  return kept.map(([c, r]) => ({ x: (b.col + c) * g, y: (b.row + r) * g }));
 }
 
 /**
- * One segment per outer cell edge, top, bottom, left, right, as SelfCare's own rows have. The
- * right and bottom walls sit `FAR_WALL_INSET_PX` inside; an open side is dashed.
+ * One segment per kept cell edge that has no kept cell beyond it, cell by cell, row by row,
+ * top, left, right, bottom, as SelfCare's own rows have; a cut cell gets walls round it like
+ * the stall's outside. A right or bottom wall sits `FAR_WALL_INSET_PX` inside its cell. An
+ * open side is dashed on the stall's outer line only, never round a cut.
  */
-function borders(b: CellBox, open: readonly StallSide[]): ItpoStall['layout_grid']['borderCoords'] {
+function borders(
+  b: CellBox,
+  kept: ReadonlyArray<[number, number]>,
+  open: readonly StallSide[],
+): ItpoStall['layout_grid']['borderCoords'] {
   const g = ITPO_PX_PER_METRE;
-  const left = b.col * g;
-  const top = b.row * g;
-  const right = left + b.cols * g - FAR_WALL_INSET_PX;
-  const bottom = top + b.rows * g - FAR_WALL_INSET_PX;
+  const has = new Set(kept.map(([c, r]) => `${c},${r}`));
   const out: ItpoStall['layout_grid']['borderCoords'] = [];
-  for (const [y, side] of [
-    [top, 'top'],
-    [bottom, 'bottom'],
-  ] as const) {
-    for (let c = 0; c < b.cols; c++) {
-      const x1 = left + c * g;
-      out.push({ x1, x2: x1 + g, y1: y, y2: y, isDashed: open.includes(side) });
+  for (const [c, r] of kept) {
+    const x = (b.col + c) * g;
+    const y = (b.row + r) * g;
+    const far = (n: number) => n + g - FAR_WALL_INSET_PX;
+    if (!has.has(`${c},${r - 1}`)) {
+      out.push({ x1: x, x2: x + g, y1: y, y2: y, isDashed: r === 0 && open.includes('top') });
     }
-  }
-  for (const [x, side] of [
-    [left, 'left'],
-    [right, 'right'],
-  ] as const) {
-    for (let r = 0; r < b.rows; r++) {
-      const y1 = top + r * g;
-      out.push({ x1: x, x2: x, y1, y2: y1 + g, isDashed: open.includes(side) });
+    if (!has.has(`${c - 1},${r}`)) {
+      out.push({ x1: x, x2: x, y1: y, y2: y + g, isDashed: c === 0 && open.includes('left') });
+    }
+    if (!has.has(`${c + 1},${r}`)) {
+      const isDashed = c === b.cols - 1 && open.includes('right');
+      out.push({ x1: far(x), x2: far(x), y1: y, y2: y + g, isDashed });
+    }
+    if (!has.has(`${c},${r + 1}`)) {
+      const isDashed = r === b.rows - 1 && open.includes('bottom');
+      out.push({ x1: x, x2: x + g, y1: far(y), y2: far(y), isDashed });
     }
   }
   return out;

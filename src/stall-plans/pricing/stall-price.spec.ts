@@ -15,6 +15,7 @@ describe('stallPrice', () => {
   const stall = (more: Partial<PricedStall> = {}): PricedStall => ({
     width: 3,
     depth: 4,
+    cutCells: [],
     scheme: 'shell',
     openSides: ['bottom'],
     isPremium: false,

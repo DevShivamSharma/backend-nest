@@ -139,6 +139,7 @@ export class PublicEventsService {
       width: s.width,
       depth: s.depth,
       openSides: s.openSides,
+      cutCells: s.cutCells,
       scheme: s.scheme,
       isPremium: s.isPremium,
       isBlocked: s.isBlocked,

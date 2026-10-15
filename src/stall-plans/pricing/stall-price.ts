@@ -7,6 +7,8 @@
  * The same reckoning runs in the planner (frontend `stall-price.ts`); keep them alike.
  */
 
+import { stallArea } from '../stall-cells';
+
 export const PRICE_TYPES = ['general', 'premium', 'marquee'] as const;
 export type PriceType = (typeof PRICE_TYPES)[number];
 
@@ -37,6 +39,8 @@ export interface PriceCard {
 export interface PricedStall {
   width: number;
   depth: number;
+  /** Cells cut out of the rectangle; their floor is not sold. */
+  cutCells: ReadonlyArray<readonly [number, number]>;
   scheme: 'shell' | 'raw';
   openSides: readonly string[];
   isPremium: boolean;
@@ -101,7 +105,7 @@ export function stallPrice(
     price = rates.fnbPrice;
     parts.push(`${rupees(rates.fnbPrice)} food & beverage`);
   } else {
-    const area = s.width * s.depth;
+    const area = stallArea(s);
     const shell = s.scheme === 'shell';
     const rate = shell ? rates.shellRate : rates.bareRate;
     price = area * rate;

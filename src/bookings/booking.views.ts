@@ -64,6 +64,8 @@ export interface PublishedStallView {
   width: number;
   depth: number;
   openSides: StallSide[];
+  /** Cells cut out, [column, row] from the top-left. */
+  cutCells: Array<[number, number]>;
   scheme: StallScheme;
   isPremium: boolean;
   isBlocked: boolean;

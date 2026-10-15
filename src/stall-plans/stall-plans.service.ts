@@ -30,6 +30,7 @@ import {
 import { checkPlan, findingsFor, PlanFinding } from './plan-check';
 import { bookedStallChanges, publishedStallRows } from './published-stalls';
 import { PricingService } from './pricing/pricing.service';
+import { cleanCutCells } from './stall-cells';
 import {
   planApprovedEmail,
   planRejectedEmail,
@@ -334,6 +335,7 @@ export class StallPlansService {
           zoneId: s.zoneId ?? null,
           islandNumber: s.islandNumber ?? null,
           openSides: [...new Set(s.openSides)],
+          cutCells: cleanCutCells(s, s.cutCells ?? []),
           categoryIds: [...new Set(s.categoryIds)],
           location: s.location ?? null,
           description: s.description ?? null,
@@ -967,6 +969,7 @@ function stallView(s: PlanStallEntity): PlanStallView {
     width: s.width,
     depth: s.depth,
     openSides: s.openSides,
+    cutCells: s.cutCells,
     scheme: s.scheme,
     categoryIds: s.categoryIds,
     isPremium: s.isPremium,
