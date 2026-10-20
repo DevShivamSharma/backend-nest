@@ -22,7 +22,7 @@ export class StallCategoryEntity {
   @Column({ name: 'organisation_id', type: 'uuid' })
   organisationId!: string;
 
-  @Column({ type: 'varchar', length: 80 })
+  @Column({ type: 'varchar', length: 160 })
   name!: string;
 
   @Column({ type: 'varchar', length: 8, default: 'active' })

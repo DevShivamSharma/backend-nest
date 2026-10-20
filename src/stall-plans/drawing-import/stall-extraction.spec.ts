@@ -4,6 +4,7 @@ import type {
   VectorSegment,
 } from '../../venues/floor-plan/cad/pdf-vectors';
 import {
+  agreeWithAreaLabels,
   extractStalls,
   fitOrigin,
   globalPitch,
@@ -236,7 +237,9 @@ describe('extractStalls', () => {
     const e = r.stalls.find((s) => s.letter === 'E')!;
     expect(e.area).toBeCloseTo(12, 1);
     expect(e.issues).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'NO_OUTLINE', severity: 'warning' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'NO_OUTLINE', severity: 'warning' }),
+      ]),
     );
     expect(r.unresolved).toEqual([]);
   });
@@ -318,6 +321,38 @@ describe('extractStalls', () => {
     // Too few points or an implausible change keeps the coarse fit.
     const coarse = { pitch: 5.87, origin: 106, rms: 0, used: 0 };
     expect(refineLattice(values.slice(0, 5), coarse)).toBe(coarse);
+  });
+
+  it('moves a partition that snapped to the wrong half metre back to where the labels put it', () => {
+    // An 8 x 15 block: B 8 x 5 on top, A1 and A 4 x 10 below, every one labelled 40 m². The
+    // partition under B was drawn a little low and snapped to 35.5: B 44 m², A1 and A 38 m².
+    const rect = (x: number, z: number, w: number, d: number) => [
+      { x, z },
+      { x: x + w, z },
+      { x: x + w, z: z + d },
+      { x, z: z + d },
+    ];
+    const snapped = [
+      rect(48, 30, 8, 5.5),
+      rect(48, 35.5, 4, 9.5),
+      rect(52, 35.5, 4, 9.5),
+      rect(0, 0, 4, 4),
+    ];
+    const [b, a1, a, other] = agreeWithAreaLabels(snapped, snapped, [40, 40, 40, 16]);
+    // The shared partition moves for all three, not B's top edge.
+    expect(b.points).toEqual(rect(48, 30, 8, 5));
+    expect(a1.points).toEqual(rect(48, 35, 4, 10));
+    expect(a.points).toEqual(rect(52, 35, 4, 10));
+    expect([b.moved, a1.moved, a.moved, other.moved]).toEqual([0.5, 0.5, 0.5, 0]);
+    // One stall drawn off its grid line: its edge goes where the drawing leans and the label says.
+    const leaning = agreeWithAreaLabels([rect(0, 0, 8, 5.5)], [rect(0, 0, 8, 5.3)], [40])[0];
+    expect(leaning).toEqual({ points: rect(0, 0, 8, 5), moved: 0.5 });
+    // A clean edge with a lone wrong label, or a label no edge can give, is left to the review.
+    for (const label of [12, 30])
+      expect(agreeWithAreaLabels([rect(0, 0, 4, 4)], [rect(0, 0, 4, 4)], [label])[0]).toEqual({
+        points: rect(0, 0, 4, 4),
+        moved: 0,
+      });
   });
 
   it('snaps corners to half metres, and lets the area label settle a midway edge', () => {

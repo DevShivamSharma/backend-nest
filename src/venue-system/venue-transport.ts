@@ -19,6 +19,8 @@ export interface VenueAnswer {
   /** The venue's error `code` and `message` (contract §6), when its body had them. */
   code: string | null;
   message: string | null;
+  /** The revision SelfCare already holds, from a 409 STALE_REVISION's `details`. */
+  appliedRevision?: number | null;
   /** Codes from a successful answer's `warnings` (contract §5 step 10); empty otherwise. */
   warnings?: string[];
   /** True from the log transport: nothing was sent. */
@@ -68,14 +70,20 @@ function detailsText(details: unknown): string | null {
 }
 
 /** The venue's JSON error body, `{ code, message, details }`, cut to what the row keeps. */
-export function venueError(text: string): { code: string | null; message: string | null } {
+export function venueError(text: string): {
+  code: string | null;
+  message: string | null;
+  appliedRevision?: number | null;
+} {
   try {
     const body = JSON.parse(text) as { code?: unknown; message?: unknown; details?: unknown };
     const code = typeof body.code === 'string' ? body.code.trim().slice(0, 64) || null : null;
     const said = typeof body.message === 'string' ? body.message.trim() : '';
     const details = detailsText(body.details);
     const message = [said, details].filter(Boolean).join(' — ').slice(0, 400) || null;
-    if (code || message) return { code, message };
+    const applied = (body.details as { appliedRevision?: unknown } | undefined)?.appliedRevision;
+    const appliedRevision = typeof applied === 'number' ? applied : null;
+    if (code || message) return { code, message, appliedRevision };
   } catch {
     // Not JSON: a proxy's page, say. Its first words are still a clue.
   }

@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, Trim } from '../../common/validation';
+import { EmptyToNull, IsPoints, Trim } from '../../common/validation';
 import { EVENT_TYPES, EventType, RULE_IDS, RuleId } from '../rule-catalogue';
 import { STALL_SIDES, StallSide } from '../rule-engine';
 
@@ -139,6 +139,13 @@ export class StallDto {
   @ArrayMaxSize(4)
   @IsIn(STALL_SIDES, { each: true })
   openSides!: StallSide[];
+
+  /** Cells cut out of the rectangle, [column, row] from its top-left. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10000)
+  @IsPoints('Cut cells are a list of [column, row] cells.')
+  cutCells?: Array<[number, number]>;
 
   @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })

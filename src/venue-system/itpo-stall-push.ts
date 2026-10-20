@@ -65,7 +65,8 @@ export interface ItpoPushBody {
 export interface ItpoPushInput {
   deliveryId: string;
   event: { venueEventId: string | null };
-  hall: { itpoId: string | null };
+  /** `island`: the island number of a stall that has none (the hall's code or name). */
+  hall: { itpoId: string | null; island: string };
   plan: { revision: number };
   stalls: readonly PublishedStallEntity[];
   /** Our category id → SelfCare's `T_CODE_MASTER` id, for the mapped ones. */
@@ -95,15 +96,11 @@ export function itpoPushProblems(input: ItpoPushInput): string[] {
       `The hall’s SelfCare id “${input.hall.itpoId}” is not a whole number SelfCare can take.`,
     );
   }
-  // SelfCare needs an island number on every stall (contract: required, non-empty).
-  const noIsland = pushed(input.stalls)
-    .filter((s) => !s.islandNumber?.trim())
-    .map((s) => s.stallNumber)
-    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
-  if (noIsland.length) {
-    const shown = noIsland.slice(0, 5).join(', ') + (noIsland.length > 5 ? '…' : '');
+  // SelfCare needs an island number on every stall (contract: required, non-empty); a stall
+  // without one goes with the hall's, so only a hall with neither code nor name stops the push.
+  if (!input.hall.island.trim() && pushed(input.stalls).some((s) => !s.islandNumber?.trim())) {
     out.push(
-      `${noIsland.length === 1 ? 'A stall has' : `${noIsland.length} stalls have`} no island number: ${shown}. SelfCare needs one on every stall.`,
+      'Some stalls have no island number and the hall has no code to use instead. Give the hall a code on the Venues page, or the stalls an island number in the planner.',
     );
   }
   // Only stalls for sale need a category SelfCare knows; a blocked stall sells nothing.
@@ -134,7 +131,7 @@ export function itpoPushBody(input: ItpoPushInput): ItpoPushBody {
     hall: { itpoHallId: Number(input.hall.itpoId) },
     plan: {
       revision: input.plan.revision,
-      stalls: stalls.map((s) => itpoStall(s, input.categories)),
+      stalls: stalls.map((s) => itpoStall(s, input.categories, input.hall.island)),
     },
   };
 }
@@ -142,6 +139,8 @@ export function itpoPushBody(input: ItpoPushInput): ItpoPushBody {
 export function itpoStall(
   s: PublishedStallEntity,
   categories: ReadonlyMap<string, number>,
+  /** The island number of a stall that has none. */
+  island: string,
 ): ItpoStall {
   const box = cellBox(s);
   const kept = keptCells(box, s);
@@ -151,7 +150,7 @@ export function itpoStall(
   const width = box.cols * g + STROKE_PX;
   const height = box.rows * g + STROKE_PX;
   return {
-    island_number: s.islandNumber!.trim(),
+    island_number: s.islandNumber?.trim() || island.trim(),
     stall_number: s.stallNumber,
     // We keep no stall name; SelfCare's own rows say "NA".
     stall_name: 'NA',
@@ -164,8 +163,9 @@ export function itpoStall(
       centerY: top + height / 2,
     },
     layout_grid: {
-      // SelfCare's area is its cell count: a cut stall's is less than its box.
-      area: `${kept.length}sqm`,
+      // SelfCare's area is its cell count (a cut stall's is less than its box), unless the
+      // hall drawing writes more on the stall than fits on the grid.
+      area: `${s.labelArea ?? kept.length}sqm`,
       stallCoords: gridPoints(box, kept),
       borderCoords: borders(box, kept, s.openSides),
     },

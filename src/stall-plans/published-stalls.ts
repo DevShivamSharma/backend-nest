@@ -37,6 +37,7 @@ export function publishedStallRows(
       depth: s.depth,
       openSides: s.openSides,
       cutCells: s.cutCells,
+      labelArea: s.labelArea,
       scheme: s.scheme,
       categoryIds: s.categoryIds,
       isPremium: s.isPremium,

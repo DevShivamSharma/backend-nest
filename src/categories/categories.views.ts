@@ -20,6 +20,10 @@ export interface CategoryRef {
 
 export interface CategoryImportView {
   created: number;
+  /** Categories linked to a row's SelfCare id that took its new name or status. */
+  updated: number;
+  /** Categories of the row's name, now linked to its SelfCare id. */
+  linked: number;
   /** Rows not added, with why: already listed, or twice in the file. */
   skipped: Array<{ name: string; reason: string }>;
 }

@@ -16,6 +16,8 @@ import { VenueSystemIntegrations1793000000000 } from './migrations/1793000000000
 import { PlanDeliveries1793100000000 } from './migrations/1793100000000-PlanDeliveries';
 import { PlanDeliveryWarnings1793200000000 } from './migrations/1793200000000-PlanDeliveryWarnings';
 import { StallCutCells1793300000000 } from './migrations/1793300000000-StallCutCells';
+import { CategoryNameLength1793400000000 } from './migrations/1793400000000-CategoryNameLength';
+import { StallLabelArea1793500000000 } from './migrations/1793500000000-StallLabelArea';
 import { VenueSystemIntegrationEntity } from '../venue-system/venue-system-integration.entity';
 import { PlanDeliveryEntity } from '../venue-system/plan-delivery.entity';
 import { SettlementEntity } from '../settlements/settlement.entity';
@@ -139,6 +141,8 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       PlanDeliveries1793100000000,
       PlanDeliveryWarnings1793200000000,
       StallCutCells1793300000000,
+      CategoryNameLength1793400000000,
+      StallLabelArea1793500000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.

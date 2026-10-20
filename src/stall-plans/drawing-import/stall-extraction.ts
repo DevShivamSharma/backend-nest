@@ -162,7 +162,43 @@ export interface ExtractionResult {
 
 export class ExtractionError extends Error {}
 
-const LETTER = /^[A-Z]\d?$/;
+/**
+ * A stall's letter: `A`, `A1`, or a pavilion's numbered stall `B01`, `C42a`, `C30/1` (APEDA,
+ * H3GF). The suffix is a lower-case letter or `/n` only, so `H2O` (a water point) is no stall.
+ */
+const LETTER = /^[A-Z](?:\d|\d{2}(?:[a-z]|\/\d)?)?$/;
+/** A letter printed after its block's number: `14D`, `14 C` in block 3F-14 are D, C; `10B2` in 5F-10 is B2. */
+const SHORT_LETTER = /^\d{1,2} ?([A-Z]\d?)$/;
+/** A pavilion stall's number printed apart from its letter, the `21` of `B 21`. */
+const LETTER_NUMBER = /^\d{2}(?:\/\d)?$/;
+
+/**
+ * The stall letters among the texts of one outline. `14D` is D. A lone letter with a lone
+ * two-digit number after it (to its right, or under it) is one label the drawing split in two:
+ * `B` `21` is B21. A number a grid square or more before the letter is the block's, as in
+ * `14 C` of block 3F-14.
+ */
+function stallLetters(
+  texts: ReadonlyArray<{ text: string; x: number }>,
+  pitch: number,
+): string[] {
+  const letters = texts
+    .map((t) => ({ ...t, text: SHORT_LETTER.exec(t.text)?.[1] ?? t.text }))
+    .filter((t) => LETTER.test(t.text));
+  const numbers = texts.filter((t) => LETTER_NUMBER.test(t.text));
+  if (letters.length === 1 && /^[A-Z]$/.test(letters[0].text) && numbers.length === 1) {
+    const [letter] = letters;
+    const [number] = numbers;
+    if (number.x > letter.x - pitch) return [letter.text + number.text];
+  }
+  return letters.map((t) => t.text);
+}
+
+/** A letter's place in its block's run: A is 0, B 1…; `A1` is A. null for a pavilion's `B01`. */
+function runIndex(letter: string): number | null {
+  const m = /^([A-Z])\d?$/.exec(letter);
+  return m ? m[1].charCodeAt(0) - 65 : null;
+}
 /**
  * A block (island) number printed next to its stalls: `11-05` (hall 11, block 5), with a floor
  * letter `5G-26` / `5G-24AB` (hall 5, ground floor), or of a lettered hall `12A-07` (hall 12A).
@@ -339,7 +375,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
   const faceList: Face[] = [];
   const describe = (f: { outer: Point[]; holes: number }, suggested: boolean): Face => {
     const inside = texts.filter((t) => pointInPolygon({ x: t.x, z: t.y }, f.outer));
-    const letters = inside.map((t) => t.text).filter((t) => LETTER.test(t));
+    const letters = stallLetters(inside, pitch);
     const areaLabels = inside
       .map((t) => AREA.exec(t.text))
       .filter((m): m is RegExpExecArray => !!m)
@@ -529,6 +565,39 @@ export function extractStalls(page: PageVectors): ExtractionResult {
       rectDistance({ x: l.x, z: l.y }, b) < rectDistance({ x: best.x, z: best.y }, b) ? l : best,
     ).text;
   });
+  // A block's letters run without a gap from A. In a group of touching blocks the nearest label
+  // can take the far end of its neighbour's run: 12-04 A B, then 12-05 E D C B A along one wall,
+  // E and D printed nearer 12-04. Letters after a gap move to the block they continue.
+  for (const ids of compFaces) {
+    if (new Set(ids.map((i) => onGrid[i].block).filter(Boolean)).size < 2) continue;
+    const runs = new Map<string, Map<number, number[]>>();
+    for (const i of ids) {
+      const f = onGrid[i];
+      const at = f.letters.length === 1 ? runIndex(f.letters[0]) : null;
+      if (!f.block || at === null) continue;
+      const run = runs.get(f.block) ?? new Map<number, number[]>();
+      run.set(at, [...(run.get(at) ?? []), i]);
+      runs.set(f.block, run);
+    }
+    for (const [block, run] of runs) {
+      const held = [...run.keys()].sort((a, b) => a - b);
+      const gapAt = held.findIndex((n, k) => k > 0 && n !== held[k - 1] + 1);
+      if (gapAt < 0) continue;
+      const moving = held.slice(gapAt);
+      const into = [...runs].find(
+        ([other, theirs]) =>
+          other !== block &&
+          Math.max(...theirs.keys()) + 1 === moving[0] &&
+          moving.every((n) => !theirs.has(n)),
+      );
+      if (!into) continue;
+      for (const n of moving) {
+        for (const i of run.get(n)!) onGrid[i].block = into[0];
+        into[1].set(n, run.get(n)!);
+        run.delete(n);
+      }
+    }
+  }
 
   // --- 8. groups and per-group calibration ------------------------------------------------------------
   const groupOf = (f: Face): string => (f.block ? hallOfBlock(f.block) : null) ?? '?';
@@ -583,9 +652,7 @@ export function extractStalls(page: PageVectors): ExtractionResult {
     // Stall corners lie on the half-metre grid, so a regression over all of them measures each
     // axis's scale over the whole hall.
     // A suggested outline's corners are partly guessed: they do not measure the scale.
-    const drawn = members.some((f) => !f.suggested)
-      ? members.filter((f) => !f.suggested)
-      : members;
+    const drawn = members.some((f) => !f.suggested) ? members.filter((f) => !f.suggested) : members;
     const fx = refineLattice(
       drawn.flatMap((f) => f.pt.map((p) => p.x)),
       coarseX,
@@ -611,14 +678,26 @@ export function extractStalls(page: PageVectors): ExtractionResult {
       z: (p.z - cal.originY) / cal.pitchY,
     });
 
-    for (const f of members) {
+    const snaps = members.map((f) =>
+      snapToHalfMetres(f.pt.map(toM), f.areaLabels.length === 1 ? f.areaLabels[0] : null),
+    );
+    // A drawn outline whose label disagrees is checked against the labels of the whole hall.
+    const agreed = agreeWithAreaLabels(
+      snaps.map((s) => s.points),
+      members.map((f) => f.pt.map(toM)),
+      members.map((f) => (f.areaLabels.length === 1 && !f.suggested ? f.areaLabels[0] : null)),
+    );
+    for (const [i, f] of members.entries()) {
       const stallIssues: ExtractionIssue[] = [];
-      const snapped = snapToHalfMetres(
-        f.pt.map(toM),
-        f.areaLabels.length === 1 ? f.areaLabels[0] : null,
-      );
+      const snapped = snaps[i];
       const offGrid = snapped.offGrid;
-      const outlineM = snapped.points;
+      const outlineM = agreed[i].points;
+      if (agreed[i].moved)
+        stallIssues.push({
+          code: 'OFF_GRID',
+          severity: 'info',
+          message: `A partition lay off its grid line; it was moved ${agreed[i].moved} m to give the ${f.areaLabels[0]} m² of the area label.`,
+        });
       const norm = normalizeFootprint(outlineM);
       if (typeof norm === 'string') {
         excluded.push({ reason: `Unusable outline: ${norm}`, outlinePt: f.pt, texts: f.texts });
@@ -1397,6 +1476,75 @@ export function snapToHalfMetres(
     }
   }
   return { points: snapped, offGrid: true, guided: false };
+}
+
+/**
+ * Outlines whose area label disagrees with their snapped corners: a partition drawn a little off
+ * its grid line rounds to the wrong half metre (a 40 m² stall drawn 44 m², its neighbours 38 m²).
+ * One edge of such an outline is moved by half a metre or a metre to give its label, only on
+ * evidence: the edge was drawn off its grid line, towards where it goes; or other disagreeing
+ * outlines need the same move (a partition they share). A clean edge with a lone wrong label is
+ * left to the review. Of several moves, the one most outlines need wins. `moved` is the distance,
+ * or 0 when the outline was left as is. `raw` are the corners before snapping, in the same order.
+ */
+export function agreeWithAreaLabels(
+  outlines: Point[][],
+  raw: Point[][],
+  areaLabels: Array<number | null>,
+): Array<{ points: Point[]; moved: number }> {
+  const fits = (pts: Point[], label: number) =>
+    Math.abs(polygonArea(pts) - label) <= Math.max(0.51, label * 0.01);
+  const key = (m: { axis: 'x' | 'z'; from: number; to: number }) => `${m.axis}:${m.from}:${m.to}`;
+  const moveEdge = (pts: Point[], axis: 'x' | 'z', from: number, to: number) =>
+    pts.map((p) => (Math.abs(p[axis] - from) < 1e-6 ? { ...p, [axis]: to } : p));
+  // Every single-edge move that gives each disagreeing outline its label.
+  const options = outlines.map((pts, i) => {
+    const label = areaLabels[i];
+    if (label === null || fits(pts, label)) return [];
+    const found: Array<{
+      axis: 'x' | 'z';
+      from: number;
+      to: number;
+      points: Point[];
+      drawnOff: boolean;
+    }> = [];
+    for (const axis of ['x', 'z'] as const) {
+      for (const from of new Set(pts.map((p) => p[axis]))) {
+        // Where the edge was drawn: its corners before snapping.
+        const drawn = raw[i]
+          .filter((_, k) => Math.abs(pts[k][axis] - from) < 1e-6)
+          .map((p) => p[axis]);
+        const at = drawn.reduce((a, v) => a + v, 0) / drawn.length;
+        for (const d of [-1, -0.5, 0.5, 1]) {
+          const moved = moveEdge(pts, axis, from, from + d);
+          if (fits(moved, label) && typeof normalizeFootprint(moved) !== 'string')
+            found.push({
+              axis,
+              from,
+              to: from + d,
+              points: moved,
+              drawnOff: Math.abs(at - from) > 0.05 && Math.abs(at - (from + d)) < 0.5,
+            });
+        }
+      }
+    }
+    return found;
+  });
+  const votes = new Map<string, number>();
+  for (const found of options)
+    for (const m of found) votes.set(key(m), (votes.get(key(m)) ?? 0) + 1);
+  return outlines.map((pts, i) => {
+    const best = options[i]
+      .filter((m) => m.drawnOff || votes.get(key(m))! > 1)
+      .sort(
+        (a, b) =>
+          votes.get(key(b))! - votes.get(key(a))! ||
+          Math.abs(a.to - a.from) - Math.abs(b.to - b.from),
+      )[0];
+    return best
+      ? { points: best.points, moved: Math.abs(best.to - best.from) }
+      : { points: pts, moved: 0 };
+  });
 }
 
 /**

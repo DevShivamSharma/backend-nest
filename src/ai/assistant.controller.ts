@@ -5,7 +5,7 @@ import { AllowEventRoles, CurrentAccess, OrgAccess } from '../access/org-access.
 import type { OrgAccessContext } from '../common/http/authenticated-request';
 import { StallPlansService } from '../stall-plans/stall-plans.service';
 import type { PlannerView } from '../stall-plans/stall-plans.views';
-import { AiService, type ToolCall } from './ai.service';
+import { AiService, type AnsweredBy, type ToolCall } from './ai.service';
 import { AskAssistantDto } from './dto/assistant.dto';
 import { toolsFor } from './planner-tools';
 
@@ -17,6 +17,8 @@ export interface AssistantTurnView {
   text: string;
   /** Tools the planner should run, then send their results back. */
   calls: ToolCall[];
+  /** The model of the chain that gave this turn, so the planner can say which answered. */
+  answeredBy: AnsweredBy;
 }
 
 /**
@@ -48,7 +50,11 @@ export class AssistantController {
     const allowed = new Set(tools.map((t) => t.name));
     const turn = await this.ai.turn(instructions(view), dto.messages, tools);
     // A model may name a tool it was not offered; that is never passed on.
-    return { text: turn.text, calls: turn.calls.filter((c) => allowed.has(c.name)) };
+    return {
+      text: turn.text,
+      calls: turn.calls.filter((c) => allowed.has(c.name)),
+      answeredBy: turn.answeredBy,
+    };
   }
 }
 

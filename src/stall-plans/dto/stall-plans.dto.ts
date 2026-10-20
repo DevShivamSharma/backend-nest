@@ -106,6 +106,13 @@ export class PlanStallDto {
   @IsPoints('Cut cells are a list of [column, row] cells.')
   cutCells?: Array<[number, number]>;
 
+  /** m² the hall drawing writes on the stall, when more than drawn. None: its cells. */
+  @IsOptional()
+  @IsNumber(FINITE)
+  @Min(0.1)
+  @Max(MAX_COORD * MAX_COORD)
+  labelArea?: number | null;
+
   @IsIn(STALL_SCHEMES)
   scheme!: StallScheme;
 

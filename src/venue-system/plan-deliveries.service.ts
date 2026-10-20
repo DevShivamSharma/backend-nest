@@ -44,7 +44,13 @@ const LISTED = 20;
 const NO_LINK = 'No venue system is linked to this organisation yet.';
 const LINK_OFF = 'The venue system link is switched off.';
 
-type ClaimedRow = { id: string; organisation_id: string; payload: string; attempts: number };
+type ClaimedRow = {
+  id: string;
+  organisation_id: string;
+  payload: string;
+  attempts: number;
+  plan_revision: number;
+};
 
 /**
  * Flow 1 (docs/15 §4): the published plan of an internal event that sells through the venue's
@@ -118,13 +124,14 @@ export class PlanDeliveriesService {
         !reason &&
         access.permissions.includes('layouts.publish') &&
         !EventsService.isOrganiser(access) &&
-        latest?.status === 'failed',
+        // A delivered one too: SelfCare answered 200 but may not hold the stalls.
+        (latest?.status === 'failed' || latest?.status === 'delivered'),
       deliveries: rows.map((d) => PlanDeliveriesService.view(d)),
     };
   }
 
   /**
-   * Sends the hall's plan again after its latest delivery failed (ruling 1): a new delivery with
+   * Sends the hall's plan again after its latest delivery failed or was delivered: a new delivery with
    * a new id, built again from what is published now, so a fixed hall id or category mapping is
    * picked up.
    */
@@ -168,11 +175,8 @@ export class PlanDeliveriesService {
       if (latest.status === 'pending' || latest.status === 'sending') {
         throw new ConflictException("This version is being sent; wait for SelfCare's answer.");
       }
-      if (latest.status === 'delivered') {
-        throw new ConflictException(
-          'SelfCare already has this version. Publish a new one to send again.',
-        );
-      }
+      // A delivered version may be sent again by hand: SelfCare replaces the hall's stalls with
+      // the pushed ones, or answers 409 STALE_REVISION if it already applied this revision.
       await this.supersede(em, row.id);
       const sent = await this.insert(em, event, row, actor.id, latest.id);
       const hall = await em.getRepository(HallEntity).findOneBy({ id: row.hallId });
@@ -218,7 +222,7 @@ export class PlanDeliveriesService {
                 next_attempt_at = now() + make_interval(mins => $2::int), updated_at = now()
            FROM due
           WHERE d.id = due.id
-         RETURNING d.id, d.organisation_id, d.payload, d.attempts
+         RETURNING d.id, d.organisation_id, d.payload, d.attempts, d.plan_revision
        )
        SELECT * FROM claimed`,
       [BATCH, LEASE_MINUTES],
@@ -272,6 +276,19 @@ export class PlanDeliveriesService {
         status: 'delivered',
         statusCode: answer.status,
         warnings: answer.warnings,
+      });
+    }
+    // A resend of the revision SelfCare already applied: it holds this version, so the hall is
+    // in step and nothing failed.
+    if (
+      answer.status === 409 &&
+      answer.code === 'STALE_REVISION' &&
+      answer.appliedRevision === row.plan_revision
+    ) {
+      return this.finish(row.id, {
+        status: 'delivered',
+        statusCode: answer.status,
+        venueCode: answer.code,
       });
     }
     const said = answerText(answer);
@@ -423,7 +440,8 @@ export class PlanDeliveriesService {
     const input = {
       deliveryId,
       event: { venueEventId: event.venueEventId },
-      hall: { itpoId: hallRef?.externalId ?? null },
+      // A stall without an island number goes with the hall's code, or its name.
+      hall: { itpoId: hallRef?.externalId ?? null, island: hall.code?.trim() || hall.name },
       plan: { revision: plan.publishedRevision },
       stalls,
       categories,

@@ -27,10 +27,14 @@ export enum Environment {
   Test = 'test',
 }
 
-/** Which model answers the planner's AI assistant: Gemini's or Groq's API, or a local Ollama. */
+/**
+ * Which model answers the planner's AI assistant: Gemini's, Groq's or NVIDIA's API, or a local
+ * Ollama.
+ */
 export enum AiProvider {
   Gemini = 'gemini',
   Groq = 'groq',
+  Nvidia = 'nvidia',
   Ollama = 'ollama',
 }
 
@@ -293,7 +297,7 @@ export class EnvironmentVariables {
       'INTEGRATION_SECRET_KEY must be 32 random bytes in base64 (openssl rand -base64 32); it is required when VENUE_CALLBACK_TRANSPORT=http',
   })
   INTEGRATION_SECRET_KEY?: string;
-  @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, ollama' })
+  @IsEnum(AiProvider, { message: 'AI_PROVIDER must be one of: gemini, groq, nvidia, ollama' })
   @IsOptional()
   AI_PROVIDER: AiProvider = AiProvider.Gemini;
 
@@ -301,8 +305,8 @@ export class EnvironmentVariables {
    * Providers to try in order when one fails or is rate-limited, e.g. "groq,gemini,ollama".
    * Without it, only AI_PROVIDER.
    */
-  @Matches(/^\s*(gemini|groq|ollama)\s*(,\s*(gemini|groq|ollama)\s*)*$/i, {
-    message: 'AI_PROVIDERS must list gemini, groq or ollama, separated by commas',
+  @Matches(/^\s*(gemini|groq|nvidia|ollama)\s*(,\s*(gemini|groq|nvidia|ollama)\s*)*$/i, {
+    message: 'AI_PROVIDERS must list gemini, groq, nvidia or ollama, separated by commas',
   })
   @IsOptional()
   AI_PROVIDERS?: string;
@@ -326,6 +330,16 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   @IsOptional()
   GEMINI_MODEL?: string;
+
+  /** NVIDIA's (build.nvidia.com) key and model, for AI_PROVIDERS. Never logged. */
+  @IsString()
+  @IsOptional()
+  NVIDIA_API_KEY?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  NVIDIA_MODEL?: string;
 
   /** Gemini or Groq API key. Without it the assistant says it is not set up. Never logged. */
   @IsString()

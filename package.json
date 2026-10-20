@@ -24,6 +24,7 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "admin:create": "node --env-file=.env -r ts-node/register scripts/create-super-admin.ts",
+    "demo:seed": "node --env-file=.env -r ts-node/register scripts/seed-demo-logins.ts",
     "eval:plans": "jest --runInBand --testPathPattern=\"venues/floor-plan/.*\\.spec\\.ts$\" && ts-node --transpile-only scripts/eval-floor-plans.ts"
   },
   "dependencies": {

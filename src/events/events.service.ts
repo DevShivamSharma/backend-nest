@@ -832,28 +832,35 @@ export class EventsService {
       .findBy({ id: In([...new Set(rows.map((r) => r.hall!.venueId))]) });
     const venueName = new Map(venues.map((v) => [v.id, v.name]));
     const overlaps = withOverlaps ? await this.overlaps(em, event, rows) : new Map();
-    return rows
-      .map((row) => {
-        const hall = row.hall!;
-        const rules = EventsService.rulesView(row);
-        return {
-          hallId: hall.id,
-          name: hall.name,
-          code: hall.code,
-          level: hall.level,
-          venue: { id: hall.venueId, name: venueName.get(hall.venueId) ?? '' },
-          width: hall.width,
-          depth: hall.depth,
-          floorArea: hall.floorArea,
-          floorVersion: row.floorVersion,
-          latestFloorVersion: hall.currentVersion,
-          // Rules waiting for data never run, whatever their switch says.
-          rulesOn: RULES.filter((r) => r.available && rules.switches[r.id]).length,
-          drawingProfile: row.drawingProfile,
-          overlaps: overlaps.get(hall.id) ?? [],
-        };
-      })
-      .sort((a, b) => a.venue.name.localeCompare(b.venue.name) || a.name.localeCompare(b.name));
+    return (
+      rows
+        .map((row) => {
+          const hall = row.hall!;
+          const rules = EventsService.rulesView(row);
+          return {
+            hallId: hall.id,
+            name: hall.name,
+            code: hall.code,
+            level: hall.level,
+            venue: { id: hall.venueId, name: venueName.get(hall.venueId) ?? '' },
+            width: hall.width,
+            depth: hall.depth,
+            floorArea: hall.floorArea,
+            floorVersion: row.floorVersion,
+            latestFloorVersion: hall.currentVersion,
+            // Rules waiting for data never run, whatever their switch says.
+            rulesOn: RULES.filter((r) => r.available && rules.switches[r.id]).length,
+            drawingProfile: row.drawingProfile,
+            overlaps: overlaps.get(hall.id) ?? [],
+          };
+        })
+        // Numbers in names in order: Hall 1, Hall 2, ..., Hall 11, not Hall 1, Hall 11, Hall 2.
+        .sort(
+          (a, b) =>
+            a.venue.name.localeCompare(b.venue.name, undefined, { numeric: true }) ||
+            a.name.localeCompare(b.name, undefined, { numeric: true }),
+        )
+    );
   }
 
   private async overlaps(

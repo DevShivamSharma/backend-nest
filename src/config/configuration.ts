@@ -75,7 +75,7 @@ export interface VenueSystemConfig {
 /** One model the assistant may use. */
 export interface AiModelConfig {
   provider: AiProvider;
-  /** Gemini or Groq key; null for Ollama. */
+  /** Gemini, Groq or NVIDIA key; null for Ollama. */
   apiKey: string | null;
   model: string;
   /** Ollama's address, without a trailing slash. */
@@ -104,6 +104,7 @@ export interface Configuration {
 const DEFAULT_MODELS: Record<AiProvider, string> = {
   [AiProvider.Gemini]: 'gemini-3.8-flash',
   [AiProvider.Groq]: 'openai/gpt-oss-120b',
+  [AiProvider.Nvidia]: 'nvidia/nemotron-3-ultra-550b-a55b',
   [AiProvider.Ollama]: 'qwen3:4b',
 };
 
@@ -226,7 +227,8 @@ function aiConfig(env: NodeJS.ProcessEnv): AiConfig {
       chain.push({ provider, apiKey: null, model, baseUrl });
       continue;
     }
-    const prefix = provider === AiProvider.Groq ? 'GROQ' : 'GEMINI';
+    const prefix =
+      provider === AiProvider.Groq ? 'GROQ' : provider === AiProvider.Nvidia ? 'NVIDIA' : 'GEMINI';
     const own = (name: string) => env[`${prefix}_${name}`]?.trim();
     const shared = (name: string) => (provider === first ? env[`AI_${name}`]?.trim() : undefined);
     const apiKey = own('API_KEY') || shared('API_KEY') || null;

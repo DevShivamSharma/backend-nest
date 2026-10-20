@@ -1,3 +1,4 @@
+import { stallArea } from '../stall-plans/stall-cells';
 import { area, difference, intersection, rectangle, union } from '../venues/floor-plan/geometry';
 import type { MultiPolygon, Point } from '../venues/floor-plan/plan.types';
 import { blocksStalls, FloorAreaKind, FloorRect, HallFloor } from '../venues/floor/hall-floor';
@@ -27,6 +28,11 @@ export interface PlanStall {
   width: number;
   depth: number;
   openSides: StallSide[];
+  /**
+   * Cells cut out of the rectangle, [column, row] from its top-left (`stall-plans/stall-cells.ts`):
+   * free floor, where another stall may stand.
+   */
+  cutCells?: ReadonlyArray<readonly [number, number]>;
   /** Degrees; anything but 0 is turned. */
   rotation?: number;
 }
@@ -196,7 +202,7 @@ export function checkLayout(input: CheckInput): RuleReport {
 
   for (const s of stalls) {
     const r = rectOf(s);
-    const poly = rectangle(r.x, r.y, r.width, r.height);
+    const poly = shapeOf(s);
     const label = stallLabel(s);
 
     if (
@@ -288,7 +294,12 @@ export function checkLayout(input: CheckInput): RuleReport {
       for (const side of s.openSides) {
         const access = frontOf(r, side, passage);
         const accessPoly = rectangle(access.x, access.y, access.width, access.height);
-        const blockers = stalls.filter((o) => o.id !== s.id && overlap(access, rectOf(o)));
+        const blockers = stalls.filter(
+          (o) =>
+            o.id !== s.id &&
+            overlap(access, rectOf(o)) &&
+            (!o.cutCells?.length || area(intersection(accessPoly, shapeOf(o))) > AREA_EPS),
+        );
         const leavesFloor = area(difference(accessPoly, standable)) > AREA_EPS;
         // A compulsory passage or an entry in front of a stall is a passage: it does not block.
         const blockedBy = blocking.filter(
@@ -371,7 +382,12 @@ export function checkLayout(input: CheckInput): RuleReport {
       for (let j = i + 1; j < sorted.length; j++) {
         const b = rectOf(sorted[j]);
         if (b.x >= a.x + a.width - EPS) break;
-        if (overlap(a, b)) {
+        // A cut cell is free floor: stalls that only meet in one do not overlap.
+        const cut = !!(sorted[i].cutCells?.length || sorted[j].cutCells?.length);
+        if (
+          overlap(a, b) &&
+          (!cut || area(intersection(shapeOf(sorted[i]), shapeOf(sorted[j]))) > AREA_EPS)
+        ) {
           add(
             'stallOverlap',
             `${stallLabel(sorted[i])} overlaps ${stallLabel(sorted[j])}.`,
@@ -384,7 +400,7 @@ export function checkLayout(input: CheckInput): RuleReport {
   }
 
   const stallFloor = area(difference(standable, ...blocking.map((o) => o.geometry)));
-  const used = stalls.reduce((n, s) => n + s.width * s.depth, 0);
+  const used = stalls.reduce((n, s) => n + stallArea({ ...s, cutCells: s.cutCells ?? [] }), 0);
   const utilisation = stallFloor > 0 ? used / stallFloor : 0;
   if (on('maxUtilization') && utilisation > values.maxUtilization + EPS) {
     add(
@@ -472,6 +488,13 @@ function facingStall(
 
 function rectOf(s: PlanStall): FloorRect {
   return { x: s.x, y: s.y, width: s.width, height: s.depth };
+}
+
+/** The stall's floor: its rectangle less the cells cut out of it. */
+function shapeOf(s: PlanStall): MultiPolygon {
+  const whole = rectangle(s.x, s.y, s.width, s.depth);
+  if (!s.cutCells?.length) return whole;
+  return difference(whole, ...s.cutCells.map(([c, r]) => rectangle(s.x + c, s.y + r, 1, 1)));
 }
 
 /** Overlap with positive area: touching edges is not overlapping. */

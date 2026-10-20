@@ -170,8 +170,7 @@ export class StallPlansService {
         );
       }
       if (event.kind === 'external') {
-        const approved =
-          plan.reviewStatus === 'approved' && plan.reviewRevision === plan.revision;
+        const approved = plan.reviewStatus === 'approved' && plan.reviewRevision === plan.revision;
         if (!approved) {
           throw new BadRequestException(
             `Version ${plan.revision} is not approved. Send it for approval first.`,
@@ -336,6 +335,7 @@ export class StallPlansService {
           islandNumber: s.islandNumber ?? null,
           openSides: [...new Set(s.openSides)],
           cutCells: cleanCutCells(s, s.cutCells ?? []),
+          labelArea: s.labelArea ?? null,
           categoryIds: [...new Set(s.categoryIds)],
           location: s.location ?? null,
           description: s.description ?? null,
@@ -801,6 +801,7 @@ export class StallPlansService {
         width: s.width,
         depth: s.depth,
         openSides: [...new Set(s.openSides)],
+        cutCells: cleanCutCells(s, s.cutCells ?? []),
       })),
       seats: plan.seats.map((s) => ({
         id: s.id,
@@ -970,6 +971,7 @@ function stallView(s: PlanStallEntity): PlanStallView {
     depth: s.depth,
     openSides: s.openSides,
     cutCells: s.cutCells,
+    labelArea: s.labelArea,
     scheme: s.scheme,
     categoryIds: s.categoryIds,
     isPremium: s.isPremium,

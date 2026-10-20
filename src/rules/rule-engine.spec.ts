@@ -90,6 +90,15 @@ describe('rule engine', () => {
     expect(r.violations[0].stallIds).toEqual(['A', 'B']);
   });
 
+  it('takes a cut cell as free floor: a stall standing in it does not overlap', () => {
+    // A's bottom-right cell is cut; B is a 1 x 1 stall in it.
+    const a = stall('A', 10, 10, { cutCells: [[2, 2]] });
+    const inCut = stall('B', 12, 12, { width: 1, depth: 1 });
+    expect(run(hall(), [a, inCut], only('stallOverlap')).violations).toHaveLength(0);
+    const onKept = stall('C', 11, 12, { width: 1, depth: 1 });
+    expect(ids(run(hall(), [a, onKept], only('stallOverlap')))).toEqual(['stallOverlap']);
+  });
+
   it('wants sizes in whole size steps', () => {
     const r = run(
       hall(),

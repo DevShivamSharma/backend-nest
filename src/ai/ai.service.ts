@@ -38,6 +38,12 @@ export interface AgentTurn {
   calls: ToolCall[];
 }
 
+/** Which model of the chain gave a turn. */
+export interface AnsweredBy {
+  provider: AiProvider;
+  model: string;
+}
+
 /** Longest wait for a model's answer. */
 const TIMEOUT_MS = 60_000;
 /** A rate-limited provider is passed over this long when it does not say how long. */
@@ -67,7 +73,11 @@ export class AiService {
     }
   }
 
-  async turn(system: string, messages: AgentMessage[], tools: PlannerTool[]): Promise<AgentTurn> {
+  async turn(
+    system: string,
+    messages: AgentMessage[],
+    tools: PlannerTool[],
+  ): Promise<AgentTurn & { answeredBy: AnsweredBy }> {
     const { chain } = this.config;
     if (!chain.length) {
       throw new ServiceUnavailableException(
@@ -82,6 +92,7 @@ export class AiService {
     ];
     let wait: number | null = null;
     for (const model of order) {
+      const started = Date.now();
       try {
         const turn =
           model.provider === AiProvider.Gemini
@@ -89,7 +100,14 @@ export class AiService {
             : await this.openAiStyle(model, system, messages, tools);
         if (!turn.text.trim() && !turn.calls.length) throw new Error('empty answer');
         this.coolUntil.delete(model.provider);
-        return { text: turn.text.trim(), calls: turn.calls };
+        this.logger.log(
+          `AI answered by ${model.provider} ${model.model} in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+        );
+        return {
+          text: turn.text.trim(),
+          calls: turn.calls,
+          answeredBy: { provider: model.provider, model: model.model },
+        };
       } catch (error) {
         this.logger.warn(
           `${model.provider} ${model.model} did not answer: ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -197,7 +215,7 @@ export class AiService {
     };
   }
 
-  // ---- Groq and Ollama (the OpenAI chat format) -----------------------------------------------
+  // ---- Groq, NVIDIA and Ollama (the OpenAI chat format) ---------------------------------------
 
   private async openAiStyle(
     { provider, model, apiKey, baseUrl }: AiModelConfig,
@@ -206,6 +224,7 @@ export class AiService {
     tools: PlannerTool[],
   ): Promise<AgentTurn> {
     const ollama = provider === AiProvider.Ollama;
+    const nvidia = provider === AiProvider.Nvidia;
     const wire = [
       { role: 'system', content: system },
       ...messages.map((m) => {
@@ -228,7 +247,11 @@ export class AiService {
       }),
     ];
     const body = await this.post(
-      ollama ? `${baseUrl}/api/chat` : 'https://api.groq.com/openai/v1/chat/completions',
+      ollama
+        ? `${baseUrl}/api/chat`
+        : nvidia
+          ? 'https://integrate.api.nvidia.com/v1/chat/completions'
+          : 'https://api.groq.com/openai/v1/chat/completions',
       ollama ? {} : { authorization: `Bearer ${apiKey}` },
       {
         model,
@@ -238,6 +261,8 @@ export class AiService {
           function: { name: t.name, description: t.description, parameters: t.parameters },
         })),
         ...(ollama ? { stream: false } : {}),
+        // Nemotron thinks first unless told not to; the planner waits on every answer.
+        ...(nvidia ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       },
     );
     type WireCall = {

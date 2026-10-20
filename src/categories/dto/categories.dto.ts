@@ -14,13 +14,16 @@ import {
 import { EmptyToNull, Trim } from '../../common/validation';
 import { CATEGORY_STATUSES, CategoryStatus } from '../category.entity';
 
+/** Longest category name: SelfCare's run past 80 characters. */
+export const MAX_NAME = 160;
+
 /** Most rows one import takes. */
 export const MAX_IMPORT_ROWS = 1000;
 
 export class CreateCategoryDto {
   @Trim()
   @IsString()
-  @Length(1, 80)
+  @Length(1, MAX_NAME)
   name!: string;
 
   @IsOptional()
@@ -31,13 +34,14 @@ export class CreateCategoryDto {
   @IsOptional()
   @EmptyToNull()
   @Matches(/^\d{1,12}$/, { message: 'A SelfCare id is a number, e.g. 56.' })
-  itpoId?: string | null;}
+  itpoId?: string | null;
+}
 
 export class UpdateCategoryDto {
   @IsOptional()
   @Trim()
   @IsString()
-  @Length(1, 80)
+  @Length(1, MAX_NAME)
   name?: string;
 
   @IsOptional()
@@ -48,7 +52,8 @@ export class UpdateCategoryDto {
   @IsOptional()
   @EmptyToNull()
   @Matches(/^\d{1,12}$/, { message: 'A SelfCare id is a number, e.g. 56.' })
-  itpoId?: string | null;}
+  itpoId?: string | null;
+}
 
 /** Rows read from the venue's CSV by the browser; names already listed are skipped. */
 export class ImportCategoriesDto {

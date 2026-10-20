@@ -140,6 +140,10 @@ export class PlanStallEntity {
   @Column({ name: 'cut_cells', type: 'jsonb', default: () => "'[]'::jsonb" })
   cutCells!: Array<[number, number]>;
 
+  /** m² the hall drawing writes on the stall, sold and sent as its area; null: its cells. */
+  @Column({ name: 'label_area', type: 'double precision', nullable: true })
+  labelArea!: number | null;
+
   @Column({ type: 'varchar', length: 8, default: 'shell' })
   scheme!: StallScheme;
 
@@ -289,6 +293,9 @@ export class PublishedStallEntity {
 
   @Column({ name: 'cut_cells', type: 'jsonb' })
   cutCells!: Array<[number, number]>;
+
+  @Column({ name: 'label_area', type: 'double precision', nullable: true })
+  labelArea!: number | null;
 
   @Column({ type: 'varchar', length: 8 })
   scheme!: StallScheme;

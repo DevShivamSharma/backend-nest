@@ -41,6 +41,8 @@ export interface PricedStall {
   depth: number;
   /** Cells cut out of the rectangle; their floor is not sold. */
   cutCells: ReadonlyArray<readonly [number, number]>;
+  /** m² the hall drawing writes on the stall; sold in place of its cells when set. */
+  labelArea?: number | null;
   scheme: 'shell' | 'raw';
   openSides: readonly string[];
   isPremium: boolean;
@@ -105,7 +107,7 @@ export function stallPrice(
     price = rates.fnbPrice;
     parts.push(`${rupees(rates.fnbPrice)} food & beverage`);
   } else {
-    const area = stallArea(s);
+    const area = s.labelArea ?? stallArea(s);
     const shell = s.scheme === 'shell';
     const rate = shell ? rates.shellRate : rates.bareRate;
     price = area * rate;

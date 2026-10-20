@@ -26,6 +26,8 @@ export interface PlanStallView {
   openSides: StallSide[];
   /** Cells cut out, [column, row] from the top-left. */
   cutCells: Array<[number, number]>;
+  /** m² the hall drawing writes on the stall, sold and sent as its area; null: its cells. */
+  labelArea: number | null;
   scheme: StallScheme;
   categoryIds: string[];
   isPremium: boolean;

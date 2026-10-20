@@ -125,7 +125,13 @@ export class CategoriesService {
     });
   }
 
-  /** Adds the rows whose names are new; names already listed, or repeated, are skipped. */
+  /**
+   * Adds the rows whose names are new; names already listed, or repeated, are skipped. A row
+   * with a SelfCare id (an export of `T_CODE_MASTER`) keeps the two lists in step instead: the
+   * category linked to that id takes the row's name and status, else one of the same name not
+   * yet linked is linked to it, else it is added, linked. SelfCare's ids never change, so the
+   * same file can be imported again whenever SelfCare's list changes.
+   */
   async import(
     organisationId: string,
     dto: ImportCategoriesDto,
@@ -134,31 +140,88 @@ export class CategoriesService {
     return this.dataSource.transaction(async (em) => {
       const repo = em.getRepository(StallCategoryEntity);
       const existing = await repo.findBy({ organisationId });
-      const taken = new Set(existing.map((c) => c.name.toLowerCase()));
+      const refs = await em
+        .getRepository(ExternalRefEntity)
+        .findBy({ organisationId, system: 'itpo', entityType: 'category' });
+      const byItpo = new Map(
+        refs.flatMap((r) => {
+          const c = existing.find((e) => e.id === r.localId);
+          return c ? [[r.externalId, c] as const] : [];
+        }),
+      );
+      const linked = new Set(refs.map((r) => r.localId));
+      /** Lower-cased name → the category that holds it, as the import goes. */
+      const names = new Map(existing.map((c) => [c.name.toLowerCase(), c]));
+      const seenIds = new Set<string>();
+      const seenNames = new Set<string>();
       const skipped: CategoryImportView['skipped'] = [];
-      const fresh: StallCategoryEntity[] = [];
+      let created = 0;
+      let updated = 0;
+      let linkedNow = 0;
       for (const row of dto.rows) {
         const key = row.name.toLowerCase();
-        if (taken.has(key)) {
-          const known = existing.some((c) => c.name.toLowerCase() === key);
-          skipped.push({ name: row.name, reason: known ? 'Already listed' : 'Twice in the file' });
+        const status = row.status ?? 'active';
+        if (seenNames.has(key) || (row.itpoId && seenIds.has(row.itpoId))) {
+          skipped.push({ name: row.name, reason: 'Twice in the file' });
           continue;
         }
-        taken.add(key);
-        fresh.push(repo.create({ organisationId, name: row.name, status: row.status ?? 'active' }));
+        seenNames.add(key);
+        if (!row.itpoId) {
+          if (names.has(key)) {
+            skipped.push({ name: row.name, reason: 'Already listed' });
+            continue;
+          }
+          const saved = await repo.save(repo.create({ organisationId, name: row.name, status }));
+          names.set(key, saved);
+          created++;
+          continue;
+        }
+        seenIds.add(row.itpoId);
+        const ref = { organisationId, system: 'itpo' as const, entityType: 'category' as const };
+        const own = byItpo.get(row.itpoId);
+        const holder = names.get(key);
+        if (own) {
+          if (holder && holder.id !== own.id) {
+            skipped.push({ name: row.name, reason: `Another category is called ${holder.name}` });
+            continue;
+          }
+          if (own.name === row.name && own.status === status) continue;
+          names.delete(own.name.toLowerCase());
+          own.name = row.name;
+          own.status = status;
+          names.set(key, await repo.save(own));
+          updated++;
+        } else if (holder) {
+          if (linked.has(holder.id)) {
+            skipped.push({ name: row.name, reason: 'Linked to another SelfCare id' });
+            continue;
+          }
+          await setExternalId(em, { ...ref, localId: holder.id }, row.itpoId);
+          linked.add(holder.id);
+          if (holder.status !== status) {
+            holder.status = status;
+            await repo.save(holder);
+          }
+          linkedNow++;
+        } else {
+          const saved = await repo.save(repo.create({ organisationId, name: row.name, status }));
+          await setExternalId(em, { ...ref, localId: saved.id }, row.itpoId);
+          linked.add(saved.id);
+          names.set(key, saved);
+          created++;
+        }
       }
-      if (fresh.length) await repo.save(fresh);
       await this.audit.record(
         {
           action: 'category.imported',
           actor,
           organisationId,
           targetType: 'category',
-          metadata: { created: fresh.length, skipped: skipped.length },
+          metadata: { created, updated, linked: linkedNow, skipped: skipped.length },
         },
         em,
       );
-      return { created: fresh.length, skipped };
+      return { created, updated, linked: linkedNow, skipped };
     });
   }
 

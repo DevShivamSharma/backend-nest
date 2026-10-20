@@ -139,6 +139,8 @@ describe('Stall planning (e2e)', () => {
       .expect(200);
     expect(imported.body).toEqual({
       created: 2,
+      updated: 0,
+      linked: 0,
       skipped: [
         { name: 'PREMIUM', reason: 'Already listed' },
         { name: 'corner', reason: 'Twice in the file' },
@@ -458,7 +460,11 @@ describe('Stall planning (e2e)', () => {
       .expect(403);
     // Approval does not waive the prices: a card taken away after approval stops the publish,
     // and putting it back lets it through.
-    await http.put(`${plan(expo)}/pricing/card`).set(auth(lead)).send({}).expect(200);
+    await http
+      .put(`${plan(expo)}/pricing/card`)
+      .set(auth(lead))
+      .send({})
+      .expect(200);
     const unpricedAtPublish = await http
       .post(`${plan(expo)}/publish`)
       .set(auth(lead))
@@ -494,9 +500,7 @@ describe('Stall planning (e2e)', () => {
       .set(auth(lead))
       .send({ revision: 3 })
       .expect(400);
-    expect(unapproved.body.message).toBe(
-      'Version 3 is not approved. Send it for approval first.',
-    );
+    expect(unapproved.body.message).toBe('Version 3 is not approved. Send it for approval first.');
     expect((await http.get(plan(expo)).set(auth(lead))).body).toMatchObject({
       canPublish: false,
       canSubmit: true,
@@ -609,5 +613,43 @@ describe('Stall planning (e2e)', () => {
       .set(auth(organiser))
       .send({ prices: [] })
       .expect(403);
+  });
+
+  it("keeps the categories in step with SelfCare's list, by SelfCare's ids", async () => {
+    const sync = (rows: Array<{ name: string; status?: string; itpoId: string }>) =>
+      http.post(`${base}/categories/import`).set(auth(owner)).send({ rows }).expect(200);
+    const listed = async () =>
+      (await http.get(`${base}/categories`).set(auth(owner))).body as Array<{
+        name: string;
+        status: string;
+        itpoId: string | null;
+      }>;
+    // A long SelfCare name is kept whole; Corner, already listed, is linked rather than doubled.
+    const food =
+      'Processed Food, Organic Food, Beverages, Ingredients, Dairy Products, Spices and Agri Produce';
+    const first = await sync([
+      { name: food, itpoId: '85' },
+      { name: 'Corner', itpoId: '86' },
+      { name: 'Refrigeration', status: 'inactive', itpoId: '91' },
+      { name: 'Twice', itpoId: '91' },
+    ]);
+    expect(first.body).toEqual({
+      created: 2,
+      updated: 0,
+      linked: 1,
+      skipped: [{ name: 'Twice', reason: 'Twice in the file' }],
+    });
+    // Again, with a name and a status SelfCare changed: the same categories take them.
+    const again = await sync([
+      { name: food, itpoId: '85' },
+      { name: 'Corner stall', itpoId: '86' },
+      { name: 'Refrigeration', itpoId: '91' },
+    ]);
+    expect(again.body).toEqual({ created: 0, updated: 2, linked: 0, skipped: [] });
+    const byId = (id: string) => listed().then((l) => l.find((c) => c.itpoId === id));
+    expect(await byId('85')).toMatchObject({ name: food, status: 'active' });
+    expect(await byId('86')).toMatchObject({ name: 'Corner stall' });
+    expect(await byId('91')).toMatchObject({ name: 'Refrigeration', status: 'active' });
+    expect((await listed()).find((c) => c.name === 'Corner')).toBeUndefined();
   });
 });
