@@ -196,28 +196,33 @@ interface CellBox {
 
 /**
  * One box drives the coordinates, the cells and the walls, so they always agree. A stall off
- * whole metres takes every cell it touches, as SelfCare can only draw whole cells.
+ * whole metres has both edges rounded to the nearest grid line, the same way, so two
+ * neighbours that share an edge still share it on SelfCare's whole cells and never overlap
+ * (a hall drawn 0.5 m off the grid moves half a metre instead).
  */
 function cellBox(s: PublishedStallEntity): CellBox {
-  const col = Math.floor(s.x + EPS);
-  const row = Math.floor(s.y + EPS);
+  const col = gridLine(s.x);
+  const row = gridLine(s.y);
   return {
     col,
     row,
-    cols: Math.max(1, Math.ceil(s.x + s.width - EPS) - col),
-    rows: Math.max(1, Math.ceil(s.y + s.depth - EPS) - row),
+    cols: Math.max(1, gridLine(s.x + s.width) - col),
+    rows: Math.max(1, gridLine(s.y + s.depth) - row),
   };
+}
+
+/** A position in metres on the nearest grid line, half a metre up (19.9999 m is 20 m). */
+function gridLine(m: number): number {
+  return Math.floor(m + 0.5 + EPS);
 }
 
 /**
  * The box's cells the stall keeps, as [column, row] within the box: all of them less the ones
- * cut away. A cut cell of a stall off whole metres goes by the box cell its corner falls in.
+ * cut away. A cut cell of a stall off whole metres has its corner rounded as the box's are.
  */
 function keptCells(b: CellBox, s: PublishedStallEntity): Array<[number, number]> {
   const cut = new Set(
-    s.cutCells.map(
-      ([c, r]) => `${Math.floor(s.x + c + EPS) - b.col},${Math.floor(s.y + r + EPS) - b.row}`,
-    ),
+    s.cutCells.map(([c, r]) => `${gridLine(s.x + c) - b.col},${gridLine(s.y + r) - b.row}`),
   );
   const kept: Array<[number, number]> = [];
   for (let r = 0; r < b.rows; r++) {
