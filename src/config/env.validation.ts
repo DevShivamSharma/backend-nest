@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -66,8 +67,8 @@ function NotLogInProduction() {
     validator: {
       validate: (value: unknown, args?: ValidationArguments) =>
         !(
-          (args?.object as EnvironmentVariables | undefined)?.NODE_ENV ===
-            Environment.Production && value === PaymentsTransport.Log
+          (args?.object as EnvironmentVariables | undefined)?.NODE_ENV === Environment.Production &&
+          value === PaymentsTransport.Log
         ),
       defaultMessage: () =>
         'PAYMENTS_TRANSPORT must be razorpay when NODE_ENV=production; the log transport takes no real payments',
@@ -150,6 +151,18 @@ export class EnvironmentVariables {
   @IsOptional()
   DATABASE_STATEMENT_TIMEOUT_MS: number = 15_000;
 
+  /** Schema of our tables, first on the search path: `idp` on ITPO's database. */
+  @Matches(/^[a-z_][a-z0-9_]*$/, { message: 'DATABASE_SCHEMA must be a plain schema name' })
+  @IsOptional()
+  DATABASE_SCHEMA?: string;
+
+  /** Our migrations' history table, apart from ITPO's own `migrations`. */
+  @Matches(/^[a-z_][a-z0-9_]*$/, {
+    message: 'DATABASE_MIGRATIONS_TABLE must be a plain table name',
+  })
+  @IsOptional()
+  DATABASE_MIGRATIONS_TABLE?: string;
+
   /** Comma-separated origin allow-list for the browser app. */
   @IsString()
   @IsNotEmpty()
@@ -160,6 +173,25 @@ export class EnvironmentVariables {
   @IsUrl({ require_tld: false, require_protocol: true })
   @IsOptional()
   APP_PUBLIC_URL: string = 'http://localhost:4200';
+
+  /** `itpo`: sign-in checks ITPO's T_USER (its own database); `local`: our own accounts. */
+  @IsIn(['itpo', 'local'])
+  @IsOptional()
+  AUTH_SOURCE?: 'itpo' | 'local';
+
+  /** Our organisation standing for ITPO, made on the first ITPO sign-in. */
+  @Matches(/^[a-z0-9][a-z0-9-]{1,47}$/, { message: 'ITPO_ORG_SLUG must be a slug' })
+  @IsOptional()
+  ITPO_ORG_SLUG?: string;
+
+  @IsString()
+  @IsOptional()
+  ITPO_ORG_NAME?: string;
+
+  /** Comma-separated T_CODE_MASTER role slugs that sign in as ITPO admins. */
+  @Matches(/^[a-z0-9_]+(,[a-z0-9_]+)*$/, { message: 'ITPO_ADMIN_ROLES: slugs, comma-separated' })
+  @IsOptional()
+  ITPO_ADMIN_ROLES?: string;
 
   /** HMAC secret for access tokens. At least 32 characters; rotating it signs everyone out. */
   @IsString()

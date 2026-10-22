@@ -21,6 +21,6 @@ import { VenuesService } from './venues.service';
     JsonHallImportService,
     FloorPlanService,
   ],
-  exports: [HallsService],
+  exports: [HallsService, ItpoHallImportService],
 })
 export class VenuesModule {}

@@ -27,6 +27,24 @@ export interface DatabaseConfig {
   poolSize: number;
   connectionTimeoutMs: number;
   statementTimeoutMs: number;
+  /**
+   * The schema our tables live in, first on the search path. `idp` on ITPO's database, where
+   * ITPO's own tables are; `public` on a database of our own.
+   */
+  schema: string;
+  /** Our migrations' history table; apart from ITPO's own `migrations`. */
+  migrationsTable: string;
+}
+
+/** Who signs in: ITPO's own users (T_USER), or our own accounts (tests, local work). */
+export interface ItpoConfig {
+  /** `itpo`: sign-in checks ITPO's T_USER; `local`: our own accounts. */
+  authSource: 'itpo' | 'local';
+  /** Our organisation that stands for ITPO; made on the first ITPO sign-in. */
+  orgSlug: string;
+  orgName: string;
+  /** T_CODE_MASTER role slugs that sign in as ITPO admins (all else but organisers is refused). */
+  adminRoles: string[];
 }
 
 export interface AuthConfig {
@@ -93,6 +111,7 @@ export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   auth: AuthConfig;
+  itpo: ItpoConfig;
   mail: MailConfig;
   bookings: BookingsConfig;
   payments: PaymentsConfig;
@@ -143,6 +162,20 @@ export function configuration(): Configuration {
       poolSize: Number(env.DATABASE_POOL_SIZE ?? 10),
       connectionTimeoutMs: Number(env.DATABASE_CONNECTION_TIMEOUT_MS ?? 10_000),
       statementTimeoutMs: Number(env.DATABASE_STATEMENT_TIMEOUT_MS ?? 15_000),
+      schema: env.DATABASE_SCHEMA ?? 'public',
+      migrationsTable: env.DATABASE_MIGRATIONS_TABLE ?? 'migrations',
+    },
+    itpo: {
+      authSource: env.AUTH_SOURCE === 'itpo' ? 'itpo' : 'local',
+      orgSlug: env.ITPO_ORG_SLUG ?? 'itpo',
+      orgName: env.ITPO_ORG_NAME ?? 'ITPO',
+      adminRoles: (
+        env.ITPO_ADMIN_ROLES ??
+        'system_admin,itpo_admin,stall_admin,stall_admin_chennai,stall_architecture,architect'
+      )
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean),
     },
     auth: {
       accessSecret: env.JWT_ACCESS_SECRET as string,

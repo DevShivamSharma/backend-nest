@@ -1,12 +1,29 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true
+        }
+      }
+    ]
   },
-  "setupFiles": ["reflect-metadata", "<rootDir>/setup-env.ts"],
+  "setupFiles": [
+    "reflect-metadata",
+    "<rootDir>/setup-env.ts"
+  ],
   "testTimeout": 60000,
-  "maxWorkers": 1
+  "maxWorkers": 1,
+  "transformIgnorePatterns": [
+    "/node_modules/(?!@nestjs/schedule/)"
+  ]
 }

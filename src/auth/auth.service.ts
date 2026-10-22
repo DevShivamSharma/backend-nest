@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
 
 import { MembershipsService } from '../access/memberships.service';
+import { ItpoIdentityService } from '../integrations/itpo/itpo-identity.service';
 import { AuditService } from '../audit/audit.service';
 import { hashToken, randomToken } from '../common/crypto';
 import type { ClientInfo } from '../common/http/authenticated-request';
@@ -44,9 +45,22 @@ export class AuthService {
     private readonly invitations: InvitationsService,
     private readonly mail: MailService,
     private readonly audit: AuditService,
+    private readonly itpo: ItpoIdentityService,
   ) {}
 
   async login(email: string, password: string, client: ClientInfo): Promise<SignedIn> {
+    // ITPO's own users (T_USER), as ITPO's admin and organiser logins check them.
+    if (this.itpo.enabled) {
+      const user = await this.itpo.signIn(email, password, client.ip ?? null);
+      await this.audit.record({
+        action: 'auth.login',
+        actor: { id: user.id, email: user.email },
+        ip: client.ip,
+        metadata: { via: 'itpo' },
+      });
+      return this.startSession(user, client);
+    }
+
     const user = await this.users.findWithPasswordByEmail(email);
     const valid = await this.passwords.verify(user?.passwordHash ?? null, password);
 

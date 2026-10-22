@@ -62,6 +62,8 @@ export interface EventHallDetailView {
     status: EventStatus;
     audience: EventType;
     organiserName: string | null;
+    /** The event's id in the venue's system: ITPO's own id for an event mirrored from ITPO. */
+    venueEventId: string | null;
   };
   hall: EventHallView;
   floor: HallFloor;

@@ -410,6 +410,7 @@ export class EventsService {
         status: event.status,
         audience: event.audience,
         organiserName: event.organiserName,
+        venueEventId: event.venueEventId,
       },
       hall: view,
       floor: floor.floor,

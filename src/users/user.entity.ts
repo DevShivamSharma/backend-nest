@@ -38,6 +38,14 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 16, default: UserStatus.Active })
   status!: UserStatus;
 
+  /** The ITPO user (T_USER.id) this account stands for, when ITPO's users sign in here. */
+  @Column({ name: 'itpo_user_id', type: 'uuid', nullable: true, unique: true })
+  itpoUserId!: string | null;
+
+  /** The organiser's company in ITPO (T_ORGANIZATION.id); null for ITPO's own staff. */
+  @Column({ name: 'itpo_org_id', type: 'uuid', nullable: true })
+  itpoOrgId!: string | null;
+
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 

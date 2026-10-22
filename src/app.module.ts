@@ -23,6 +23,7 @@ import { VenueSystemModule } from './venue-system/venue-system.module';
 import { TeamModule } from './team/team.module';
 import { CategoriesModule } from './categories/categories.module';
 import { EventsModule } from './events/events.module';
+import { ItpoModule } from './integrations/itpo/itpo.module';
 import { ExhibitorsModule } from './exhibitors/exhibitors.module';
 import { RulesModule } from './rules/rules.module';
 import { StallPlansModule } from './stall-plans/stall-plans.module';
@@ -59,6 +60,7 @@ import { VenuesModule } from './venues/venues.module';
     VenuesModule,
     RulesModule,
     EventsModule,
+    ItpoModule,
     CategoriesModule,
     StallPlansModule,
     ExhibitorsModule,

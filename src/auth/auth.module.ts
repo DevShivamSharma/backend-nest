@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AccessModule } from '../access/access.module';
 import { AuditModule } from '../audit/audit.module';
+import { ItpoIdentityService } from '../integrations/itpo/itpo-identity.service';
 import type { AuthConfig } from '../config/configuration';
 import { MailModule } from '../mail/mail.module';
 import { TeamModule } from '../team/team.module';
@@ -45,6 +46,7 @@ import { JWT_AUDIENCE, JWT_ISSUER, TokensService } from './tokens.service';
   providers: [
     AuthService,
     TokensService,
+    ItpoIdentityService,
     // Every route is signed-in only unless marked @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],

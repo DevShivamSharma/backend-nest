@@ -17,6 +17,7 @@ import { PlanDeliveries1793100000000 } from './migrations/1793100000000-PlanDeli
 import { PlanDeliveryWarnings1793200000000 } from './migrations/1793200000000-PlanDeliveryWarnings';
 import { StallCutCells1793300000000 } from './migrations/1793300000000-StallCutCells';
 import { CategoryNameLength1793400000000 } from './migrations/1793400000000-CategoryNameLength';
+import { ItpoIdentity1793600000000 } from './migrations/1793600000000-ItpoIdentity';
 import { StallLabelArea1793500000000 } from './migrations/1793500000000-StallLabelArea';
 import { VenueSystemIntegrationEntity } from '../venue-system/venue-system-integration.entity';
 import { PlanDeliveryEntity } from '../venue-system/plan-delivery.entity';
@@ -143,15 +144,22 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
       StallCutCells1793300000000,
       CategoryNameLength1793400000000,
       StallLabelArea1793500000000,
+      ItpoIdentity1793600000000,
     ],
     synchronize: false,
     // A deployment owns its database, so a redeploy applies its own pending migrations.
     migrationsRun: true,
     migrationsTransactionMode: 'each' as const,
+    // On ITPO's database our tables sit in its `idp` schema, beside its own; our migrations
+    // keep their history apart from ITPO's.
+    schema: db.schema,
+    migrationsTableName: db.migrationsTable,
     extra: {
       max: db.poolSize,
       connectionTimeoutMillis: db.connectionTimeoutMs,
       statement_timeout: db.statementTimeoutMs,
+      // Unqualified names (our SQL, our migrations) resolve to our schema first.
+      options: `-c search_path=${db.schema},public`,
     },
     // Managed Postgres enforces TLS; its chain is not verifiable without the CA bundle, so
     // certificate verification stays off. Credentials still travel encrypted.

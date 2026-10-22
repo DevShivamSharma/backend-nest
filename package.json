@@ -24,6 +24,7 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "admin:create": "node --env-file=.env -r ts-node/register scripts/create-super-admin.ts",
+    "itpo-admin:create": "node --env-file=.env -r ts-node/register scripts/create-itpo-admin.ts",
     "demo:seed": "node --env-file=.env -r ts-node/register scripts/seed-demo-logins.ts",
     "eval:plans": "jest --runInBand --testPathPattern=\"venues/floor-plan/.*\\.spec\\.ts$\" && ts-node --transpile-only scripts/eval-floor-plans.ts"
   },
@@ -40,6 +41,7 @@
     "@techstark/opencv-js": "5.0.0-release.1",
     "@tesseract.js-data/eng": "1.0.0",
     "argon2": "^0.45.1",
+    "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
@@ -60,6 +62,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.14",

@@ -15,6 +15,10 @@ for (const [key, value] of Object.entries(
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_NAME = 'venue_platform_test';
+// A developer's .env may point at ITPO's database: tests keep to our own schema and accounts.
+process.env.DATABASE_SCHEMA = 'public';
+process.env.DATABASE_MIGRATIONS_TABLE = 'migrations';
+process.env.AUTH_SOURCE = 'local';
 process.env.CORS_ORIGINS = 'http://localhost:4200';
 process.env.APP_PUBLIC_URL = 'http://localhost:4200';
 process.env.MAIL_TRANSPORT = 'log';
