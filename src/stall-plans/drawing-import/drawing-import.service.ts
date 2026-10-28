@@ -11,6 +11,8 @@ import { join } from 'path';
 import { Worker } from 'worker_threads';
 
 import { runDrawingJob, type DrawingJob, type DrawingOutcome } from './drawing-import.job';
+import type { HallStalls } from './hall-match';
+import type { OverlayImage } from './overlay-image';
 import type { ExtractionResult } from './stall-extraction';
 
 /**
@@ -33,6 +35,22 @@ export class DrawingImportService {
   async stalls(data: Uint8Array, page: number): Promise<ExtractionResult> {
     const outcome = await this.run({ kind: 'stalls', data, page });
     if (outcome.ok && outcome.kind === 'stalls') return outcome.result;
+    throw this.failure(outcome);
+  }
+
+  /** The stalls of one hall of the plan, with the picture of them over the drawing. */
+  async hallStalls(
+    data: Uint8Array,
+    page: number,
+    hall: { name: string; code: string | null },
+  ): Promise<{ stalls: HallStalls; overlay: OverlayImage | null }> {
+    const outcome = await this.run({ kind: 'stalls', data, page, hall });
+    if (outcome.ok && outcome.kind === 'stalls' && outcome.hallStalls) {
+      const overlay = outcome.overlay
+        ? { ...outcome.overlay, jpeg: Buffer.from(outcome.overlay.jpeg) }
+        : null;
+      return { stalls: outcome.hallStalls, overlay };
+    }
     throw this.failure(outcome);
   }
 

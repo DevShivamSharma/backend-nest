@@ -1,88 +1,77 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTransport, type Transporter } from 'nodemailer';
 
-import type { AppConfig, MailConfig } from '../config/configuration';
-import { Environment, MailTransport } from '../config/env.validation';
-
-export interface MailMessage {
-  /** One address, or several who all see each other. */
-  to: string | string[];
+export interface Mail {
+  to: string[];
   subject: string;
+  html: string;
   text: string;
-  /** Display name of the sender, usually the organisation's. */
-  senderName?: string | null;
-  replyTo?: string | null;
 }
 
 /**
- * Outgoing email. The `log` transport writes each message to the server log, which is how links
- * reach a developer before an email provider is connected; `smtp` sends it. Outside production,
- * MAIL_REDIRECT_TO sends every message to the developers instead of the people it names.
+ * Sends the portal's emails. `MAIL_TRANSPORT=log` (the default) prints them in the server log;
+ * `smtp` sends them through ITPO's SMTP account (the SMTP_* names ITPO's admin service uses).
+ * Outside production, `MAIL_REDIRECT_TO` sends every mail to those addresses instead, so testing
+ * never mails real people. Sending never fails the action that caused it.
  */
 @Injectable()
-export class MailService implements OnModuleInit {
+export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly mail: MailConfig;
-  private readonly app: AppConfig;
-  private readonly transporter: Transporter | null;
+  private transporter: Transporter | null = null;
 
-  constructor(config: ConfigService) {
-    this.mail = config.getOrThrow<MailConfig>('mail');
-    this.app = config.getOrThrow<AppConfig>('app');
-    const smtp = this.mail.smtp;
-    this.transporter = smtp
-      ? createTransport({
-          host: smtp.host,
-          port: smtp.port,
-          secure: smtp.secure,
-          auth: smtp.user ? { user: smtp.user, pass: smtp.password ?? '' } : undefined,
-        })
-      : null;
-  }
+  constructor(private readonly config: ConfigService) {}
 
-  onModuleInit(): void {
-    if (this.mail.transport === MailTransport.Log && this.app.env === Environment.Production) {
-      this.logger.warn('MAIL_TRANSPORT=log in production: emails are written to the log only.');
-    }
-  }
-
-  /** True while no real email is sent, so admins are shown the links to pass on themselves. */
-  get deliversToLog(): boolean {
-    return this.mail.transport === MailTransport.Log;
-  }
-
-  /** Builds an absolute link into the web app. */
-  link(path: string, query: Record<string, string> = {}): string {
-    const url = new URL(path.replace(/^\/?/, '/'), this.app.publicUrl);
-    for (const [key, value] of Object.entries(query)) {
-      url.searchParams.set(key, value);
-    }
-    return url.toString();
-  }
-
-  async send(message: MailMessage): Promise<void> {
-    const addressed = [message.to].flat().filter(Boolean);
-    const to = this.mail.redirectTo.length ? this.mail.redirectTo : addressed;
+  async send(mail: Mail): Promise<void> {
+    const redirect = this.redirect();
+    const to = redirect.length
+      ? redirect
+      : [...new Set(mail.to.map((a) => a.trim()).filter(Boolean))];
     if (!to.length) return;
-    const subject = this.mail.redirectTo.length
-      ? `${message.subject} [for ${addressed.join(', ')}]`
-      : message.subject;
-    if (this.transporter && this.mail.smtp) {
-      await this.transporter.sendMail({
-        from: { name: message.senderName ?? 'Venue platform', address: this.mail.smtp.from },
+    const subject = redirect.length
+      ? `[to ${mail.to.join(', ') || 'nobody'}] ${mail.subject}`
+      : mail.subject;
+    try {
+      if (this.config.get<string>('MAIL_TRANSPORT')?.toLowerCase() !== 'smtp') {
+        this.logger.log(
+          `Mail (not sent, MAIL_TRANSPORT is not smtp) to ${to.join(', ')}: ${subject}\n${mail.text}`,
+        );
+        return;
+      }
+      await this.smtp().sendMail({
+        from: this.config.get<string>('SMTP_FROM_EMAIL'),
         to,
-        replyTo: message.replyTo ?? undefined,
         subject,
-        text: message.text,
+        html: mail.html,
+        text: mail.text,
       });
-      return;
-    }
-    if (this.app.env !== Environment.Test) {
-      this.logger.log(
-        `Email to ${to.join(', ')} from ${message.senderName ?? 'the platform'}\n` +
-          `Subject: ${subject}\n\n${message.text}`,
+      this.logger.log(`Mail sent to ${to.length} recipient(s): ${subject}`);
+    } catch (error) {
+      this.logger.warn(
+        `Mail "${subject}" was not sent: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
+  }
+
+  /** The address list every mail goes to instead, outside production. */
+  private redirect(): string[] {
+    if (this.config.get<string>('NODE_ENV') === 'production') return [];
+    return (this.config.get<string>('MAIL_REDIRECT_TO') ?? '')
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean);
+  }
+
+  private smtp(): Transporter {
+    this.transporter ??= createTransport({
+      host: this.config.get<string>('SMTP_HOST_NAME'),
+      port: Number(this.config.get<string>('SMTP_PORT') ?? 465),
+      secure: Number(this.config.get<string>('SMTP_PORT') ?? 465) === 465,
+      auth: {
+        user: this.config.get<string>('SMTP_AUTH_USER'),
+        pass: this.config.get<string>('SMTP_AUTH_PASSWORD'),
+      },
+    });
+    return this.transporter;
   }
 }

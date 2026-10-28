@@ -2,6 +2,7 @@ import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { Public } from '../decorators/public.decorator';
+import { RawResponse } from '../decorators/raw-response.decorator';
 
 export interface HealthResponse {
   status: 'ok';
@@ -20,6 +21,7 @@ export interface ReadinessResponse {
  * Both sit outside the `/api` prefix and need no sign-in.
  */
 @Public()
+@RawResponse()
 @Controller('health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}

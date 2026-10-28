@@ -18,20 +18,21 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, IsPoints, MAX_COORD, Trim } from '../../common/validation';
-import { STALL_SIDES, StallSide } from '../../rules/rule-engine';
+import { EmptyToNull, IsPoints, MAX_COORD, Trim } from './validation';
+import { STALL_SIDES, StallSide } from '../domain/rule-engine';
 import {
   PLAN_OBJECT_KINDS,
   PlanObjectKind,
   STALL_SCHEMES,
   StallScheme,
-} from '../stall-plan.entity';
+} from '../domain/plan.model';
 
 export const MAX_ZONES = 200;
 export const MAX_STALLS = 3000;
 export const MAX_SEATS = 20000;
 export const MAX_OBJECTS = 2000;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
+const CATEGORY_ID = /^[1-9]\d{0,8}$/;
 
 const FINITE = { allowNaN: false, allowInfinity: false };
 
@@ -113,12 +114,20 @@ export class PlanStallDto {
   @Max(MAX_COORD * MAX_COORD)
   labelArea?: number | null;
 
+  /** ₹ before GST set on the stall itself; none: the rate card prices it. */
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100_000_000)
+  price?: number | null;
+
   @IsIn(STALL_SCHEMES)
   scheme!: StallScheme;
 
+  /** ITPO's category ids (`T_CODE_MASTER`), as text. */
   @IsArray()
   @ArrayMaxSize(50)
-  @IsUUID('4', { each: true })
+  @Matches(CATEGORY_ID, { each: true })
   categoryIds!: string[];
 
   @IsBoolean()
@@ -195,7 +204,7 @@ export class PlanSeatDto {
   depth!: number;
 
   @IsOptional()
-  @IsUUID('4')
+  @Matches(CATEGORY_ID)
   categoryId?: string | null;
 }
 
@@ -253,6 +262,8 @@ class PlanContentDto {
 /** The whole plan, replacing what is saved. `revision` is the one the planner opened. */
 /** Publishes the saved plan; `revision` is the one the planner shows as saved. */
 export class PublishPlanDto {
+  /** A number in JSON, text in a form with files. */
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   revision!: number;

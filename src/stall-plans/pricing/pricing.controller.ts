@@ -1,48 +1,31 @@
-import { Body, Controller, Param, ParseUUIDPipe, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Put } from '@nestjs/common';
 
-import {
-  AllowEventRoles,
-  CurrentAccess,
-  OrgAccess,
-  RequirePermissions,
-} from '../../access/org-access.decorators';
+import type { SessionUser } from '../../auth/domain/session-user';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import type { AuthUser, OrgAccessContext } from '../../common/http/authenticated-request';
-import { PriceCardDto, SetStallPricesDto } from './pricing.dto';
-import { PricingService } from './pricing.service';
-import type { PlanPricingView } from './pricing.views';
+import { SaveRateCardDto } from './pricing.dto';
+import { RateCardService, RateCardView } from './rate-card.service';
 
-/**
- * The prices of an event hall's stalls: its rate card, and prices set on single stalls. Seen
- * with the plan (`pricing.view`); set with `pricing.manage` by the team the event's kind names.
- */
-@OrgAccess('events.view', 'pricing.view')
-@AllowEventRoles()
-@Controller('orgs/:slug/events/:id/halls/:hallId/plan/pricing')
+/** The rate card of an event hall. Who may read or change it follows the hall's plan. */
+@Controller({ path: 'events/:eventId/halls/:eventHallId/pricing', version: '1' })
 export class PricingController {
-  constructor(private readonly pricing: PricingService) {}
+  constructor(private readonly cards: RateCardService) {}
 
-  @RequirePermissions('events.view', 'pricing.manage')
-  @Put('card')
-  setCard(
-    @CurrentAccess() access: OrgAccessContext,
-    @CurrentUser() user: AuthUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('hallId', ParseUUIDPipe) hallId: string,
-    @Body() dto: PriceCardDto,
-  ): Promise<PlanPricingView> {
-    return this.pricing.setCard(access, id, hallId, dto, user);
+  @Get()
+  get(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('eventHallId', ParseUUIDPipe) eventHallId: string,
+    @CurrentUser() user: SessionUser,
+  ): Promise<RateCardView> {
+    return this.cards.get(eventId, eventHallId, user);
   }
 
-  @RequirePermissions('events.view', 'pricing.manage')
-  @Put('stalls')
-  setStallPrices(
-    @CurrentAccess() access: OrgAccessContext,
-    @CurrentUser() user: AuthUser,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('hallId', ParseUUIDPipe) hallId: string,
-    @Body() dto: SetStallPricesDto,
-  ): Promise<PlanPricingView> {
-    return this.pricing.setStallPrices(access, id, hallId, dto, user);
+  @Put()
+  save(
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('eventHallId', ParseUUIDPipe) eventHallId: string,
+    @Body() dto: SaveRateCardDto,
+    @CurrentUser() user: SessionUser,
+  ): Promise<RateCardView> {
+    return this.cards.save(eventId, eventHallId, dto, user);
   }
 }

@@ -10,6 +10,10 @@
 /public
 .env
 .env.gemini
+# Filled environment files hold real secrets; only the *.example templates are committed.
+.env.*
+!.env.example
+!.env.staging.example
 # Node
 /node_modules
 npm-debug.log*

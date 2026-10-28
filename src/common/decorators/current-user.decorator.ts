@@ -1,12 +1,10 @@
-import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { Request } from 'express';
 
-import type { AuthenticatedRequest, AuthUser } from '../http/authenticated-request';
+import type { SessionUser } from '../../auth/domain/session-user';
 
-/** The signed-in user. Only valid on routes behind the access-token guard. */
-export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionContext): AuthUser => {
-  const user = ctx.switchToHttp().getRequest<AuthenticatedRequest>().user;
-  if (!user) {
-    throw new UnauthorizedException('Sign in to continue.');
-  }
-  return user;
+/** The signed-in user, put on the request by the sign-in guard. */
+export const CurrentUser = createParamDecorator((_data: unknown, ctx: ExecutionContext) => {
+  const request = ctx.switchToHttp().getRequest<Request & { user: SessionUser }>();
+  return request.user;
 });

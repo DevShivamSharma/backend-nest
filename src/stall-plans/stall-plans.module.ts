@@ -1,25 +1,32 @@
 import { Module } from '@nestjs/common';
 
-import { AccessModule } from '../access/access.module';
-import { AuditModule } from '../audit/audit.module';
-import { EventsModule } from '../events/events.module';
-import { MailModule } from '../mail/mail.module';
-import { VenueSystemModule } from '../venue-system/venue-system.module';
+import { RulesModule } from '../rules/rules.module';
+import { PlanOverviewController, StallPlansController } from './controllers/stall-plans.controller';
 import { DrawingImportController } from './drawing-import/drawing-import.controller';
+import { DrawingCheckService } from './drawing-import/drawing-check.service';
 import { DrawingImportService } from './drawing-import/drawing-import.service';
 import { PricingController } from './pricing/pricing.controller';
-import { PricingService } from './pricing/pricing.service';
-import { StallPlansController } from './stall-plans.controller';
-import { StallPlansService } from './stall-plans.service';
+import { RateCardService } from './pricing/rate-card.service';
+import { PlanNotificationsService } from './services/plan-notifications.service';
+import { PlanContextService } from './services/plan-context.service';
+import { StallPlansService } from './services/stall-plans.service';
 
-/**
- * Module E: zones, stalls and seats on the halls of an event, checked against their rules; and
- * stalls read from a hall's CAD plan PDF for review.
- */
 @Module({
-  imports: [AccessModule, AuditModule, EventsModule, MailModule, VenueSystemModule],
-  controllers: [StallPlansController, DrawingImportController, PricingController],
-  providers: [StallPlansService, DrawingImportService, PricingService],
+  imports: [RulesModule],
+  controllers: [
+    StallPlansController,
+    PlanOverviewController,
+    DrawingImportController,
+    PricingController,
+  ],
+  providers: [
+    PlanContextService,
+    StallPlansService,
+    DrawingImportService,
+    DrawingCheckService,
+    RateCardService,
+    PlanNotificationsService,
+  ],
   exports: [StallPlansService],
 })
 export class StallPlansModule {}

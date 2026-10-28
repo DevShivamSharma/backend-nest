@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 
-import { AccessModule } from '../access/access.module';
 import { StallPlansModule } from '../stall-plans/stall-plans.module';
 import { AiService } from './ai.service';
 import { AssistantController } from './assistant.controller';
 
-/** The planner's AI assistant, answered by the model the environment names. */
+/** The planner's AI assistant, answered by NVIDIA's model. */
 @Module({
-  imports: [AccessModule, StallPlansModule],
+  imports: [StallPlansModule],
   controllers: [AssistantController],
   providers: [AiService],
+  exports: [AiService],
 })
 export class AiModule {}

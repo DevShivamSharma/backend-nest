@@ -1,54 +1,67 @@
-# Venue platform — API
+# EMS API - ITPO Stall Planning Portal (backend)
 
-NestJS 11 + TypeORM + PostgreSQL. Module A of the platform: organisations (tenants), their
-configuration, users, dynamic roles and permissions, invitations, sign-in and the audit log.
+NestJS 11 + TypeORM + PostgreSQL, on the same base as ITPO's own backends (`itpo_admin`, `itpo_user`,
+`itpo_stalls_be`): `registerAs` configs with env validation, `{ header, data }` responses, URI
+versioning under an API prefix, a global exception filter, Docker and CI files.
 
-## Setup
+## Layout
+
+```
+src/
+  main.ts                  bootstrap: prefix, versioning, pipes, filter, interceptors, Swagger
+  app.module.ts
+  config/                  app config (+ AllConfigType)
+  database/                config/, typeorm-config.service.ts, data-source.ts (CLI), migrations/
+  common/                  filters/, pipes/, decorators/, constants/, health/, redis-service/
+  response/                ResponseInterceptor ({ header, data })
+  utils/                   validate-config, validation-options, serializer interceptor
+  auth/                    controllers/ services/ guards/ domain/ dto/ config/
+  halls/                   controllers/ services/ domain/ dto/
+  events/                  controllers/ services/ dto/
+  rules/                   controllers/ services/ domain/ dto/
+```
+
+## Run
 
 ```bash
 npm install
-cp .env.example .env          # fill in the database and JWT_ACCESS_SECRET
-npm run migration:run         # also runs automatically at start-up
-npm run admin:create          # creates the Super Admin from SUPER_ADMIN_* in .env
-npm run start:dev             # http://localhost:8080/api
+cp .env.example .env              # same variable names as ITPO's backends
+npm run migration:run             # creates our three tables in schema idp
+npm run start:dev                 # http://localhost:3010/ems/itpo/api/v1/...
 ```
 
-Tests:
+- Routes: `<API_PREFIX>/v1/...`, default `ems/itpo/api` (e.g. `POST /ems/itpo/api/v1/auth/login`).
+  `/health` and `/health/ready` sit outside the prefix.
+- Every route needs a Bearer token except login and refresh.
+- Swagger at `/ems/docs` behind basic auth (`SWAGGER_USERNAME` / `SWAGGER_PASSWORD`).
+- Responses: `{ "header": { "code", "error", "success", "msg" }, "data": ... }`. Errors answer HTTP
+  200 with the real status in `header.code`, as ITPO's services do (`ERROR_HTTP_STATUS=real` for the
+  real HTTP status).
+
+## Database
+
+ITPO's tables live in schema `idp` and are written as `idp."T_..."` in SQL. Our own tables
+(`T_AUTH_REVOKED_SESSION`, `T_RULE_SET`, `T_EVENT_RULE_SWITCH`) are created there by migrations;
+the history goes in `public.migrations`, which ITPO's services share, so `migration:revert`
+reverts the last migration of any service.
 
 ```bash
-npm test                      # unit tests
-npm run test:e2e              # full API flows against the local venue_platform_test database
+npm run migration:show | migration:run | migration:revert
 ```
 
-The e2e suite wipes and rebuilds `venue_platform_test` on every run; it refuses to run
-against anything but a local host.
+Migrations are not run by the app on start; run them before it (see `Procfile`,
+`startup.relational.*.sh`).
 
-## Modules
+## Auth
 
-| Module | Responsibility |
-| --- | --- |
-| `auth` | Login, refresh-token rotation (httpOnly cookie, reuse detection), logout, `me`, accept invitation, password reset. Global `JwtAuthGuard`; `@Public()` opts out. |
-| `users` | Accounts (one per email across the platform), argon2id passwords. |
-| `organisations` | Tenants: slug (old slugs kept as aliases), status, booking mode, features, limits, versioned configuration. `GET /api/orgs/:slug/public-config`. |
-| `roles` | Dynamic RBAC: the permission catalogue (code) and roles (data). |
-| `access` | Memberships and `OrgAccessGuard`, which every `/api/orgs/:slug/...` route uses. |
-| `team` | Members and invitations of an organisation. |
-| `org-settings` | An organisation's own configuration and audit log. |
-| `admin` | The Super Admin console under `/api/admin`. |
-| `audit`, `mail` | Append-only audit log; outgoing email (log transport for now). |
+Login checks ITPO's `T_USER` (bcrypt). `org_id` null is ITPO staff, set is an organiser. The token has
+ITPO's claims (`id`, `role`, `sessionId`, `orgId`), signed with ITPO's `AUTH_JWT_SECRET`; login also
+writes `session:<id>` and `roles:<id>` in the Redis ITPO's services use, and the user's row in
+`T_AUTH_TOKEN`, so their services accept the token too. One session per user.
 
-## Access rules
+## Scripts
 
-1. Every route needs a signed-in user unless marked `@Public()`.
-2. `/api/orgs/:slug/...`: the slug must name an **active** organisation (else 404), the user
-   must be a **member** (else 403 — the Super Admin is not a member by default), and the
-   member's role must hold **every permission** the route declares with
-   `@OrgAccess(...)` / `@RequirePermissions(...)` (else 403).
-3. `/api/admin/...`: Super Admin only.
-4. Nobody can give a role holding permissions they lack, or act on a member who holds more
-   than they do. Every organisation keeps at least one Venue Admin (the locked owner role,
-   which always holds every permission).
+`npm test` (unit), `npm run test:e2e` (needs the database and Redis of the environment),
+`npm run lint`, `npm run typecheck`, `npm run build`.
 
-Permissions live in `src/roles/permissions.ts`. Ones marked `available: false` belong to
-modules not built yet: they can be given to roles now and take effect when their module
-checks them. Event-scoped roles (organiser, exhibitor) can be given once events exist.
+Docker: `docker compose up` (Postgres, Redis, Adminer, API); CI: `docker-compose.relational.ci.yaml`.

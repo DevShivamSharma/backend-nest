@@ -1,15 +1,14 @@
 import { Module } from '@nestjs/common';
 
-import { AccessModule } from '../access/access.module';
-import { AuditModule } from '../audit/audit.module';
-import { VenuesModule } from '../venues/venues.module';
-import { RulesController } from './rules.controller';
-import { RulesService } from './rules.service';
+import {
+  EventRulesController,
+  HallRulesController,
+  RulesController,
+} from './controllers/rules.controller';
+import { RulesService } from './services/rules.service';
 
-/** Module C: the organisation's rules and checking stalls against the rules. */
 @Module({
-  imports: [AccessModule, AuditModule, VenuesModule],
-  controllers: [RulesController],
+  controllers: [RulesController, EventRulesController, HallRulesController],
   providers: [RulesService],
   exports: [RulesService],
 })

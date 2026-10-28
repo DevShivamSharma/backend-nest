@@ -1,78 +1,63 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DataSource, DataSourceOptions } from 'typeorm';
 
-import { AccessModule } from './access/access.module';
-import { AdminModule } from './admin/admin.module';
-import { AiModule } from './ai/ai.module';
+import appConfig from './config/app.config';
+import { AllConfigType } from './config/config.type';
+import authConfig from './auth/config/auth.config';
 import { AuthModule } from './auth/auth.module';
-import { BookingsModule } from './bookings/bookings.module';
-import { HealthController } from './common/health/health.controller';
-import { AppConfig, configuration } from './config/configuration';
-import { Environment, validateEnv } from './config/env.validation';
-import { DatabaseModule } from './database/database.module';
-import { OrgSettingsModule } from './org-settings/org-settings.module';
-import { OrganisationsModule } from './organisations/organisations.module';
-import { PaymentsModule } from './payments/payments.module';
-import { PortalModule } from './portal/portal.module';
-import { PublicEventsModule } from './public-events/public-events.module';
-import { SettlementsModule } from './settlements/settlements.module';
-import { VenueSystemModule } from './venue-system/venue-system.module';
-import { TeamModule } from './team/team.module';
-import { CategoriesModule } from './categories/categories.module';
+import { CommonModule } from './common/common.module';
+import redisConfig from './common/redis-service/redis.config';
+import databaseConfig from './database/config/database.config';
+import { TypeOrmConfigService } from './database/typeorm-config.service';
 import { EventsModule } from './events/events.module';
-import { ItpoModule } from './integrations/itpo/itpo.module';
-import { ExhibitorsModule } from './exhibitors/exhibitors.module';
+import { HallsModule } from './halls/halls.module';
 import { RulesModule } from './rules/rules.module';
+import { AuditModule } from './audit/audit.module';
+import { MailModule } from './mail/mail.module';
+import { CategoryMasterModule } from './category-master/category-master.module';
+import { EmailRecipientsModule } from './email-recipients/email-recipients.module';
+import { AiModule } from './ai/ai.module';
 import { StallPlansModule } from './stall-plans/stall-plans.module';
-import { VenuesModule } from './venues/venues.module';
+
+const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
+  useClass: TypeOrmConfigService,
+  dataSourceFactory: async (options?: DataSourceOptions) => {
+    return new DataSource(options as DataSourceOptions).initialize();
+  },
+});
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      cache: true,
-      load: [configuration],
-      validate: validateEnv,
+      load: [databaseConfig, appConfig, authConfig, redisConfig],
       envFilePath: ['.env'],
-      // The test bootstrap supplies its own isolated environment.
-      ignoreEnvFile: process.env.NODE_ENV === 'test',
     }),
-    // A broad per-client ceiling; sign-in and email routes set tighter limits of their own.
+    // A broad per-client ceiling; the login route sets a tighter limit of its own.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
+      useFactory: (configService: ConfigService<AllConfigType>) => ({
         throttlers: [{ ttl: 60_000, limit: 300 }],
-        skipIf: () => config.getOrThrow<AppConfig>('app').env === Environment.Test,
+        skipIf: () => configService.get('app.nodeEnv', { infer: true }) === 'test',
       }),
     }),
-    // Registers every `@Interval` once per process (the booking hold-expiry worker).
-    ScheduleModule.forRoot(),
-    DatabaseModule,
+    infrastructureDatabaseModule,
+    CommonModule,
     AuthModule,
-    OrganisationsModule,
-    AccessModule,
-    TeamModule,
-    OrgSettingsModule,
-    AdminModule,
-    VenuesModule,
-    RulesModule,
+    HallsModule,
     EventsModule,
-    ItpoModule,
-    CategoriesModule,
+    RulesModule,
     StallPlansModule,
-    ExhibitorsModule,
-    BookingsModule,
-    PaymentsModule,
-    PortalModule,
-    PublicEventsModule,
-    SettlementsModule,
-    VenueSystemModule,
     AiModule,
+    AuditModule,
+    MailModule,
+    EmailRecipientsModule,
+    CategoryMasterModule,
   ],
-  controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

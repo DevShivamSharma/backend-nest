@@ -13,6 +13,8 @@
     "incremental": true,
     "skipLibCheck": true,
     "strict": true,
+    // The env-validator classes (as in ITPO's repos) declare fields that class-transformer fills in.
+    "strictPropertyInitialization": false,
     "strictNullChecks": true,
     "noImplicitAny": true,
     "strictBindCallApply": true,

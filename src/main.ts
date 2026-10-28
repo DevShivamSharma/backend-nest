@@ -1,51 +1,69 @@
+import 'dotenv/config';
 import 'reflect-metadata';
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { Logger } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import type { Express, NextFunction, Request, Response } from 'express';
-import express from 'express';
+import { ClassSerializerInterceptor, ValidationPipe, VersioningType } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory, Reflector } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { useContainer } from 'class-validator';
+import * as bodyParser from 'body-parser';
+import helmet from 'helmet';
 
 import { AppModule } from './app.module';
-import { configureApp } from './app.setup';
+import { GlobalExceptionFilter } from './common/filters/global-exception/global-exception.filter';
+import { TrimPipe } from './common/pipes/trim-string.pipe';
+import { AllConfigType } from './config/config.type';
+import { ResponseInterceptor } from './response/response.interceptor';
+import { SwaggerAuthMiddleware } from './SwaggerAuthMiddleware';
+import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
+import validationOptions from './utils/validation-options';
 
-/**
- * Serves the Angular production build from ./public when it exists (the published single-
- * container deployment). Local `nest start` works unchanged without it: the guard skips
- * registration and the SPA keeps running on the Angular dev server.
- */
-function serveAngularBuild(app: Express): void {
-  const publicDir = join(__dirname, '..', 'public');
-  if (!existsSync(join(publicDir, 'index.html'))) {
-    return;
+async function bootstrap() {
+  // No CORS for now: the web app reaches the API through its dev proxy / the same origin.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false });
+  useContainer(app.select(AppModule), { fallbackOnErrors: true });
+  const configService = app.get(ConfigService<AllConfigType>);
+
+  // Behind a load balancer the client's address comes from X-Forwarded-For; without this every
+  // user would share the balancer's address (and its rate limit).
+  const trustProxy = configService.getOrThrow('app.trustProxy', { infer: true });
+  if (trustProxy !== false) {
+    app.set('trust proxy', trustProxy);
   }
 
-  app.use(express.static(publicDir));
+  app.use(helmet());
+  // Request bodies: JSON and form posts up to 10 MB.
+  app.use(bodyParser.json({ limit: '10mb' }));
+  app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
-  // SPA fallback: Angular owns every GET outside the API and health contracts.
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/health')) {
-      res.sendFile(join(publicDir, 'index.html'));
-      return;
-    }
-    next();
+  app.enableShutdownHooks();
+  // The health checks stay outside the prefix, for the load balancer.
+  app.setGlobalPrefix(configService.getOrThrow('app.apiPrefix', { infer: true }), {
+    exclude: ['/', 'health', 'health/ready'],
   });
-}
+  app.enableVersioning({ type: VersioningType.URI });
 
-async function bootstrap(): Promise<void> {
-  const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  app.useGlobalPipes(new ValidationPipe(validationOptions));
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  app.useGlobalInterceptors(
+    new ResolvePromisesInterceptor(),
+    new ClassSerializerInterceptor(app.get(Reflector)),
+    new ResponseInterceptor(app.get(Reflector)),
+  );
+  app.useGlobalPipes(new TrimPipe());
 
-  const appConfig = configureApp(app);
+  // The API docs, behind basic auth (SWAGGER_USERNAME / SWAGGER_PASSWORD).
+  app.use(['/ems/docs', '/ems/docs-json', '/ems/docs-yaml'], SwaggerAuthMiddleware.use);
+  const options = new DocumentBuilder()
+    .setTitle('EMS API')
+    .setDescription('ITPO Stall Planning Portal API docs')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  SwaggerModule.setup('ems/docs', app, SwaggerModule.createDocument(app, options));
 
-  serveAngularBuild(app.getHttpAdapter().getInstance() as Express);
-
-  await app.listen(appConfig.port);
-
-  logger.log(`Listening on port ${appConfig.port} (env: ${appConfig.env})`);
-  logger.log(`CORS allow-list: ${appConfig.corsOrigins.join(', ')}`);
+  await app.listen(configService.getOrThrow('app.port', { infer: true }));
 }
 
 void bootstrap();

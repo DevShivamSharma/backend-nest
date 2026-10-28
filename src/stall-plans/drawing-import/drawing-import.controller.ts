@@ -1,8 +1,6 @@
 import {
   BadRequestException,
   Controller,
-  ForbiddenException,
-  UnprocessableEntityException,
   Header,
   HttpCode,
   HttpStatus,
@@ -17,101 +15,85 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 
-import {
-  AllowEventRoles,
-  CurrentAccess,
-  OrgAccess,
-  RequirePermissions,
-} from '../../access/org-access.decorators';
-import type { OrgAccessContext } from '../../common/http/authenticated-request';
-import { StallPlansService } from '../stall-plans.service';
+import type { SessionUser } from '../../auth/domain/session-user';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RawResponse } from '../../common/decorators/raw-response.decorator';
+import { StallPlansService } from '../services/stall-plans.service';
+import { isAsciiDxf } from './dxf-reader';
 import { DrawingImportService } from './drawing-import.service';
-import { forHall, type HallStalls, WrongPlanError } from './hall-match';
+import type { HallStalls } from './hall-match';
+import type { AiCheck } from './drawing-check';
+import { DrawingCheckService } from './drawing-check.service';
 
-export const MAX_PDF_BYTES = 25 * 1024 * 1024;
+export const MAX_DRAWING_BYTES = 25 * 1024 * 1024;
 /** Each read is seconds of CPU. */
 const READ_LIMIT = { default: { limit: 6, ttl: 60_000 } };
 
 type Upload = { buffer?: Buffer; size?: number } | undefined;
 
 /**
- * A CAD plan (PDF exported from AutoCAD) read for a hall's stall plan: the stalls it draws of
- * THIS hall (a plan may draw several; one of other halls is refused as the wrong plan), for the
- * planner to review and place; or the drawing itself as DXF.
- * Read-only: the planner's rule-checked save is what changes a plan.
+ * A CAD plan (PDF exported from AutoCAD, or a DXF) read for a hall's stall plan: a PDF is first
+ * converted to DXF, and the stalls are read from that. It answers with the stalls it draws of THIS
+ * hall (a plan may draw several; one of other halls is refused as the wrong plan), for the planner
+ * to review and place; or the drawing itself as DXF. Read-only: the planner's rule-checked save is
+ * what changes a plan.
  */
-@OrgAccess('events.view', 'layouts.view')
-@AllowEventRoles()
-@Controller('orgs/:slug/events/:id/halls/:hallId/plan/drawing')
+@Controller({ path: 'events/:eventId/halls/:eventHallId/plan/drawing', version: '1' })
 export class DrawingImportController {
   constructor(
     private readonly plans: StallPlansService,
     private readonly drawings: DrawingImportService,
+    private readonly checks: DrawingCheckService,
   ) {}
 
-  @RequirePermissions('events.view', 'layouts.edit')
   @Throttle(READ_LIMIT)
   @Post()
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PDF_BYTES, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_DRAWING_BYTES, files: 1 } }))
   async stalls(
-    @CurrentAccess() access: OrgAccessContext,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('eventHallId', ParseUUIDPipe) eventHallId: string,
+    @CurrentUser() user: SessionUser,
     @UploadedFile() file: Upload,
     @Query('page') page: string | undefined,
-  ): Promise<HallStalls> {
-    const hall = await this.mayEdit(access, id, hallId);
-    const result = await this.drawings.stalls(pdfOf(file), pageOf(page));
-    try {
-      // Only this hall's stalls: a plan may draw several halls, or be of another one.
-      return forHall(result, hall.name, hall.code);
-    } catch (e) {
-      if (e instanceof WrongPlanError) throw new UnprocessableEntityException(e.message);
-      throw e;
-    }
+  ): Promise<HallStalls & { aiCheck: AiCheck }> {
+    const hall = await this.plans.editableHall(eventId, eventHallId, user);
+    // Only this hall's stalls: a plan may draw several halls, or be of another one (a 422).
+    const { stalls, overlay } = await this.drawings.hallStalls(drawingOf(file), pageOf(page), hall);
+    const pitch = stalls.groups[0]?.pitchX ?? 1;
+    const aiCheck = await this.checks.check(overlay, stalls.stalls, stalls.unresolved, pitch);
+    return { ...stalls, aiCheck };
   }
 
-  @RequirePermissions('events.view', 'layouts.edit')
+  /** The plan's drawing as a DXF file (the answer is the file, not the usual envelope). */
+  @RawResponse()
   @Throttle(READ_LIMIT)
   @Post('dxf')
   @HttpCode(HttpStatus.OK)
   @Header('Content-Type', 'application/dxf')
   @Header('Content-Disposition', 'attachment; filename="plan.dxf"')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_PDF_BYTES, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_DRAWING_BYTES, files: 1 } }))
   async dxf(
-    @CurrentAccess() access: OrgAccessContext,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('eventHallId', ParseUUIDPipe) eventHallId: string,
+    @CurrentUser() user: SessionUser,
     @UploadedFile() file: Upload,
     @Query('page') page: string | undefined,
   ): Promise<StreamableFile> {
-    await this.mayEdit(access, id, hallId);
-    const dxf = await this.drawings.dxf(pdfOf(file), pageOf(page));
+    await this.plans.editableHall(eventId, eventHallId, user);
+    const dxf = await this.drawings.dxf(drawingOf(file), pageOf(page));
     return new StreamableFile(Buffer.from(dxf, 'utf8'));
-  }
-
-  /** Also the access check: a hall the member cannot see is not found. */
-  private async mayEdit(
-    access: OrgAccessContext,
-    id: string,
-    hallId: string,
-  ): Promise<{ name: string; code: string | null }> {
-    const view = await this.plans.get(access, id, hallId);
-    if (!view.canEdit) {
-      throw new ForbiddenException(view.readOnlyReason ?? 'This plan is read-only for you.');
-    }
-    return { name: view.hall.hall.name, code: view.hall.hall.code };
   }
 }
 
-function pdfOf(file: Upload): Uint8Array {
+function drawingOf(file: Upload): Uint8Array {
   if (!file?.buffer?.length) {
-    throw new BadRequestException('Attach the plan as a PDF file in the "file" field.');
+    throw new BadRequestException('Attach the plan as a PDF or DXF file in the "file" field.');
   }
   // The PDF header may follow a little junk, but must be within the first 1024 bytes.
-  if (!file.buffer.subarray(0, 1024).includes('%PDF-')) {
-    throw new BadRequestException('The file is not a PDF.');
+  const isPdf = file.buffer.subarray(0, 1024).includes('%PDF-');
+  if (!isPdf && !isAsciiDxf(file.buffer)) {
+    throw new BadRequestException('The file is not a PDF or an ASCII DXF.');
   }
   // A copy: pdf.js takes ownership of (and may detach) the buffer it is given.
   return new Uint8Array(file.buffer);

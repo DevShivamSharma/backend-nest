@@ -1,8 +1,4 @@
-import type {
-  PageVectors,
-  VectorPath,
-  VectorSegment,
-} from '../../venues/floor-plan/cad/pdf-vectors';
+import type { PageVectors, VectorPath, VectorSegment } from '../cad/pdf-vectors';
 import {
   agreeWithAreaLabels,
   extractStalls,

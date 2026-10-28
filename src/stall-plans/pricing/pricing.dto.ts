@@ -2,104 +2,76 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsDefined,
+  IsIn,
+  IsISO8601,
   IsNumber,
   IsOptional,
-  IsString,
   IsUUID,
-  Length,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, Trim } from '../../common/validation';
+import { RATE_TYPES, RateType } from './rate-card';
 
-/** ₹ up to a hundred crore, in paise. */
-const MAX_RUPEES = 1_000_000_000;
-const money = { maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false };
+const MONEY = { allowNaN: false, allowInfinity: false, maxDecimalPlaces: 2 };
 
-export class PriceRatesDto {
-  @IsNumber(money)
+export class RatePeriodDto {
+  /** Present for a row that exists; a new row has none. */
+  @IsOptional()
+  @IsUUID('4')
+  id?: string;
+
+  @IsIn(RATE_TYPES)
+  type!: RateType;
+
+  @IsISO8601({ strict: true })
+  startAt!: string;
+
+  @IsISO8601({ strict: true })
+  endAt!: string;
+
+  @IsNumber(MONEY)
   @Min(0)
-  @Max(MAX_RUPEES)
+  @Max(10_000_000)
   bareRate!: number;
 
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
-  @Max(MAX_RUPEES)
+  @Max(10_000_000)
   shellRate!: number;
 
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
   @Max(1000)
   side2Percent!: number;
 
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
   @Max(1000)
   side3Percent!: number;
 
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
   @Max(1000)
   side4Percent!: number;
 
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
-  @Max(MAX_RUPEES)
+  @Max(100_000_000)
   catalogueCharge!: number;
 
   @IsOptional()
-  @IsNumber(money)
+  @IsNumber(MONEY)
   @Min(0)
-  @Max(MAX_RUPEES)
-  fnbPrice?: number | null;
+  @Max(100_000_000)
+  fnbPrice!: number | null;
 }
 
-/** The whole rate card: General, and Premium and Marquee when they are priced apart. */
-export class PriceCardDto {
-  /** Every card has General rates; Premium and Marquee are optional. */
-  @IsDefined({ message: 'The rate card needs General rates.' })
-  @ValidateNested()
-  @Type(() => PriceRatesDto)
-  general!: PriceRatesDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => PriceRatesDto)
-  premium?: PriceRatesDto | null;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => PriceRatesDto)
-  marquee?: PriceRatesDto | null;
-}
-
-export class StallPriceDto {
-  @IsUUID()
-  stallId!: string;
-
-  /** ₹; null takes the stall's own price away, so the rate card prices it. */
-  @IsOptional()
-  @IsNumber(money)
-  @Min(0)
-  @Max(MAX_RUPEES)
-  price!: number | null;
-
-  @IsOptional()
-  @Trim()
-  @EmptyToNull()
-  @IsString()
-  @Length(1, 300)
-  note?: string | null;
-}
-
-/** Prices set on stalls, or taken off them; stalls not named keep theirs. */
-export class SetStallPricesDto {
+export class SaveRateCardDto {
   @IsArray()
-  @ArrayMaxSize(5000)
+  @ArrayMaxSize(30)
   @ValidateNested({ each: true })
-  @Type(() => StallPriceDto)
-  prices!: StallPriceDto[];
+  @Type(() => RatePeriodDto)
+  periods!: RatePeriodDto[];
 }

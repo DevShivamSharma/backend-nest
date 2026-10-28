@@ -8,22 +8,10 @@
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": [
-      "ts-jest",
-      {
-        "tsconfig": {
-          "allowJs": true
-        }
-      }
-    ]
+    "^.+\\.(t|j)s$": "ts-jest"
   },
   "setupFiles": [
-    "reflect-metadata",
-    "<rootDir>/setup-env.ts"
-  ],
-  "testTimeout": 60000,
-  "maxWorkers": 1,
-  "transformIgnorePatterns": [
-    "/node_modules/(?!@nestjs/schedule/)"
+    "dotenv/config",
+    "reflect-metadata"
   ]
 }

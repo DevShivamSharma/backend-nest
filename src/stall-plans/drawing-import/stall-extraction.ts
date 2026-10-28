@@ -1,10 +1,5 @@
-import { coveredRegions } from '../../venues/floor-plan/cad/outline-trace';
-import type {
-  LayerMode,
-  PageVectors,
-  VectorPath,
-  VectorSegment,
-} from '../../venues/floor-plan/cad/pdf-vectors';
+import { coveredRegions } from '../cad/outline-trace';
+import type { LayerMode, PageVectors, VectorPath, VectorSegment } from '../cad/pdf-vectors';
 import { normalizeFootprint, polygonArea, type Point } from './stall-footprint';
 
 /**
@@ -178,10 +173,7 @@ const LETTER_NUMBER = /^\d{2}(?:\/\d)?$/;
  * `B` `21` is B21. A number a grid square or more before the letter is the block's, as in
  * `14 C` of block 3F-14.
  */
-function stallLetters(
-  texts: ReadonlyArray<{ text: string; x: number }>,
-  pitch: number,
-): string[] {
+function stallLetters(texts: ReadonlyArray<{ text: string; x: number }>, pitch: number): string[] {
   const letters = texts
     .map((t) => ({ ...t, text: SHORT_LETTER.exec(t.text)?.[1] ?? t.text }))
     .filter((t) => LETTER.test(t.text));

@@ -1,81 +1,41 @@
 import { ConfigService } from '@nestjs/config';
-import { createTransport } from 'nodemailer';
 
-import type { MailConfig } from '../config/configuration';
-import { Environment, MailTransport } from '../config/env.validation';
 import { MailService } from './mail.service';
 
-jest.mock('nodemailer', () => ({ createTransport: jest.fn() }));
+const service = (env: Record<string, string>) =>
+  new MailService({ get: (k: string) => env[k] } as unknown as ConfigService);
+const mail = { to: ['org@x.test'], subject: 'S', html: '<p>h</p>', text: 'h' };
 
 describe('MailService', () => {
-  const sendMail = jest.fn().mockResolvedValue({});
-  const smtp = {
-    host: 'smtp.example.test',
-    port: 465,
-    secure: true,
-    user: 'mailer',
-    password: 'secret',
-    from: 'noreply@example.test',
-  };
-
-  function service(mail: Partial<MailConfig>, env = Environment.Development): MailService {
-    const config = {
-      getOrThrow: (key: string) =>
-        key === 'mail'
-          ? { transport: MailTransport.Smtp, smtp, redirectTo: [], ...mail }
-          : { env, publicUrl: 'http://localhost:4200' },
-    } as unknown as ConfigService;
-    return new MailService(config);
-  }
-
-  beforeEach(() => {
-    sendMail.mockClear();
-    (createTransport as jest.Mock).mockReturnValue({ sendMail });
+  it('should only log a mail while the transport is not smtp, and send nothing without a recipient', async () => {
+    const s = service({});
+    const log = jest
+      .spyOn((s as never as { logger: { log: () => void } }).logger, 'log')
+      .mockImplementation();
+    await s.send(mail);
+    await s.send({ ...mail, to: [] });
+    expect(log).toHaveBeenCalledTimes(1);
   });
 
-  it('sends through the SMTP server, from its address, to everyone named', async () => {
-    await service({}).send({
-      to: ['a@expo.test', 'b@expo.test'],
-      subject: 'Stall plan approved',
-      text: 'Approved.',
-      senderName: 'ITPO',
-      replyTo: 'help@itpo.test',
-    });
-    expect(createTransport).toHaveBeenCalledWith({
-      host: 'smtp.example.test',
-      port: 465,
-      secure: true,
-      auth: { user: 'mailer', pass: 'secret' },
-    });
-    expect(sendMail).toHaveBeenCalledWith({
-      from: { name: 'ITPO', address: 'noreply@example.test' },
-      to: ['a@expo.test', 'b@expo.test'],
-      replyTo: 'help@itpo.test',
-      subject: 'Stall plan approved',
-      text: 'Approved.',
-    });
-  });
-
-  it('sends to the developers instead while MAIL_REDIRECT_TO is set, naming who it was for', async () => {
-    await service({ redirectTo: ['dev@cms.test'] }).send({
-      to: 'organiser@expo.test',
-      subject: 'Stall plan sent back',
-      text: 'Change it.',
-    });
+  it('should send to the redirect addresses instead, outside production, and say who it was for', async () => {
+    const s = service({ MAIL_TRANSPORT: 'smtp', MAIL_REDIRECT_TO: 'me@x.test' });
+    const sendMail = jest.fn(() => Promise.resolve());
+    (s as never as { transporter: unknown }).transporter = { sendMail };
+    await s.send(mail);
     expect(sendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: ['dev@cms.test'],
-        subject: 'Stall plan sent back [for organiser@expo.test]',
-      }),
+      expect.objectContaining({ to: ['me@x.test'], subject: '[to org@x.test] S' }),
     );
   });
 
-  it('writes to the log, sending nothing, with the log transport', async () => {
-    await service({ transport: MailTransport.Log, smtp: null }, Environment.Test).send({
-      to: 'a@expo.test',
-      subject: 'x',
-      text: 'y',
+  it('should not redirect in production, and should not throw when sending fails', async () => {
+    const s = service({
+      MAIL_TRANSPORT: 'smtp',
+      MAIL_REDIRECT_TO: 'me@x.test',
+      NODE_ENV: 'production',
     });
-    expect(sendMail).not.toHaveBeenCalled();
+    const sendMail = jest.fn(() => Promise.reject(new Error('refused')));
+    (s as never as { transporter: unknown }).transporter = { sendMail };
+    await expect(s.send(mail)).resolves.toBeUndefined();
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: ['org@x.test'] }));
   });
 });

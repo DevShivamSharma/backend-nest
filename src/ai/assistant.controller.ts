@@ -1,10 +1,9 @@
 import { Body, Controller, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 
-import { AllowEventRoles, CurrentAccess, OrgAccess } from '../access/org-access.decorators';
-import type { OrgAccessContext } from '../common/http/authenticated-request';
-import { StallPlansService } from '../stall-plans/stall-plans.service';
-import type { PlannerView } from '../stall-plans/stall-plans.views';
+import type { SessionUser } from '../auth/domain/session-user';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PlannerView, StallPlansService } from '../stall-plans/services/stall-plans.service';
 import { AiService, type AnsweredBy, type ToolCall } from './ai.service';
 import { AskAssistantDto } from './dto/assistant.dto';
 import { toolsFor } from './planner-tools';
@@ -26,9 +25,7 @@ export interface AssistantTurnView {
  * and asks for planner tools to change it. The server offers only the tools the member may use;
  * the planner runs them with its own rule-checked actions and sends back what they did.
  */
-@OrgAccess('events.view', 'layouts.view')
-@AllowEventRoles()
-@Controller('orgs/:slug/events/:id/halls/:hallId/assistant')
+@Controller({ path: 'events/:eventId/halls/:eventHallId/assistant', version: '1' })
 export class AssistantController {
   constructor(
     private readonly plans: StallPlansService,
@@ -39,13 +36,13 @@ export class AssistantController {
   @Post()
   @HttpCode(HttpStatus.OK)
   async ask(
-    @CurrentAccess() access: OrgAccessContext,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('hallId', ParseUUIDPipe) hallId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @Param('eventHallId', ParseUUIDPipe) eventHallId: string,
+    @CurrentUser() user: SessionUser,
     @Body() dto: AskAssistantDto,
   ): Promise<AssistantTurnView> {
     // Also the access check: a hall the member cannot see is not found.
-    const view = await this.plans.get(access, id, hallId);
+    const view = await this.plans.get(eventId, eventHallId, user);
     const tools = toolsFor(view.canEdit, view.canPublish);
     const allowed = new Set(tools.map((t) => t.name));
     const turn = await this.ai.turn(instructions(view), dto.messages, tools);
@@ -60,7 +57,7 @@ export class AssistantController {
 
 /** What the model is told: its job, how to work and answer, and the hall. */
 export function instructions(view: PlannerView): string {
-  const { hall, plan } = view;
+  const { plan, event, hall, floor, rules } = view;
   return [
     'You are the AI assistant inside a stall planner for exhibition halls. You help the event',
     'organiser plan this hall: answer questions about it and change the plan with the tools.',
@@ -86,12 +83,12 @@ export function instructions(view: PlannerView): string {
     'Devanagari; Hindi in Devanagari gets Devanagari. Short, two to four sentences of plain text',
     'with no markdown, lists or tables, because answers are read aloud.',
     '',
-    `Event: ${hall.event.name} (${hall.event.audience}).`,
-    `Hall: ${hall.hall.name}, ${hall.hall.width} × ${hall.hall.depth} m, ${hall.hall.rulesOn} rules on, ` +
-      `passage width ${hall.rules.values.passageWidth[hall.event.audience]} m.`,
+    `Event: ${event.name} (${event.audience}).`,
+    `Hall: ${hall.name}, ${floor.width} × ${floor.depth} m, ` +
+      `passage width ${rules.values.passageWidth[event.audience]} m.`,
     `Saved version ${plan.revision}` +
       (plan.published ? `; version ${plan.published.revision} is published.` : '; not published.'),
-    `Categories this hall sells: ${hall.categories.map((c) => c.name).join(', ') || 'none chosen'}.`,
+    `Categories this hall sells: ${view.categories.map((c) => c.name).join(', ') || 'none chosen'}.`,
     view.canEdit
       ? view.canPublish
         ? 'This person may edit and publish.'

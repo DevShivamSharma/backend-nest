@@ -9,8 +9,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 
-import type { AiConfig, AiModelConfig } from '../config/configuration';
-import { AiProvider } from '../config/env.validation';
 import type { AssistantRole } from './dto/assistant.dto';
 import type { PlannerTool } from './planner-tools';
 
@@ -18,11 +16,9 @@ export interface ToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
-  /** Gemini's signature of its reasoning; sent back with the call. */
-  signature?: string;
 }
 
-/** The conversation, in one shape for every provider. */
+/** The conversation, in the model's chat format. */
 export interface AgentMessage {
   role: AssistantRole;
   text?: string;
@@ -38,39 +34,34 @@ export interface AgentTurn {
   calls: ToolCall[];
 }
 
-/** Which model of the chain gave a turn. */
+/** Which model gave a turn. */
 export interface AnsweredBy {
-  provider: AiProvider;
+  provider: 'nvidia';
   model: string;
 }
 
-/** Longest wait for a model's answer. */
+const ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b';
+/** Longest wait for the model's answer. */
 const TIMEOUT_MS = 60_000;
-/** A rate-limited provider is passed over this long when it does not say how long. */
+/** A rate limit that does not say how long it lasts is waited out this long. */
 const COOL_DOWN_S = 30;
 
 /**
- * One turn of the assistant's model, with tools: Gemini's or Groq's API, or a local Ollama. The
- * models are tried in the configured order; when one fails or is rate-limited the next answers,
- * and a rate-limited one is passed over until its limit resets. Keys stay on the server and are
- * never logged; failures are reported without them.
+ * One turn of the assistant's model, with tools: NVIDIA's hosted model (build.nvidia.com), the
+ * only one used. The key (NVIDIA_API_KEY) stays on the server and is never logged or returned;
+ * failures are reported without it.
  */
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly config: AiConfig;
-  /** When each rate-limited provider may be asked again, ms since the epoch. */
-  private readonly coolUntil = new Map<AiProvider, number>();
+  private readonly apiKey: string | null;
+  private readonly model: string;
 
   constructor(config: ConfigService) {
-    this.config = config.getOrThrow<AiConfig>('ai');
-    const { chain, skipped } = this.config;
-    if (skipped.length) this.logger.warn(`AI providers left out: ${skipped.join(', ')}`);
-    if (chain.length) {
-      this.logger.log(
-        `AI models in order: ${chain.map((m) => `${m.provider} ${m.model}`).join(' → ')}`,
-      );
-    }
+    this.apiKey = config.get<string>('NVIDIA_API_KEY')?.trim() || null;
+    this.model = config.get<string>('NVIDIA_MODEL')?.trim() || DEFAULT_MODEL;
+    if (this.apiKey) this.logger.log(`AI model: nvidia ${this.model}`);
   }
 
   async turn(
@@ -78,201 +69,82 @@ export class AiService {
     messages: AgentMessage[],
     tools: PlannerTool[],
   ): Promise<AgentTurn & { answeredBy: AnsweredBy }> {
-    const { chain } = this.config;
-    if (!chain.length) {
+    if (!this.apiKey) {
       throw new ServiceUnavailableException(
-        'The AI assistant is not set up: no AI provider has a key on the server.',
+        'The AI assistant is not set up: the server has no NVIDIA_API_KEY.',
       );
     }
-    const now = Date.now();
-    // Those resting after a rate limit go last, so they are still tried when nothing else is.
-    const order = [
-      ...chain.filter((m) => (this.coolUntil.get(m.provider) ?? 0) <= now),
-      ...chain.filter((m) => (this.coolUntil.get(m.provider) ?? 0) > now),
-    ];
-    let wait: number | null = null;
-    for (const model of order) {
-      const started = Date.now();
-      try {
-        const turn =
-          model.provider === AiProvider.Gemini
-            ? await this.gemini(model, system, messages, tools)
-            : await this.openAiStyle(model, system, messages, tools);
-        if (!turn.text.trim() && !turn.calls.length) throw new Error('empty answer');
-        this.coolUntil.delete(model.provider);
-        this.logger.log(
-          `AI answered by ${model.provider} ${model.model} in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+    const started = Date.now();
+    try {
+      const turn = await this.ask(this.apiKey, system, messages, tools);
+      if (!turn.text.trim() && !turn.calls.length) throw new Error('empty answer');
+      this.logger.log(
+        `AI answered by nvidia ${this.model} in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+      );
+      return {
+        text: turn.text.trim(),
+        calls: turn.calls,
+        answeredBy: { provider: 'nvidia', model: this.model },
+      };
+    } catch (error) {
+      this.logger.warn(
+        `nvidia ${this.model} did not answer: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      if (error instanceof ProviderError && error.status === 429) {
+        // The planner reads the seconds from this sentence and waits that long by itself.
+        throw new HttpException(
+          `The AI model's limit is used up for the moment. Try again in about ${error.retryAfter ?? COOL_DOWN_S} seconds.`,
+          HttpStatus.TOO_MANY_REQUESTS,
         );
-        return {
-          text: turn.text.trim(),
-          calls: turn.calls,
-          answeredBy: { provider: model.provider, model: model.model },
-        };
-      } catch (error) {
-        this.logger.warn(
-          `${model.provider} ${model.model} did not answer: ${error instanceof Error ? error.message : 'unknown error'}`,
-        );
-        if (error instanceof ProviderError && error.status === 429) {
-          const seconds = error.retryAfter ?? COOL_DOWN_S;
-          this.coolUntil.set(model.provider, Date.now() + seconds * 1000);
-          wait = wait === null ? seconds : Math.min(wait, seconds);
-        }
       }
+      throw new BadGatewayException('The AI assistant could not answer just now. Try again.');
     }
-    if (wait !== null) {
-      // The planner reads the seconds from this sentence and waits that long by itself.
-      throw new HttpException(
-        `The AI model's free limit is used up for the moment. Try again in about ${wait} seconds.`,
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-    throw new BadGatewayException('The AI assistant could not answer just now. Try again.');
   }
 
-  // ---- Gemini ---------------------------------------------------------------------------------
-
-  private async gemini(
-    { model, apiKey }: AiModelConfig,
+  private async ask(
+    apiKey: string,
     system: string,
     messages: AgentMessage[],
     tools: PlannerTool[],
   ): Promise<AgentTurn> {
-    type Part = Record<string, unknown>;
-    const contents: Array<{ role: 'user' | 'model'; parts: Part[] }> = [];
-    for (const m of messages) {
-      if (m.role === 'tool') {
-        const part = {
-          functionResponse: { name: m.name ?? 'tool', response: { result: m.result ?? '' } },
-        };
-        // Answers to one turn's calls go back together.
-        const last = contents.at(-1);
-        if (last?.role === 'user' && last.parts.every((p) => 'functionResponse' in p)) {
-          last.parts.push(part);
-        } else {
-          contents.push({ role: 'user', parts: [part] });
-        }
-      } else if (m.role === 'assistant') {
-        const parts: Part[] = m.text ? [{ text: m.text }] : [];
-        for (const c of m.calls ?? []) {
-          parts.push({
-            functionCall: { name: c.name, args: c.args },
-            ...(c.signature ? { thoughtSignature: c.signature } : {}),
-          });
-        }
-        if (parts.length) contents.push({ role: 'model', parts });
-      } else if (m.text) {
-        contents.push({ role: 'user', parts: [{ text: m.text }] });
-      }
-    }
-    const body = await this.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      { 'x-goog-api-key': apiKey! },
-      {
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        tools: [
-          {
-            functionDeclarations: tools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              // A tool without parameters declares none.
-              ...(Object.keys(t.parameters.properties ?? {}).length
-                ? { parameters: t.parameters }
-                : {}),
-            })),
-          },
-        ],
-      },
-    );
-    const parts =
-      (
-        body as {
-          candidates?: Array<{
-            content?: {
-              parts?: Array<{
-                text?: string;
-                thought?: boolean;
-                thoughtSignature?: string;
-                functionCall?: { name: string; args?: Record<string, unknown> };
-              }>;
-            };
-          }>;
-        }
-      ).candidates?.[0]?.content?.parts ?? [];
-    return {
-      text: parts
-        .filter((p) => p.text && !p.thought)
-        .map((p) => p.text)
-        .join(''),
-      calls: parts
-        .filter((p) => p.functionCall)
-        .map((p) => ({
-          id: randomUUID(),
-          name: p.functionCall!.name,
-          args: p.functionCall!.args ?? {},
-          ...(p.thoughtSignature ? { signature: p.thoughtSignature } : {}),
-        })),
-    };
-  }
-
-  // ---- Groq, NVIDIA and Ollama (the OpenAI chat format) ---------------------------------------
-
-  private async openAiStyle(
-    { provider, model, apiKey, baseUrl }: AiModelConfig,
-    system: string,
-    messages: AgentMessage[],
-    tools: PlannerTool[],
-  ): Promise<AgentTurn> {
-    const ollama = provider === AiProvider.Ollama;
-    const nvidia = provider === AiProvider.Nvidia;
     const wire = [
       { role: 'system', content: system },
       ...messages.map((m) => {
         if (m.role === 'tool') {
-          return ollama
-            ? { role: 'tool', content: m.result ?? '', tool_name: m.name }
-            : { role: 'tool', tool_call_id: m.callId, content: m.result ?? '' };
+          return { role: 'tool', tool_call_id: m.callId, content: m.result ?? '' };
         }
         if (m.role === 'assistant' && m.calls?.length) {
           return {
             role: 'assistant',
             content: m.text ?? '',
             tool_calls: m.calls.map((c) => ({
-              ...(ollama ? {} : { id: c.id, type: 'function' }),
-              function: { name: c.name, arguments: ollama ? c.args : JSON.stringify(c.args) },
+              id: c.id,
+              type: 'function',
+              function: { name: c.name, arguments: JSON.stringify(c.args) },
             })),
           };
         }
         return { role: m.role, content: m.text ?? '' };
       }),
     ];
-    const body = await this.post(
-      ollama
-        ? `${baseUrl}/api/chat`
-        : nvidia
-          ? 'https://integrate.api.nvidia.com/v1/chat/completions'
-          : 'https://api.groq.com/openai/v1/chat/completions',
-      ollama ? {} : { authorization: `Bearer ${apiKey}` },
-      {
-        model,
-        messages: wire,
-        tools: tools.map((t) => ({
-          type: 'function',
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        })),
-        ...(ollama ? { stream: false } : {}),
-        // Nemotron thinks first unless told not to; the planner waits on every answer.
-        ...(nvidia ? { chat_template_kwargs: { enable_thinking: false } } : {}),
-      },
-    );
-    type WireCall = {
-      id?: string;
-      function?: { name: string; arguments?: string | Record<string, unknown> };
+    const body = (await this.post(apiKey, {
+      model: this.model,
+      messages: wire,
+      tools: tools.map((t) => ({
+        type: 'function',
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      })),
+      // Nemotron thinks first unless told not to; the planner waits on every answer.
+      chat_template_kwargs: { enable_thinking: false },
+    })) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+          tool_calls?: Array<{ id?: string; function?: { name: string; arguments?: string } }>;
+        };
+      }>;
     };
-    const message = ollama
-      ? (body as { message?: { content?: string; tool_calls?: WireCall[] } }).message
-      : (body as { choices?: Array<{ message?: { content?: string; tool_calls?: WireCall[] } }> })
-          .choices?.[0]?.message;
+    const message = body.choices?.[0]?.message;
     return {
       // Reasoning models write their thinking first; only the answer is shown and spoken.
       text: (message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''),
@@ -287,14 +159,10 @@ export class AiService {
   }
 
   /** A JSON POST with a timeout; a non-2xx answer is an error naming only its status. */
-  private async post(
-    url: string,
-    headers: Record<string, string>,
-    payload: unknown,
-  ): Promise<unknown> {
-    const response = await fetch(url, {
+  private async post(apiKey: string, payload: unknown): Promise<unknown> {
+    const response = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -307,7 +175,7 @@ export class AiService {
   }
 }
 
-/** A provider's refusal, with its status and, when it said, the seconds to wait. */
+/** The provider's refusal, with its status and, when it said, the seconds to wait. */
 class ProviderError extends Error {
   constructor(
     readonly status: number,
@@ -318,7 +186,7 @@ class ProviderError extends Error {
   }
 }
 
-/** Seconds a rate-limited provider asks to wait: its Retry-After, or "try again in 21.8s". */
+/** Seconds a rate-limited call asks to wait: its Retry-After, or "try again in 21.8s". */
 function retryAfter(response: Response, detail: string): number | null {
   const header = Number(response.headers.get('retry-after'));
   if (Number.isFinite(header) && header > 0) return Math.ceil(header);
@@ -326,10 +194,9 @@ function retryAfter(response: Response, detail: string): number | null {
   return said ? Math.ceil(Number(said)) : null;
 }
 
-/** Tool arguments arrive as a JSON string (Groq) or an object (Ollama); bad JSON is no args. */
-function parseArgs(raw: string | Record<string, unknown> | undefined): Record<string, unknown> {
+/** Tool arguments arrive as a JSON string; bad JSON is no args. */
+function parseArgs(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
-  if (typeof raw === 'object') return raw;
   try {
     const parsed: unknown = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};

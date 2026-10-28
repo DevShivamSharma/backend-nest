@@ -32,12 +32,6 @@ export class ToolCallDto {
 
   @IsObject()
   args!: Record<string, unknown>;
-
-  /** Gemini's opaque signature of its reasoning, sent back with the call. */
-  @IsOptional()
-  @IsString()
-  @MaxLength(20_000)
-  signature?: string;
 }
 
 /**

@@ -1,23 +1,20 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
-  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
-  IsUUID,
   Length,
   MaxLength,
-  Min,
   ValidateNested,
 } from 'class-validator';
 
-import { EmptyToNull, IsPoints, Trim } from '../../common/validation';
-import { EVENT_TYPES, EventType, RULE_IDS, RuleId } from '../rule-catalogue';
-import { STALL_SIDES, StallSide } from '../rule-engine';
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+const emptyToNull = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && value.trim() === '' ? null : value;
 
 class PassageWidthDto {
   @IsNumber({ allowNaN: false, allowInfinity: false })
@@ -27,7 +24,7 @@ class PassageWidthDto {
   B2C!: number;
 }
 
-/** Every value of a rule set; limits are checked by the service, with their wording. */
+/** Every value of the rule set; limits are checked by the service, with their wording. */
 export class RuleValuesDto {
   @ValidateNested()
   @Type(() => PassageWidthDto)
@@ -67,25 +64,25 @@ export class RuleValuesDto {
 }
 
 export class RuleReferenceDto {
-  @Trim()
+  @Transform(trim)
   @IsString()
   @Length(1, 200)
   document!: string;
 
   @IsOptional()
-  @EmptyToNull()
+  @Transform(emptyToNull)
   @IsString()
   @MaxLength(60)
   section?: string | null;
 
   @IsOptional()
-  @EmptyToNull()
+  @Transform(emptyToNull)
   @IsString()
   @MaxLength(300)
   note?: string | null;
 }
 
-/** Changes to an organisation's rules; whatever is left out stays as it is. */
+/** Changes to the rules; whatever is left out stays as it is. */
 export class UpdateRulesDto {
   /** Rule id -> on or off; checked against the catalogue by the service. */
   @IsOptional()
@@ -110,83 +107,8 @@ export class UpdateRulesDto {
   drawingProfile?: string;
 }
 
-export class StallDto {
-  @IsString()
-  @Length(1, 60)
-  id!: string;
-
-  @IsOptional()
-  @EmptyToNull()
-  @IsString()
-  @MaxLength(40)
-  number?: string | null;
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  x!: number;
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  y!: number;
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  @Min(0)
-  width!: number;
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  @Min(0)
-  depth!: number;
-
-  @IsArray()
-  @ArrayMaxSize(4)
-  @IsIn(STALL_SIDES, { each: true })
-  openSides!: StallSide[];
-
-  /** Cells cut out of the rectangle, [column, row] from its top-left. */
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(10000)
-  @IsPoints('Cut cells are a list of [column, row] cells.')
-  cutCells?: Array<[number, number]>;
-
-  @IsOptional()
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  rotation?: number;
-}
-
-export class RuleOverrideDto {
-  @IsIn(RULE_IDS)
-  ruleId!: RuleId;
-
-  /** Omitted or null: every stall. */
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(2000)
-  @IsString({ each: true })
-  stallIds?: string[] | null;
-
-  @Trim()
-  @IsString()
-  @Length(3, 500)
-  reason!: string;
-}
-
-/** Stalls to check on a hall against the organisation's rules. */
-export class CheckLayoutDto {
-  @IsUUID('4')
-  hallId!: string;
-
-  @IsIn(EVENT_TYPES)
-  eventType!: EventType;
-
-  @IsArray()
-  @ArrayMaxSize(5000)
-  @ValidateNested({ each: true })
-  @Type(() => StallDto)
-  stalls!: StallDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(200)
-  @ValidateNested({ each: true })
-  @Type(() => RuleOverrideDto)
-  overrides?: RuleOverrideDto[];
+/** An event's own switches: rule id -> on or off for this event, or null to follow the default. */
+export class SetEventRulesDto {
+  @IsObject()
+  switches!: Record<string, boolean | null>;
 }

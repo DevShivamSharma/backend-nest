@@ -1,4 +1,4 @@
-import type { PageVectors } from '../../venues/floor-plan/cad/pdf-vectors';
+import type { PageVectors } from '../cad/pdf-vectors';
 
 /**
  * A CAD plan PDF's drawing as an ASCII DXF (R12), for opening in AutoCAD or any CAD program: every
@@ -66,7 +66,7 @@ export function vectorsToDxf(page: PageVectors, pointsPerMetre: number | null): 
   for (const [name, color] of layers) put(0, 'LAYER', 2, name, 70, 0, 62, color, 6, 'CONTINUOUS');
   put(0, 'ENDTAB', 0, 'ENDSEC');
   put(0, 'SECTION', 2, 'ENTITIES');
-  out.push(...entities);
+  for (const line of entities) out.push(line);
   put(0, 'ENDSEC', 0, 'EOF');
   return out.join('\n') + '\n';
 }
